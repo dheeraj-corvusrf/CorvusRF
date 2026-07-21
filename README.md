@@ -27,35 +27,33 @@ LOVABLE_API_KEY=your-key-here
 
 ## Deployment
 
-This app uses server functions (TanStack Start + Nitro), so it needs a real server at
-runtime — it **cannot** be hosted on GitHub Pages, which only serves static files. It's
-deployed to **Cloudflare Workers** instead, which the build is already configured for.
+Hosted on **GitHub Pages** at https://dheeraj-corvusrf.github.io/CorvusRF/.
 
-### One-time setup
+GitHub Pages only serves static files — it can't run server code. This app is built with
+TanStack Start (normally server-rendered), so the Nitro server build is disabled
+(`nitro: false`) and every route is prerendered to static HTML at build time instead
+(`tanstackStart.prerender` in [vite.config.ts](vite.config.ts)).
 
-1. Install the Wrangler CLI (already a dev dependency) and log in:
-   ```sh
-   npx wrangler login
-   ```
-2. Set the AI gateway key as a Worker secret (you'll be prompted to paste the value):
-   ```sh
-   npx wrangler secret put LOVABLE_API_KEY --config .output/server/wrangler.json
-   ```
+**Trade-off:** the two features that call a live AI server function —
+uploading an appraisal notice for AI OCR (`/intake`) and the "Ask AI" chat
+(`/document-review`) — cannot work on this static build, since there's no server to
+receive the request. Both fail with a friendly in-UI message rather than crashing. The
+rest of the site, including the address-based intake flow, works fully since it's
+client-side only.
 
-### Manual deploy
-
-```sh
-npm run deploy
-```
+If you need those AI features working live, deploy to a host that runs a real server
+instead (e.g. Cloudflare Workers, Vercel, Netlify) and set a `LOVABLE_API_KEY` environment
+variable there for `src/lib/document.functions.ts`.
 
 ### Automatic deploy (GitHub Actions)
 
 Pushing to `main` runs [.github/workflows/deploy.yml](.github/workflows/deploy.yml), which
-builds the app and deploys it via `wrangler`. Add these repository secrets under
-**Settings → Secrets and variables → Actions**:
+builds the static site and publishes it via `actions/deploy-pages`. One-time setup in the
+repo: **Settings → Pages → Build and deployment → Source → GitHub Actions**.
 
-- `CLOUDFLARE_API_TOKEN` — a Cloudflare API token with "Edit Cloudflare Workers" permission
-- `CLOUDFLARE_ACCOUNT_ID` — found on the right sidebar of the Cloudflare dashboard
+### Manual build
 
-The `LOVABLE_API_KEY` Worker secret from the one-time setup step persists across deploys
-and does not need to be repeated in GitHub Actions.
+```sh
+npm run build
+# static output in dist/client
+```

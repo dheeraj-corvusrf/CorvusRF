@@ -545,7 +545,8 @@ function AskModal({
               const res = await ask(q.trim());
               setA(res);
             } catch (e2) {
-              setErr(e2 instanceof Error ? e2.message : "AI request failed.");
+              console.error(e2);
+              setErr("AI Q&A isn't available in this demo deployment.");
             } finally {
               setLoading(false);
             }

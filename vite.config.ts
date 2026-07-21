@@ -6,10 +6,20 @@
 // You can pass additional config via defineConfig({ vite: { ... }, etc... }) if needed.
 import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 
+// Served at https://dheeraj-corvusrf.github.io/CorvusRF/ (GitHub Pages project site).
+const base = "/CorvusRF/";
+
 export default defineConfig({
+  vite: { base },
   tanstackStart: {
     // Redirect TanStack Start's bundled server entry to src/server.ts (our SSR error wrapper).
     // nitro/vite builds from this
     server: { entry: "server" },
+    // GitHub Pages only serves static files, so every route is prerendered to HTML at
+    // build time instead of relying on a live SSR server.
+    prerender: { enabled: true, crawlLinks: true },
   },
+  // GitHub Pages can't run server code (Workers/Node); disable the Nitro server build
+  // entirely so `vite build` emits a purely static site.
+  nitro: false,
 });

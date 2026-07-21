@@ -116,7 +116,10 @@ function Intake() {
       });
       nav({ to: "/document-review" });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "AI could not read this document.");
+      console.error(err);
+      setError(
+        "AI document review isn't available in this demo deployment. Please enter the property address above instead.",
+      );
       setStep("address");
     }
   }

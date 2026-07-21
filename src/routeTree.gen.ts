@@ -21,7 +21,6 @@ import { Route as PricingRouteImport } from './routes/pricing'
 import { Route as PropertyProtestRouteImport } from './routes/property-protest'
 import { Route as PropertyTaxManagementRouteImport } from './routes/property-tax-management'
 import { Route as SignInRouteImport } from './routes/sign-in'
-import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
 import { Route as TaxPaymentRouteImport } from './routes/tax-payment'
 
 const IndexRoute = IndexRouteImport.update({
@@ -84,11 +83,6 @@ const SignInRoute = SignInRouteImport.update({
   path: '/sign-in',
   getParentRoute: () => rootRouteImport,
 } as any)
-const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
-  id: '/sitemap.xml',
-  path: '/sitemap.xml',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const TaxPaymentRoute = TaxPaymentRouteImport.update({
   id: '/tax-payment',
   path: '/tax-payment',
@@ -108,7 +102,6 @@ export interface FileRoutesByFullPath {
   '/property-protest': typeof PropertyProtestRoute
   '/property-tax-management': typeof PropertyTaxManagementRoute
   '/sign-in': typeof SignInRoute
-  '/sitemap.xml': typeof SitemapDotxmlRoute
   '/tax-payment': typeof TaxPaymentRoute
 }
 export interface FileRoutesByTo {
@@ -124,7 +117,6 @@ export interface FileRoutesByTo {
   '/property-protest': typeof PropertyProtestRoute
   '/property-tax-management': typeof PropertyTaxManagementRoute
   '/sign-in': typeof SignInRoute
-  '/sitemap.xml': typeof SitemapDotxmlRoute
   '/tax-payment': typeof TaxPaymentRoute
 }
 export interface FileRoutesById {
@@ -141,7 +133,6 @@ export interface FileRoutesById {
   '/property-protest': typeof PropertyProtestRoute
   '/property-tax-management': typeof PropertyTaxManagementRoute
   '/sign-in': typeof SignInRoute
-  '/sitemap.xml': typeof SitemapDotxmlRoute
   '/tax-payment': typeof TaxPaymentRoute
 }
 export interface FileRouteTypes {
@@ -159,7 +150,6 @@ export interface FileRouteTypes {
     | '/property-protest'
     | '/property-tax-management'
     | '/sign-in'
-    | '/sitemap.xml'
     | '/tax-payment'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -175,7 +165,6 @@ export interface FileRouteTypes {
     | '/property-protest'
     | '/property-tax-management'
     | '/sign-in'
-    | '/sitemap.xml'
     | '/tax-payment'
   id:
     | '__root__'
@@ -191,7 +180,6 @@ export interface FileRouteTypes {
     | '/property-protest'
     | '/property-tax-management'
     | '/sign-in'
-    | '/sitemap.xml'
     | '/tax-payment'
   fileRoutesById: FileRoutesById
 }
@@ -208,7 +196,6 @@ export interface RootRouteChildren {
   PropertyProtestRoute: typeof PropertyProtestRoute
   PropertyTaxManagementRoute: typeof PropertyTaxManagementRoute
   SignInRoute: typeof SignInRoute
-  SitemapDotxmlRoute: typeof SitemapDotxmlRoute
   TaxPaymentRoute: typeof TaxPaymentRoute
 }
 
@@ -298,13 +285,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SignInRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/sitemap.xml': {
-      id: '/sitemap.xml'
-      path: '/sitemap.xml'
-      fullPath: '/sitemap.xml'
-      preLoaderRoute: typeof SitemapDotxmlRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/tax-payment': {
       id: '/tax-payment'
       path: '/tax-payment'
@@ -328,7 +308,6 @@ const rootRouteChildren: RootRouteChildren = {
   PropertyProtestRoute: PropertyProtestRoute,
   PropertyTaxManagementRoute: PropertyTaxManagementRoute,
   SignInRoute: SignInRoute,
-  SitemapDotxmlRoute: SitemapDotxmlRoute,
   TaxPaymentRoute: TaxPaymentRoute,
 }
 export const routeTree = rootRouteImport
