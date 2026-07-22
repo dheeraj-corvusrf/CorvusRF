@@ -2,6 +2,7 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useAuth } from "@/lib/auth";
 import { supabase } from "@/lib/supabase";
+import { checkIsAdmin } from "@/lib/admin";
 
 const NAV = [
   { to: "/", label: "Home" },
@@ -21,6 +22,15 @@ export function SiteNav() {
   const profileRef = useRef<HTMLDivElement>(null);
   const { user } = useAuth();
   const signedIn = !!user;
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  useEffect(() => {
+    if (!user) {
+      setIsAdmin(false);
+      return;
+    }
+    checkIsAdmin(user.id).then(setIsAdmin);
+  }, [user]);
 
   useEffect(() => {
     if (!profileOpen) return;
@@ -83,6 +93,15 @@ export function SiteNav() {
                   >
                     Subscription
                   </Link>
+                  {isAdmin && (
+                    <Link
+                      to="/admin"
+                      onClick={() => setProfileOpen(false)}
+                      className="block rounded-md px-3 py-2 hover:bg-secondary"
+                    >
+                      Admin
+                    </Link>
+                  )}
                   <button
                     onClick={async () => {
                       await supabase.auth.signOut();
