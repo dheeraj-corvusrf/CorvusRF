@@ -54,3 +54,39 @@ drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
   after insert on auth.users
   for each row execute function public.handle_new_user();
+
+-- Commercial properties a user has confirmed via the intake flow. One row per
+-- property; users can have any number of them, added/deleted from the dashboard.
+create table if not exists public.properties (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users (id) on delete cascade,
+  address text not null,
+  cad text,
+  account_number text,
+  owner_name text,
+  property_type text,
+  land_value numeric,
+  improvement_value numeric,
+  total_value numeric,
+  tax_year integer,
+  created_at timestamptz not null default now()
+);
+
+alter table public.properties enable row level security;
+
+-- Users may only see, add, and remove their own properties — no update policy since
+-- properties are re-derived from a fresh CAD lookup rather than hand-edited.
+drop policy if exists "Users can view their own properties" on public.properties;
+create policy "Users can view their own properties"
+  on public.properties for select
+  using (auth.uid() = user_id);
+
+drop policy if exists "Users can insert their own properties" on public.properties;
+create policy "Users can insert their own properties"
+  on public.properties for insert
+  with check (auth.uid() = user_id);
+
+drop policy if exists "Users can delete their own properties" on public.properties;
+create policy "Users can delete their own properties"
+  on public.properties for delete
+  using (auth.uid() = user_id);
