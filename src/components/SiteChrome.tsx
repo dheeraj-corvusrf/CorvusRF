@@ -1,5 +1,7 @@
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useState, type ReactNode } from "react";
+import { useAuth } from "@/lib/auth";
+import { supabase } from "@/lib/supabase";
 
 const NAV = [
   { to: "/", label: "Home" },
@@ -13,11 +15,11 @@ const NAV = [
 ] as const;
 
 export function SiteNav() {
+  const nav = useNavigate();
   const [open, setOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
-  // Simple guest/signed-in stub via sessionStorage flag
-  const signedIn =
-    typeof window !== "undefined" && window.sessionStorage.getItem("crf_signed_in") === "1";
+  const { user } = useAuth();
+  const signedIn = !!user;
 
   return (
     <header className="sticky top-0 z-40 border-b border-border/70 bg-background/85 backdrop-blur">
@@ -51,7 +53,7 @@ export function SiteNav() {
                 className="flex h-9 w-9 items-center justify-center rounded-full bg-primary text-primary-foreground text-sm font-semibold"
                 aria-label="Profile menu"
               >
-                U
+                {(user?.email?.[0] ?? "U").toUpperCase()}
               </button>
               {profileOpen && (
                 <div className="absolute right-0 mt-2 w-52 card-elev p-1 text-sm">
@@ -62,9 +64,10 @@ export function SiteNav() {
                     Subscription
                   </Link>
                   <button
-                    onClick={() => {
-                      sessionStorage.removeItem("crf_signed_in");
-                      location.href = "/";
+                    onClick={async () => {
+                      await supabase.auth.signOut();
+                      setProfileOpen(false);
+                      nav({ to: "/" });
                     }}
                     className="block w-full rounded-md px-3 py-2 text-left hover:bg-secondary"
                   >

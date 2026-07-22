@@ -1,6 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { readIntake, currency, type IntakeState } from "@/lib/intake-store";
+import { useAuth } from "@/lib/auth";
 
 export const Route = createFileRoute("/dashboard")({
   head: () => ({
@@ -16,20 +17,23 @@ export const Route = createFileRoute("/dashboard")({
 
 function Dashboard() {
   const nav = useNavigate();
+  const { user, loading } = useAuth();
   const [state, setState] = useState<IntakeState>({ previewsUsed: [] });
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    if (sessionStorage.getItem("crf_signed_in") !== "1") {
+    if (loading) return;
+    if (!user) {
       nav({ to: "/sign-in" });
       return;
     }
     setState(readIntake());
-  }, [nav]);
+  }, [loading, user, nav]);
 
   const hasProperty = !!state.confirmed;
   const tabs = ["My Commercial Properties", "AI Reports", "Active Protests", "Documents", "Notifications"] as const;
   const [tab, setTab] = useState<(typeof tabs)[number]>(tabs[0]);
+
+  if (loading || !user) return null;
 
   return (
     <div className="container-page py-10">
