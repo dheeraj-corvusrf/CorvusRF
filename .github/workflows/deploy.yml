@@ -34,6 +34,8 @@ jobs:
           # Security policies in supabase/schema.sql, not from keeping this secret.
           VITE_SUPABASE_URL: https://iotzuhuajbsxxuccuihn.supabase.co
           VITE_SUPABASE_ANON_KEY: sb_publishable_RpyqtM6EeGiT7qc3FyN5Iw_vm0aiuM3
+          # Web3Forms access keys are meant to be public/client-side by design.
+          VITE_WEB3FORMS_ACCESS_KEY: 5a66f800-1264-49a2-9696-2839afd02485
 
       - uses: actions/upload-pages-artifact@v3
         with:
