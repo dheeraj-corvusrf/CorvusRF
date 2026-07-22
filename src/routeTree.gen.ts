@@ -10,6 +10,8 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AdminRouteImport } from './routes/admin'
+import { Route as AdminLoginRouteImport } from './routes/admin-login'
 import { Route as AiReportRouteImport } from './routes/ai-report'
 import { Route as BppRenditionRouteImport } from './routes/bpp-rendition'
 import { Route as ContactRouteImport } from './routes/contact'
@@ -26,6 +28,16 @@ import { Route as TaxPaymentRouteImport } from './routes/tax-payment'
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminRoute = AdminRouteImport.update({
+  id: '/admin',
+  path: '/admin',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminLoginRoute = AdminLoginRouteImport.update({
+  id: '/admin-login',
+  path: '/admin-login',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AiReportRoute = AiReportRouteImport.update({
@@ -91,6 +103,8 @@ const TaxPaymentRoute = TaxPaymentRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/admin': typeof AdminRoute
+  '/admin-login': typeof AdminLoginRoute
   '/ai-report': typeof AiReportRoute
   '/bpp-rendition': typeof BppRenditionRoute
   '/contact': typeof ContactRoute
@@ -106,6 +120,8 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/admin': typeof AdminRoute
+  '/admin-login': typeof AdminLoginRoute
   '/ai-report': typeof AiReportRoute
   '/bpp-rendition': typeof BppRenditionRoute
   '/contact': typeof ContactRoute
@@ -122,6 +138,8 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/admin': typeof AdminRoute
+  '/admin-login': typeof AdminLoginRoute
   '/ai-report': typeof AiReportRoute
   '/bpp-rendition': typeof BppRenditionRoute
   '/contact': typeof ContactRoute
@@ -139,6 +157,8 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/admin'
+    | '/admin-login'
     | '/ai-report'
     | '/bpp-rendition'
     | '/contact'
@@ -154,6 +174,8 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/admin'
+    | '/admin-login'
     | '/ai-report'
     | '/bpp-rendition'
     | '/contact'
@@ -169,6 +191,8 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/admin'
+    | '/admin-login'
     | '/ai-report'
     | '/bpp-rendition'
     | '/contact'
@@ -185,6 +209,8 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AdminRoute: typeof AdminRoute
+  AdminLoginRoute: typeof AdminLoginRoute
   AiReportRoute: typeof AiReportRoute
   BppRenditionRoute: typeof BppRenditionRoute
   ContactRoute: typeof ContactRoute
@@ -206,6 +232,20 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin': {
+      id: '/admin'
+      path: '/admin'
+      fullPath: '/admin'
+      preLoaderRoute: typeof AdminRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin-login': {
+      id: '/admin-login'
+      path: '/admin-login'
+      fullPath: '/admin-login'
+      preLoaderRoute: typeof AdminLoginRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/ai-report': {
@@ -297,6 +337,8 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AdminRoute: AdminRoute,
+  AdminLoginRoute: AdminLoginRoute,
   AiReportRoute: AiReportRoute,
   BppRenditionRoute: BppRenditionRoute,
   ContactRoute: ContactRoute,

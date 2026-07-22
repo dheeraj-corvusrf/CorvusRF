@@ -33,7 +33,7 @@ function Dashboard() {
       nav({ to: "/sign-in" });
       return;
     }
-    listProperties()
+    listProperties(user.id)
       .then(setProperties)
       .catch((err) =>
         setListError(err instanceof Error ? err.message : "Could not load your properties."),
