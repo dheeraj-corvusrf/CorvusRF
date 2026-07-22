@@ -17,6 +17,9 @@ export const Route = createFileRoute("/sign-in")({
 function SignIn() {
   const nav = useNavigate();
   const [mode, setMode] = useState<"signin" | "signup">("signin");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -30,12 +33,23 @@ function SignIn() {
     setCheckEmail(false);
     setPassword("");
     setConfirmPassword("");
+    setFirstName("");
+    setLastName("");
+    setPhone("");
   }
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
 
+    if (mode === "signup" && (!firstName.trim() || !lastName.trim())) {
+      setError("Please enter your first and last name.");
+      return;
+    }
+    if (mode === "signup" && !/^[0-9+()\- ]{7,20}$/.test(phone.trim())) {
+      setError("Please enter a valid phone number.");
+      return;
+    }
     if (mode === "signup" && password !== confirmPassword) {
       setError("Passwords don't match.");
       return;
@@ -52,7 +66,17 @@ function SignIn() {
     setLoading(true);
     try {
       if (mode === "signup") {
-        const { data, error: signUpError } = await supabase.auth.signUp({ email, password });
+        const { data, error: signUpError } = await supabase.auth.signUp({
+          email,
+          password,
+          options: {
+            data: {
+              first_name: firstName.trim(),
+              last_name: lastName.trim(),
+              phone: phone.trim(),
+            },
+          },
+        });
         if (signUpError) throw signUpError;
         if (!data.session) {
           // Email confirmation is required before a session is issued.
@@ -100,6 +124,45 @@ function SignIn() {
           : "Save your property, analysis, documents, and preview history."}
       </p>
       <form onSubmit={onSubmit} className="mt-8 card-elev p-6 grid gap-4">
+        {mode === "signup" && (
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="grid gap-1 text-sm min-w-0">
+              <span className="font-medium">First Name</span>
+              <input
+                required
+                type="text"
+                autoComplete="given-name"
+                value={firstName}
+                onChange={(e) => setFirstName(e.target.value)}
+                className="w-full min-w-0 rounded-md border border-input bg-background px-3 py-2"
+              />
+            </label>
+            <label className="grid gap-1 text-sm min-w-0">
+              <span className="font-medium">Last Name</span>
+              <input
+                required
+                type="text"
+                autoComplete="family-name"
+                value={lastName}
+                onChange={(e) => setLastName(e.target.value)}
+                className="w-full min-w-0 rounded-md border border-input bg-background px-3 py-2"
+              />
+            </label>
+          </div>
+        )}
+        {mode === "signup" && (
+          <label className="grid gap-1 text-sm">
+            <span className="font-medium">Phone Number</span>
+            <input
+              required
+              type="tel"
+              autoComplete="tel"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              className="rounded-md border border-input bg-background px-3 py-2"
+            />
+          </label>
+        )}
         <label className="grid gap-1 text-sm">
           <span className="font-medium">Email</span>
           <input

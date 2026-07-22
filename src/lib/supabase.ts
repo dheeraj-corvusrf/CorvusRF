@@ -1,7 +1,17 @@
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 const url = import.meta.env.VITE_SUPABASE_URL;
 const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+// SSR + route code-splitting can cause this module to be evaluated more than once in
+// the same browser context, which would otherwise construct a second GoTrueClient that
+// doesn't share in-memory auth state with the first (both write the same localStorage
+// key, but only one instance's listeners fire) — sign-in would then "succeed" but the
+// rest of the app wouldn't notice until a full reload. Cache the instance on globalThis
+// so every re-evaluation of this module reuses the same client.
+declare global {
+  var __corvusrfSupabase__: SupabaseClient | undefined;
+}
 
 export const isSupabaseConfigured = Boolean(url && anonKey);
 
@@ -20,7 +30,9 @@ if (!isSupabaseConfigured) {
 // route at build time, so an unconfigured env would crash the entire build rather than
 // just failing auth calls at runtime. Fall back to a syntactically valid placeholder so
 // the app builds and runs; unconfigured auth calls will simply fail over the network.
-export const supabase = createClient(
-  url || "https://placeholder.supabase.co",
-  anonKey || "placeholder-anon-key",
-);
+export const supabase =
+  globalThis.__corvusrfSupabase__ ??
+  (globalThis.__corvusrfSupabase__ = createClient(
+    url || "https://placeholder.supabase.co",
+    anonKey || "placeholder-anon-key",
+  ));
