@@ -29,8 +29,11 @@ jobs:
 
       - run: npm run build
         env:
-          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
-          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          # Supabase's anon/publishable key is meant to be public (it ends up in the
+          # client bundle regardless) — real access control comes from the Row Level
+          # Security policies in supabase/schema.sql, not from keeping this secret.
+          VITE_SUPABASE_URL: https://iotzuhuajbsxxuccuihn.supabase.co
+          VITE_SUPABASE_ANON_KEY: sb_publishable_RpyqtM6EeGiT7qc3FyN5Iw_vm0aiuM3
 
       - uses: actions/upload-pages-artifact@v3
         with:
