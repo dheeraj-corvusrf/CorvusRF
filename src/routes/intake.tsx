@@ -13,12 +13,17 @@ import {
 } from "@/lib/intake-store";
 import { classifyDocument } from "@/lib/document.functions";
 import { AddressAutocomplete } from "@/components/AddressAutocomplete";
+import { useAuth } from "@/lib/auth";
+import { addProperty } from "@/lib/properties";
 
 export const Route = createFileRoute("/intake")({
   head: () => ({
     meta: [
       { title: "Property Intake — CorvusRF.ai" },
-      { name: "description", content: "Validate your Texas commercial property and start your free AI review." },
+      {
+        name: "description",
+        content: "Validate your Texas commercial property and start your free AI review.",
+      },
       { property: "og:title", content: "Property Intake" },
       { property: "og:description", content: "Address, notice, and CAD validation." },
     ],
@@ -30,12 +35,15 @@ type Step = "address" | "validating" | "notice" | "confirm" | "notfound" | "clas
 
 function Intake() {
   const nav = useNavigate();
+  const { user } = useAuth();
   const classifyFn = useServerFn(classifyDocument);
   const [state, setState] = useState<IntakeState>({ previewsUsed: [] });
   const [step, setStep] = useState<Step>("address");
   const [error, setError] = useState<string | null>(null);
   const [address, setAddress] = useState("");
   const [noticeName, setNoticeName] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   useEffect(() => {
     const s = readIntake();
@@ -164,16 +172,22 @@ function Intake() {
 
           <div className="mt-6 rounded-lg border border-dashed border-border p-5 text-center">
             <p className="text-sm font-medium">Have your appraisal notice?</p>
-            <p className="text-xs text-muted-foreground">PDF / PNG / JPG, up to 15 MB, up to 5 pages.</p>
+            <p className="text-xs text-muted-foreground">
+              PDF / PNG / JPG, up to 15 MB, up to 5 pages.
+            </p>
             <label className="mt-3 btn-outline cursor-pointer inline-flex">
               <input type="file" className="hidden" accept=".pdf,image/*" onChange={onFile} />
               Upload Appraisal Notice
             </label>
             <p className="mt-2 text-xs text-muted-foreground">
-              <Link to="/how-it-works" className="underline">View sample appraisal notice</Link>
+              <Link to="/how-it-works" className="underline">
+                View sample appraisal notice
+              </Link>
             </p>
             {error && <p className="mt-3 text-sm text-destructive">{error}</p>}
-            {noticeName && <p className="mt-2 text-xs text-muted-foreground">Selected: {noticeName}</p>}
+            {noticeName && (
+              <p className="mt-2 text-xs text-muted-foreground">Selected: {noticeName}</p>
+            )}
           </div>
         </section>
       )}
@@ -205,11 +219,19 @@ function Intake() {
 
       {step === "notfound" && (
         <section className="mt-8 card-elev p-6">
-          <h2 className="font-serif text-xl font-semibold">We couldn't locate this commercial property.</h2>
-          <p className="mt-1 text-muted-foreground">Please enter a valid commercial property address.</p>
+          <h2 className="font-serif text-xl font-semibold">
+            We couldn't locate this commercial property.
+          </h2>
+          <p className="mt-1 text-muted-foreground">
+            Please enter a valid commercial property address.
+          </p>
           <div className="mt-4 flex gap-2">
-            <button onClick={() => setStep("address")} className="btn-outline">Edit Address</button>
-            <button onClick={() => setStep("address")} className="btn-primary btn-primary-hover">Search Again</button>
+            <button onClick={() => setStep("address")} className="btn-outline">
+              Edit Address
+            </button>
+            <button onClick={() => setStep("address")} className="btn-primary btn-primary-hover">
+              Search Again
+            </button>
           </div>
         </section>
       )}
@@ -232,17 +254,47 @@ function Intake() {
             <Field label="Improvement Value" value={currency(state.improvementValue)} />
             <Field label="Total Appraised Value" value={currency(state.totalValue)} bold />
           </dl>
+          {saveError && <p className="mt-4 text-sm text-destructive">{saveError}</p>}
           <div className="mt-6 flex flex-wrap gap-2">
             <button
-              onClick={() => {
+              disabled={saving}
+              onClick={async () => {
+                setSaveError(null);
+                if (user) {
+                  setSaving(true);
+                  try {
+                    await addProperty(user.id, {
+                      address: state.address!,
+                      cad: state.cad,
+                      accountNumber: state.accountNumber,
+                      ownerName: state.ownerName,
+                      propertyType: state.propertyType,
+                      landValue: state.landValue,
+                      improvementValue: state.improvementValue,
+                      totalValue: state.totalValue,
+                      taxYear: state.taxYear,
+                    });
+                  } catch (err) {
+                    setSaving(false);
+                    setSaveError(
+                      err instanceof Error
+                        ? err.message
+                        : "Could not save this property. Please try again.",
+                    );
+                    return;
+                  }
+                  setSaving(false);
+                }
                 updateIntake({ confirmed: true });
                 nav({ to: "/ai-report" });
               }}
-              className="btn-primary btn-primary-hover"
+              className="btn-primary btn-primary-hover disabled:opacity-60"
             >
-              Confirm Property
+              {saving ? "Saving…" : "Confirm Property"}
             </button>
-            <button onClick={() => setStep("address")} className="btn-outline">Edit Address</button>
+            <button onClick={() => setStep("address")} className="btn-outline">
+              Edit Address
+            </button>
             <label className="btn-outline cursor-pointer">
               <input type="file" className="hidden" accept=".pdf,image/*" onChange={onFile} />
               Upload Another Notice
@@ -282,13 +334,25 @@ function Stepper({ step }: { step: Step }) {
   );
 }
 
-function ProgressLine({ label, done, active }: { label: string; done?: boolean; active?: boolean }) {
+function ProgressLine({
+  label,
+  done,
+  active,
+}: {
+  label: string;
+  done?: boolean;
+  active?: boolean;
+}) {
   return (
     <li className="flex items-center gap-2">
       {done ? (
-        <span className="h-4 w-4 rounded-full bg-success text-success-foreground grid place-items-center text-[10px]">✓</span>
+        <span className="h-4 w-4 rounded-full bg-success text-success-foreground grid place-items-center text-[10px]">
+          ✓
+        </span>
       ) : (
-        <span className={`h-4 w-4 rounded-full border-2 ${active ? "border-accent border-t-transparent animate-spin" : "border-border"}`} />
+        <span
+          className={`h-4 w-4 rounded-full border-2 ${active ? "border-accent border-t-transparent animate-spin" : "border-border"}`}
+        />
       )}
       <span className={done ? "text-muted-foreground line-through" : ""}>{label}</span>
     </li>

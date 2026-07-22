@@ -1,5 +1,8 @@
-import { Link } from "@tanstack/react-router";
-import { useState, type ReactNode } from "react";
+import { Link, useNavigate } from "@tanstack/react-router";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useAuth } from "@/lib/auth";
+import { supabase } from "@/lib/supabase";
+import { checkIsAdmin } from "@/lib/admin";
 
 const NAV = [
   { to: "/", label: "Home" },
@@ -13,11 +16,32 @@ const NAV = [
 ] as const;
 
 export function SiteNav() {
+  const nav = useNavigate();
   const [open, setOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
-  // Simple guest/signed-in stub via sessionStorage flag
-  const signedIn =
-    typeof window !== "undefined" && window.sessionStorage.getItem("crf_signed_in") === "1";
+  const profileRef = useRef<HTMLDivElement>(null);
+  const { user } = useAuth();
+  const signedIn = !!user;
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  useEffect(() => {
+    if (!user) {
+      setIsAdmin(false);
+      return;
+    }
+    checkIsAdmin(user.id).then(setIsAdmin);
+  }, [user]);
+
+  useEffect(() => {
+    if (!profileOpen) return;
+    function onClickOutside(e: MouseEvent) {
+      if (profileRef.current && !profileRef.current.contains(e.target as Node)) {
+        setProfileOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", onClickOutside);
+    return () => document.removeEventListener("mousedown", onClickOutside);
+  }, [profileOpen]);
 
   return (
     <header className="sticky top-0 z-40 border-b border-border/70 bg-background/85 backdrop-blur">
@@ -45,26 +69,44 @@ export function SiteNav() {
 
         <div className="flex items-center gap-2">
           {signedIn ? (
-            <div className="relative">
+            <div className="relative" ref={profileRef}>
               <button
                 onClick={() => setProfileOpen((v) => !v)}
                 className="flex h-9 w-9 items-center justify-center rounded-full bg-primary text-primary-foreground text-sm font-semibold"
                 aria-label="Profile menu"
               >
-                U
+                {(user?.email?.[0] ?? "U").toUpperCase()}
               </button>
               {profileOpen && (
                 <div className="absolute right-0 mt-2 w-52 card-elev p-1 text-sm">
-                  <Link to="/dashboard" className="block rounded-md px-3 py-2 hover:bg-secondary">
+                  <Link
+                    to="/dashboard"
+                    onClick={() => setProfileOpen(false)}
+                    className="block rounded-md px-3 py-2 hover:bg-secondary"
+                  >
                     Dashboard
                   </Link>
-                  <Link to="/pricing" className="block rounded-md px-3 py-2 hover:bg-secondary">
+                  <Link
+                    to="/pricing"
+                    onClick={() => setProfileOpen(false)}
+                    className="block rounded-md px-3 py-2 hover:bg-secondary"
+                  >
                     Subscription
                   </Link>
+                  {isAdmin && (
+                    <Link
+                      to="/admin"
+                      onClick={() => setProfileOpen(false)}
+                      className="block rounded-md px-3 py-2 hover:bg-secondary"
+                    >
+                      Admin
+                    </Link>
+                  )}
                   <button
-                    onClick={() => {
-                      sessionStorage.removeItem("crf_signed_in");
-                      location.href = "/";
+                    onClick={async () => {
+                      await supabase.auth.signOut();
+                      setProfileOpen(false);
+                      nav({ to: "/" });
                     }}
                     className="block w-full rounded-md px-3 py-2 text-left hover:bg-secondary"
                   >
@@ -95,7 +137,7 @@ export function SiteNav() {
                 key={item.to}
                 to={item.to}
                 onClick={() => setOpen(false)}
-                className="rounded-md px-3 py-2 text-sm font-medium hover:bg-secondary"
+                className="rounded-md px-3 py-3 text-sm font-medium hover:bg-secondary"
               >
                 {item.label}
               </Link>
