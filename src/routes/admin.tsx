@@ -13,6 +13,7 @@ import {
 } from "@/lib/admin";
 import { listProperties, addProperty, deleteProperty, type PropertyRecord } from "@/lib/properties";
 import { currency } from "@/lib/intake-store";
+import { AddressAutocomplete } from "@/components/AddressAutocomplete";
 
 export const Route = createFileRoute("/admin")({
   head: () => ({
@@ -316,11 +317,11 @@ function UserProperties({ userId }: { userId: string }) {
     <div className="mt-4 border-t border-border pt-4">
       {propsError && <p className="mb-2 text-sm text-destructive">{propsError}</p>}
       <form onSubmit={handleAdd} className="flex gap-2 mb-3">
-        <input
+        <AddressAutocomplete
           value={newAddress}
-          onChange={(e) => setNewAddress(e.target.value)}
+          onChange={setNewAddress}
           placeholder="Add a property address"
-          className="flex-1 min-w-0 rounded-md border border-input bg-background px-3 py-2 text-sm"
+          className="rounded-md border border-input bg-background px-3 py-2 text-sm"
         />
         <button disabled={adding} className="btn-outline text-sm disabled:opacity-60">
           {adding ? "Adding…" : "Add"}
