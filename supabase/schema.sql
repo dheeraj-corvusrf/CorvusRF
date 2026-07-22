@@ -90,3 +90,58 @@ drop policy if exists "Users can delete their own properties" on public.properti
 create policy "Users can delete their own properties"
   on public.properties for delete
   using (auth.uid() = user_id);
+
+-- Admin panel support: a manual is_admin flag and a manual plan field (no real
+-- billing — matches the 3 tiers in src/routes/pricing.tsx).
+alter table public.profiles add column if not exists is_admin boolean not null default false;
+alter table public.profiles add column if not exists plan text not null default 'free_ai_review';
+
+alter table public.profiles drop constraint if exists profiles_plan_check;
+alter table public.profiles add constraint profiles_plan_check
+  check (plan in ('free_ai_review', 'ai_report', 'managed_protest'));
+
+-- security definer bypasses RLS internally, so it can safely be referenced from RLS
+-- policies on public.profiles itself without recursively re-evaluating those policies
+-- (same convention as handle_new_user() above).
+create or replace function public.is_admin()
+returns boolean
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  select coalesce((select is_admin from public.profiles where id = auth.uid()), false);
+$$;
+
+-- Additive: Postgres OR's multiple permissive policies together, so these grant
+-- admins access in addition to the existing owner-only policies above, not instead.
+drop policy if exists "Admins can view all profiles" on public.profiles;
+create policy "Admins can view all profiles"
+  on public.profiles for select
+  using (public.is_admin());
+
+drop policy if exists "Admins can update all profiles" on public.profiles;
+create policy "Admins can update all profiles"
+  on public.profiles for update
+  using (public.is_admin());
+
+drop policy if exists "Admins can view all properties" on public.properties;
+create policy "Admins can view all properties"
+  on public.properties for select
+  using (public.is_admin());
+
+drop policy if exists "Admins can insert properties for any user" on public.properties;
+create policy "Admins can insert properties for any user"
+  on public.properties for insert
+  with check (public.is_admin());
+
+drop policy if exists "Admins can delete any property" on public.properties;
+create policy "Admins can delete any property"
+  on public.properties for delete
+  using (public.is_admin());
+
+-- ── ONE-TIME MANUAL STEP — do NOT run this as part of the routine schema paste ──
+-- After you have an account (sign up normally through the app first), run this once,
+-- by itself, substituting your real email, to make that account an admin:
+--
+-- update public.profiles set is_admin = true where email = 'you@example.com';

@@ -44,12 +44,13 @@ function fromRow(row: PropertyRow): PropertyRecord {
   };
 }
 
-export async function listProperties(): Promise<PropertyRecord[]> {
+export async function listProperties(userId: string): Promise<PropertyRecord[]> {
   const { data, error } = await supabase
     .from("properties")
     .select(
       "id, address, cad, account_number, owner_name, property_type, land_value, improvement_value, total_value, tax_year, created_at",
     )
+    .eq("user_id", userId)
     .order("created_at", { ascending: false });
   if (error) throw error;
   return (data as PropertyRow[]).map(fromRow);
