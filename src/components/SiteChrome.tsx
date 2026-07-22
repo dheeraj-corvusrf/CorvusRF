@@ -98,7 +98,7 @@ export function SiteNav() {
                 key={item.to}
                 to={item.to}
                 onClick={() => setOpen(false)}
-                className="rounded-md px-3 py-2 text-sm font-medium hover:bg-secondary"
+                className="rounded-md px-3 py-3 text-sm font-medium hover:bg-secondary"
               >
                 {item.label}
               </Link>
