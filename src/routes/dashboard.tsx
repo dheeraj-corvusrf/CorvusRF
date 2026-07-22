@@ -1,8 +1,10 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import { currency, resetIntake } from "@/lib/intake-store";
 import { useAuth } from "@/lib/auth";
 import { listProperties, deleteProperty, type PropertyRecord } from "@/lib/properties";
+import { Skeleton } from "@/components/ui/skeleton";
 
 export const Route = createFileRoute("/dashboard")({
   head: () => ({
@@ -47,21 +49,16 @@ function Dashboard() {
     try {
       await deleteProperty(id);
       setProperties((prev) => prev.filter((p) => p.id !== id));
+      toast.success("Property removed.");
     } catch (err) {
-      setListError(err instanceof Error ? err.message : "Could not remove this property.");
+      toast.error(err instanceof Error ? err.message : "Could not remove this property.");
     } finally {
       setDeletingId(null);
     }
   }
 
   const hasProperty = properties.length > 0;
-  const tabs = [
-    "My Commercial Properties",
-    "AI Reports",
-    "Active Protests",
-    "Documents",
-    "Notifications",
-  ] as const;
+  const tabs = ["My Commercial Properties", "AI Reports"] as const;
   const [tab, setTab] = useState<(typeof tabs)[number]>(tabs[0]);
 
   if (loading || !user) return null;
@@ -102,8 +99,9 @@ function Dashboard() {
           <>
             {listError && <p className="mb-4 text-sm text-destructive">{listError}</p>}
             {propertiesLoading ? (
-              <div className="card-elev p-8 text-center text-muted-foreground">
-                Loading your properties…
+              <div className="grid gap-4">
+                <PropertyCardSkeleton />
+                <PropertyCardSkeleton />
               </div>
             ) : hasProperty ? (
               <div className="grid gap-4">
@@ -159,15 +157,6 @@ function Dashboard() {
           ) : (
             <EmptyState />
           ))}
-        {tab === "Active Protests" && (
-          <PlaceholderPanel label="No active protests yet. Start with an AI review." />
-        )}
-        {tab === "Documents" && (
-          <PlaceholderPanel label="Documents you upload will appear here — notices, evidence, and filings." />
-        )}
-        {tab === "Notifications" && (
-          <PlaceholderPanel label="You're all caught up. We'll notify you about deadlines and status changes." />
-        )}
       </div>
     </div>
   );
@@ -191,6 +180,24 @@ function EmptyState() {
   );
 }
 
-function PlaceholderPanel({ label }: { label: string }) {
-  return <div className="card-elev p-8 text-center text-muted-foreground">{label}</div>;
+function PropertyCardSkeleton() {
+  return (
+    <div className="card-elev p-6">
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div className="grid gap-2">
+          <Skeleton className="h-3 w-32" />
+          <Skeleton className="h-6 w-64" />
+          <Skeleton className="h-4 w-56" />
+        </div>
+        <div className="grid gap-2 justify-items-end">
+          <Skeleton className="h-3 w-24" />
+          <Skeleton className="h-7 w-32" />
+        </div>
+      </div>
+      <div className="mt-4 flex gap-2">
+        <Skeleton className="h-9 w-20" />
+        <Skeleton className="h-9 w-20" />
+      </div>
+    </div>
+  );
 }

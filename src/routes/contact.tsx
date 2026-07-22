@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
+import { toast } from "sonner";
 
 export const Route = createFileRoute("/contact")({
   head: () => ({
@@ -53,10 +54,12 @@ function Contact() {
       const data = await res.json();
       if (!data.success) throw new Error(data.message || "Could not send your message.");
       setSent(true);
+      toast.success("Message sent.");
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Could not send your message. Please try again.",
-      );
+      const message =
+        err instanceof Error ? err.message : "Could not send your message. Please try again.";
+      setError(message);
+      toast.error(message);
     } finally {
       setSending(false);
     }

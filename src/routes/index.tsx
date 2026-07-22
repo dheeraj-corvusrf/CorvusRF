@@ -45,10 +45,10 @@ function Home() {
           height={1000}
           className="h-full w-full object-cover"
         />
-        <div className="absolute inset-0 bg-gradient-to-b from-primary/85 via-primary/75 to-primary/95" />
+        <div className="absolute inset-0 bg-gradient-to-b from-hero-overlay/85 via-hero-overlay/75 to-hero-overlay/95" />
       </div>
 
-      <div className="container-page py-20 md:py-28 text-primary-foreground">
+      <div className="container-page py-20 md:py-28 text-hero-foreground">
         <div className="max-w-3xl">
           <span className="badge-soft">
             <span className="h-1.5 w-1.5 rounded-full bg-accent" /> Texas • All 254 counties
@@ -57,7 +57,7 @@ function Home() {
             Texas property tax help,{" "}
             <span className="text-accent">powered by AI.</span>
           </h1>
-          <p className="mt-5 max-w-2xl text-lg text-primary-foreground/85">
+          <p className="mt-5 max-w-2xl text-lg text-hero-foreground/85">
             Upload your notice or enter your property. AI checks your county value, BPP filing
             needs, protest deadline, possible overvaluation, evidence gaps, and savings
             opportunity — before you even sign in.
@@ -80,10 +80,10 @@ function Home() {
           </form>
 
           <div className="mt-6 flex flex-wrap gap-3">
-            <Link to="/intake" className="btn-outline bg-background/10 border-white/30 text-primary-foreground hover:bg-background/20">
+            <Link to="/intake" className="btn-outline bg-hero-foreground/10 border-white/30 text-hero-foreground hover:bg-hero-foreground/20">
               Upload Appraisal Notice
             </Link>
-            <Link to="/intake" className="btn-outline bg-background/10 border-white/30 text-primary-foreground hover:bg-background/20">
+            <Link to="/intake" className="btn-outline bg-hero-foreground/10 border-white/30 text-hero-foreground hover:bg-hero-foreground/20">
               Check My Property Taxes
             </Link>
           </div>
@@ -94,7 +94,7 @@ function Home() {
               "Finds evidence humans usually miss",
               "Tracks deadlines, filings & savings",
             ].map((t) => (
-              <li key={t} className="flex items-start gap-2 text-sm text-primary-foreground/90">
+              <li key={t} className="flex items-start gap-2 text-sm text-hero-foreground/90">
                 <CheckIcon /> {t}
               </li>
             ))}

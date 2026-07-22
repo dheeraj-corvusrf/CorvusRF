@@ -1,6 +1,7 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
+import { toast } from "sonner";
 import {
   mockCadLookup,
   readIntake,
@@ -276,14 +277,16 @@ function Intake() {
                     });
                   } catch (err) {
                     setSaving(false);
-                    setSaveError(
+                    const message =
                       err instanceof Error
                         ? err.message
-                        : "Could not save this property. Please try again.",
-                    );
+                        : "Could not save this property. Please try again.";
+                    setSaveError(message);
+                    toast.error(message);
                     return;
                   }
                   setSaving(false);
+                  toast.success("Property saved.");
                 }
                 updateIntake({ confirmed: true });
                 nav({ to: "/ai-report" });

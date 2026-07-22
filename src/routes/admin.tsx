@@ -1,5 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
 import {
   checkIsAdmin,
@@ -14,6 +15,7 @@ import {
 import { listProperties, addProperty, deleteProperty, type PropertyRecord } from "@/lib/properties";
 import { currency } from "@/lib/intake-store";
 import { AddressAutocomplete } from "@/components/AddressAutocomplete";
+import { Skeleton } from "@/components/ui/skeleton";
 
 export const Route = createFileRoute("/admin")({
   head: () => ({
@@ -58,8 +60,9 @@ function AdminPanel() {
     setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, plan } : u)));
     try {
       await updateUserPlan(userId, plan);
+      toast.success("Plan updated.");
     } catch (err) {
-      setUsersError(err instanceof Error ? err.message : "Could not update plan.");
+      toast.error(err instanceof Error ? err.message : "Could not update plan.");
     }
   }
 
@@ -74,8 +77,9 @@ function AdminPanel() {
     try {
       await deleteUserAccount(userId);
       setUsers((prev) => prev.filter((u) => u.id !== userId));
+      toast.success("User deleted.");
     } catch (err) {
-      setUsersError(err instanceof Error ? err.message : "Could not delete user.");
+      toast.error(err instanceof Error ? err.message : "Could not delete user.");
     }
   }
 
@@ -93,7 +97,11 @@ function AdminPanel() {
 
       <div className="mt-6 grid gap-4">
         {usersLoading ? (
-          <div className="card-elev p-8 text-center text-muted-foreground">Loading users…</div>
+          <>
+            <UserRowSkeleton />
+            <UserRowSkeleton />
+            <UserRowSkeleton />
+          </>
         ) : (
           users.map((u) => (
             <UserRow
@@ -131,6 +139,7 @@ function AddUserForm({ onCreated }: { onCreated: (u: AdminUserRecord) => void })
       const updated = await listAllUsers();
       const created = updated.find((u) => u.email === email);
       if (created) onCreated(created);
+      toast.success("User created.");
       setOpen(false);
       setEmail("");
       setPassword("");
@@ -296,8 +305,9 @@ function UserProperties({ userId }: { userId: string }) {
       const created = await addProperty(userId, { address: newAddress.trim() });
       setProperties((prev) => [created, ...prev]);
       setNewAddress("");
+      toast.success("Property added.");
     } catch (err) {
-      setPropsError(err instanceof Error ? err.message : "Could not add property.");
+      toast.error(err instanceof Error ? err.message : "Could not add property.");
     } finally {
       setAdding(false);
     }
@@ -308,8 +318,9 @@ function UserProperties({ userId }: { userId: string }) {
     try {
       await deleteProperty(id);
       setProperties((prev) => prev.filter((p) => p.id !== id));
+      toast.success("Property removed.");
     } catch (err) {
-      setPropsError(err instanceof Error ? err.message : "Could not remove property.");
+      toast.error(err instanceof Error ? err.message : "Could not remove property.");
     }
   }
 
@@ -328,7 +339,10 @@ function UserProperties({ userId }: { userId: string }) {
         </button>
       </form>
       {propsLoading ? (
-        <p className="text-sm text-muted-foreground">Loading properties…</p>
+        <div className="grid gap-2">
+          <PropertyRowSkeleton />
+          <PropertyRowSkeleton />
+        </div>
       ) : properties.length === 0 ? (
         <p className="text-sm text-muted-foreground">No properties.</p>
       ) : (
@@ -354,6 +368,36 @@ function UserProperties({ userId }: { userId: string }) {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+function UserRowSkeleton() {
+  return (
+    <div className="card-elev p-6">
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div className="grid gap-2">
+          <Skeleton className="h-5 w-40" />
+          <Skeleton className="h-4 w-56" />
+          <Skeleton className="h-3 w-32" />
+        </div>
+        <div className="flex items-center gap-2">
+          <Skeleton className="h-9 w-36" />
+          <Skeleton className="h-9 w-32" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PropertyRowSkeleton() {
+  return (
+    <div className="flex items-center justify-between gap-2 rounded-md bg-secondary/40 px-3 py-2">
+      <div className="grid gap-2">
+        <Skeleton className="h-4 w-48" />
+        <Skeleton className="h-3 w-32" />
+      </div>
+      <Skeleton className="h-3 w-10" />
     </div>
   );
 }
