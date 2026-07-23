@@ -1,6 +1,9 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { supabase, isSupabaseConfigured } from "@/lib/supabase";
+import { searchPropertiesByOwner } from "@/lib/cad-owner-search";
+import type { CadRecord } from "@/lib/cad-lookup";
+import { OwnerMatchModal } from "@/components/OwnerMatchModal";
 
 export const Route = createFileRoute("/sign-in")({
   head: () => ({
@@ -20,12 +23,18 @@ function SignIn() {
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [phone, setPhone] = useState("");
+  const [companyName, setCompanyName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [checkEmail, setCheckEmail] = useState(false);
+  const [ownerMatches, setOwnerMatches] = useState<{
+    userId: string;
+    companyName: string;
+    matches: CadRecord[];
+  } | null>(null);
 
   function switchMode(next: "signin" | "signup") {
     setMode(next);
@@ -36,6 +45,7 @@ function SignIn() {
     setFirstName("");
     setLastName("");
     setPhone("");
+    setCompanyName("");
   }
 
   async function onSubmit(e: React.FormEvent) {
@@ -74,20 +84,38 @@ function SignIn() {
               first_name: firstName.trim(),
               last_name: lastName.trim(),
               phone: phone.trim(),
+              company_name: companyName.trim() || null,
             },
           },
         });
         if (signUpError) throw signUpError;
-        if (!data.session) {
+        if (!data.session || !data.user) {
           // Email confirmation is required before a session is issued.
           setCheckEmail(true);
+        } else if (companyName.trim()) {
+          // Real, one-time opportunistic lookup — search supported CAD sources for
+          // properties already on file under this business name, so the user doesn't
+          // have to type in every address by hand.
+          const userId = data.user.id;
+          const company = companyName.trim();
+          try {
+            const matches = await searchPropertiesByOwner(company);
+            if (matches.length > 0) {
+              setOwnerMatches({ userId, companyName: company, matches });
+            } else {
+              nav({ to: "/" });
+            }
+          } catch (err) {
+            console.error(err);
+            nav({ to: "/" });
+          }
         } else {
-          nav({ to: "/dashboard" });
+          nav({ to: "/" });
         }
       } else {
         const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
         if (signInError) throw signInError;
-        nav({ to: "/dashboard" });
+        nav({ to: "/" });
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
@@ -163,6 +191,22 @@ function SignIn() {
             />
           </label>
         )}
+        {mode === "signup" && (
+          <label className="grid gap-1 text-sm">
+            <span className="font-medium">Business / LLC Name (optional)</span>
+            <input
+              type="text"
+              autoComplete="organization"
+              placeholder="e.g. Acme Commercial Holdings LLC"
+              value={companyName}
+              onChange={(e) => setCompanyName(e.target.value)}
+              className="rounded-md border border-input bg-background px-3 py-2"
+            />
+            <span className="text-xs text-muted-foreground">
+              We'll check county records for properties already on file under this name.
+            </span>
+          </label>
+        )}
         <label className="grid gap-1 text-sm">
           <span className="font-medium">Email</span>
           <input
@@ -212,6 +256,17 @@ function SignIn() {
           {mode === "signin" ? "Need an account? Create one." : "Already have an account? Sign in."}
         </button>
       </form>
+      {ownerMatches && (
+        <OwnerMatchModal
+          userId={ownerMatches.userId}
+          companyName={ownerMatches.companyName}
+          matches={ownerMatches.matches}
+          onDone={() => {
+            setOwnerMatches(null);
+            nav({ to: "/" });
+          }}
+        />
+      )}
     </div>
   );
 }

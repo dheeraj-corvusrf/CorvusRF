@@ -10,6 +10,7 @@ import {
   routeWorkflows,
   currency,
   displayVal,
+  takePendingFile,
   LOW_CONFIDENCE_THRESHOLD,
   type IntakeState,
   type WorkflowSuggestion,
@@ -18,6 +19,7 @@ import { askAboutDocument } from "@/lib/document-ai";
 import type { Extraction } from "@/lib/document-ai";
 import { useAuth } from "@/lib/auth";
 import { addProperty } from "@/lib/properties";
+import { uploadDocument } from "@/lib/documents";
 
 export const Route = createFileRoute("/document-review")({
   head: () => ({
@@ -121,7 +123,7 @@ function DocumentReview() {
     if (user && next.address) {
       setSaving(true);
       try {
-        await addProperty(user.id, {
+        const saved = await addProperty(user.id, {
           address: next.address,
           cad: next.cad,
           accountNumber: next.accountNumber,
@@ -130,8 +132,19 @@ function DocumentReview() {
           improvementValue: next.improvementValue,
           totalValue: next.totalValue,
           taxYear: next.taxYear,
+          protestDeadline: eff.protestDeadline ?? undefined,
         });
         toast.success("Property added to your dashboard.");
+
+        const file = takePendingFile();
+        if (file) {
+          try {
+            await uploadDocument(user.id, saved.id, file, eff.documentType);
+          } catch (err) {
+            console.error(err);
+            toast.error("Property saved, but the document itself couldn't be stored.");
+          }
+        }
       } catch (err) {
         toast.error(
           err instanceof Error ? err.message : "Could not save this property to your dashboard.",

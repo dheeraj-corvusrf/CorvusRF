@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
@@ -6,12 +6,14 @@ import {
   updateIntake,
   classifyAndStoreDocument,
   currency,
+  UPLOAD_LIMITS,
   type IntakeState,
 } from "@/lib/intake-store";
 import { cadLookup } from "@/lib/cad-lookup";
 import { AddressAutocomplete } from "@/components/AddressAutocomplete";
 import { useAuth } from "@/lib/auth";
 import { addProperty } from "@/lib/properties";
+import { SampleNoticeDialog } from "@/components/SampleNoticeDialog";
 
 export const Route = createFileRoute("/intake")({
   head: () => ({
@@ -134,16 +136,15 @@ function Intake() {
           <div className="mt-6 rounded-lg border border-dashed border-border p-5 text-center">
             <p className="text-sm font-medium">Have your appraisal notice?</p>
             <p className="text-xs text-muted-foreground">
-              PDF / PNG / JPG, up to 15 MB, up to 5 pages.
+              PDF / PNG / JPG, up to {Math.round(UPLOAD_LIMITS.maxFileBytes / (1024 * 1024))} MB,
+              up to {UPLOAD_LIMITS.maxPages} pages.
             </p>
             <label className="mt-3 btn-outline cursor-pointer inline-flex">
               <input type="file" className="hidden" accept=".pdf,image/*" onChange={onFile} />
               Upload Appraisal Notice
             </label>
             <p className="mt-2 text-xs text-muted-foreground">
-              <Link to="/how-it-works" className="underline">
-                View sample appraisal notice
-              </Link>
+              <SampleNoticeDialog />
             </p>
             {error && <p className="mt-3 text-sm text-destructive">{error}</p>}
             {noticeName && (

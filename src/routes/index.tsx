@@ -1,10 +1,13 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { toast } from "sonner";
-import { Upload, Scale, Gavel, Wallet, LogIn, Send, Sparkles } from "lucide-react";
+import { Upload, Wallet, Send, Sparkles } from "lucide-react";
 import { updateIntake, resetIntake, classifyAndStoreDocument } from "@/lib/intake-store";
 import { askRouter } from "@/lib/ask-router";
 import { AddressAutocomplete } from "@/components/AddressAutocomplete";
+import { SampleNoticeDialog } from "@/components/SampleNoticeDialog";
+import { HeroBackground } from "@/components/HeroBackground";
+import { MicButton } from "@/components/MicButton";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -82,7 +85,9 @@ function Home() {
   }
 
   return (
-    <section className="container-page pt-8 pb-16 md:pt-12 md:pb-24">
+    <section className="relative overflow-hidden">
+      <HeroBackground />
+      <div className="container-page pt-8 pb-16 md:pt-12 md:pb-24">
       <div className="mx-auto max-w-3xl text-center">
         <span className="badge-soft">
           <span className="h-1.5 w-1.5 rounded-full bg-accent" /> AI Powered Property Tax Assistant
@@ -101,7 +106,7 @@ function Home() {
 
         <form
           onSubmit={submit}
-          className="mt-8 flex flex-col sm:flex-row gap-2 bg-card p-2 rounded-xl shadow-elev border border-border"
+          className="mt-8 flex flex-col sm:flex-row sm:items-center gap-2 bg-card p-2 rounded-xl shadow-elev border border-border"
         >
           <AddressAutocomplete
             value={address}
@@ -110,36 +115,40 @@ function Home() {
             className="flex-1 bg-transparent text-foreground placeholder:text-muted-foreground px-4 py-3 outline-none rounded-lg"
             ariaLabel="Commercial property address"
           />
+          <MicButton onResult={setAddress} />
           <button type="submit" className="btn-accent">
-            Start Free AI Powered Review
+            Start Free AI Property Review
           </button>
         </form>
 
-        <div className="mt-6 flex flex-wrap justify-center gap-2">
-          <PillLabel icon={<Upload className="h-3.5 w-3.5" />} disabled={uploading}>
-            <label className="cursor-pointer flex items-center gap-1.5">
-              <input
-                type="file"
-                className="hidden"
-                accept=".pdf,image/*"
-                disabled={uploading}
-                onChange={onFile}
-              />
-              Upload Tax Notice
-            </label>
-          </PillLabel>
-          <PillLink to="/bpp-rendition" icon={<Gavel className="h-3.5 w-3.5" />}>
-            File BPP Rendition
-          </PillLink>
-          <PillLink to="/property-protest" icon={<Scale className="h-3.5 w-3.5" />}>
-            Protest Property Value
-          </PillLink>
-          <PillLink to="/tax-payment" icon={<Wallet className="h-3.5 w-3.5" />}>
-            Track Tax Payment
-          </PillLink>
-          <PillLink to="/sign-in" icon={<LogIn className="h-3.5 w-3.5" />}>
-            Sign In
-          </PillLink>
+        <div className="mt-4 flex flex-wrap justify-center gap-3">
+          <label
+            className={`btn-outline inline-flex items-center gap-2 cursor-pointer ${
+              uploading ? "opacity-60 pointer-events-none" : ""
+            }`}
+          >
+            <Upload className="h-4 w-4" />
+            <input
+              type="file"
+              className="hidden"
+              accept=".pdf,image/*"
+              disabled={uploading}
+              onChange={onFile}
+            />
+            Upload Appraisal Notice
+          </label>
+          <Link
+            to="/intake"
+            onClick={() => resetIntake()}
+            className="btn-outline inline-flex items-center gap-2"
+          >
+            <Wallet className="h-4 w-4" />
+            Check My Property Taxes
+          </Link>
+        </div>
+
+        <div className="mt-3 flex justify-center">
+          <SampleNoticeDialog />
         </div>
 
         <div className="mt-10 card-elev p-2 flex items-center gap-2 text-left">
@@ -178,7 +187,7 @@ function Home() {
                 setAskQuery(chip);
                 submitAsk(chip);
               }}
-              className="rounded-full border border-border px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:border-accent transition-colors"
+              className="rounded-full border border-border bg-card px-3 py-1.5 text-xs text-muted-foreground shadow-sm hover:text-foreground hover:border-accent transition-colors"
             >
               {chip}
             </button>
@@ -202,47 +211,7 @@ function Home() {
           </div>
         )}
       </div>
+      </div>
     </section>
-  );
-}
-
-function PillLabel({
-  icon,
-  disabled,
-  children,
-}: {
-  icon: React.ReactNode;
-  disabled?: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <span
-      className={`inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-xs font-medium text-foreground ${
-        disabled ? "opacity-60" : "hover:border-accent"
-      } transition-colors`}
-    >
-      {icon}
-      {children}
-    </span>
-  );
-}
-
-function PillLink({
-  to,
-  icon,
-  children,
-}: {
-  to: string;
-  icon: React.ReactNode;
-  children: React.ReactNode;
-}) {
-  return (
-    <Link
-      to={to}
-      className="inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:border-accent transition-colors"
-    >
-      {icon}
-      {children}
-    </Link>
   );
 }

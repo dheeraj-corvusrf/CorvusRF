@@ -4,7 +4,7 @@
 
 @theme inline {
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
-  --font-serif: "Fraunces", ui-serif, Georgia, serif;
+  --font-serif: "Playfair Display", ui-serif, Georgia, serif;
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -41,7 +41,7 @@
 
 :root {
   --radius: 0.75rem;
-  /* Deep Texas navy + warm sunset gold */
+  /* Deep Texas navy + vivid blue accent */
   --background: oklch(0.995 0.003 90);
   --foreground: oklch(0.20 0.04 250);
   --card: oklch(1 0 0);
@@ -54,8 +54,8 @@
   --secondary-foreground: oklch(0.25 0.05 255);
   --muted: oklch(0.96 0.008 250);
   --muted-foreground: oklch(0.48 0.02 255);
-  --accent: oklch(0.78 0.14 68);              /* warm gold */
-  --accent-foreground: oklch(0.22 0.05 60);
+  --accent: oklch(0.62 0.19 255);             /* vivid blue */
+  --accent-foreground: oklch(0.99 0.005 255);
   --destructive: oklch(0.58 0.22 27);
   --destructive-foreground: oklch(0.985 0 0);
   --success: oklch(0.62 0.13 155);
@@ -72,6 +72,19 @@
      invert them when the OS is in dark mode. */
   --brand: oklch(0.29 0.08 255);
   --brand-foreground: oklch(0.985 0.005 90);
+
+  /* Homepage hero decorative background (src/components/HeroBackground.tsx) — its
+     own tokens rather than reusing --secondary/--accent directly, since the field
+     band needs a genuinely different (darker, muted) tone in dark mode than any
+     existing surface color, to avoid a jarring bright patch on a near-black page. */
+  --hero-sky-top: oklch(0.955 0.012 250);
+  --hero-sky-bottom: oklch(0.98 0.006 90);
+  --hero-cloud: oklch(1 0 0);                 /* solid white — opacity applied per-element, not baked into the color, so overlapping cloud shapes don't show stacking seams */
+  --hero-cloud-opacity: 0.92;
+  --hero-field: oklch(0.88 0.09 145);         /* light green */
+  --hero-field-shade: oklch(0.74 0.13 148);   /* deeper green, for the second wave */
+  --hero-tree: oklch(0.42 0.12 145);           /* dark green foliage */
+  --hero-sun: oklch(0.85 0.15 90);             /* warm sun yellow */
 }
 
 /* Follows the OS/browser's own light-vs-dark preference — no manual toggle. */
@@ -89,11 +102,20 @@
     --secondary-foreground: oklch(0.98 0.003 90);
     --muted: oklch(0.26 0.04 250);
     --muted-foreground: oklch(0.75 0.02 250);
-    --accent: oklch(0.78 0.14 68);
-    --accent-foreground: oklch(0.22 0.05 60);
+    --accent: oklch(0.62 0.19 255);
+    --accent-foreground: oklch(0.99 0.005 255);
     --border: oklch(1 0 0 / 0.1);
     --input: oklch(1 0 0 / 0.14);
     --ring: oklch(0.55 0.12 255);
+
+    --hero-sky-top: oklch(0.20 0.04 250);
+    --hero-sky-bottom: oklch(0.15 0.03 250);
+    --hero-cloud: oklch(0.6 0.03 250);         /* solid moonlit gray-blue, not white */
+    --hero-cloud-opacity: 0.55;
+    --hero-field: oklch(0.32 0.07 145);
+    --hero-field-shade: oklch(0.24 0.07 148);
+    --hero-tree: oklch(0.32 0.09 145);
+    --hero-sun: oklch(0.8 0.16 85);
   }
 }
 
@@ -163,8 +185,8 @@
   display: inline-flex; align-items: center; gap: .35rem;
   padding: 0.25rem 0.6rem;
   border-radius: 999px;
-  background: oklch(0.95 0.03 68);
-  color: oklch(0.34 0.09 60);
+  background: oklch(0.93 0.04 255);
+  color: oklch(0.32 0.12 255);
   font-size: 0.75rem; font-weight: 600;
 }
 

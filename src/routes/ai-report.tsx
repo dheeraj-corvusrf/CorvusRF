@@ -42,7 +42,14 @@ function Report() {
   useEffect(() => {
     if (!user) return;
     getMyBilling(user.id)
-      .then(({ plan }) => setHasFullAccess(plan === "ai_report" || plan === "managed_protest"))
+      .then(({ plan }) =>
+        setHasFullAccess(
+          plan === "owner_managed" ||
+            plan === "corvusrf_managed" ||
+            plan === "ai_report" ||
+            plan === "managed_protest",
+        ),
+      )
       .catch(() => setHasFullAccess(false));
   }, [user]);
 

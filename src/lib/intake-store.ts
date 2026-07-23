@@ -1,5 +1,6 @@
 // Session-scoped intake store for the guest flow.
-import { classifyDocument, type Extraction, type DocumentType } from "./document-ai";
+import { classifyDocument, validateDocument, type Extraction, type DocumentType } from "./document-ai";
+import { getFirstPage } from "./pdf-utils";
 
 export type AuditEntry = {
   ts: number;
@@ -54,6 +55,23 @@ export type IntakeState = {
 
 const KEY = "crf_intake";
 
+// The uploaded File can't be serialized into sessionStorage, so it's held here in
+// memory instead, across the client-side navigation from /intake (or "/") to
+// /document-review. Only used to persist the original file to Storage on confirm —
+// if the tab was reloaded (module state lost), the confirm step simply skips
+// re-uploading the raw file, same as before this feature existed.
+let pendingFile: File | null = null;
+
+export function setPendingFile(file: File | null) {
+  pendingFile = file;
+}
+
+export function takePendingFile(): File | null {
+  const f = pendingFile;
+  pendingFile = null;
+  return f;
+}
+
 export function readIntake(): IntakeState {
   if (typeof window === "undefined") return { previewsUsed: [] };
   try {
@@ -97,7 +115,12 @@ export function effectiveExtraction(s: IntakeState): Extraction | null {
 
 export const LOW_CONFIDENCE_THRESHOLD = 0.6;
 
-const MAX_FILE_BYTES = 15 * 1024 * 1024;
+// Single source of truth for upload limits — change here to change everywhere
+// (client validation, error copy, and the /intake page's stated limits).
+export const UPLOAD_LIMITS = {
+  maxFileBytes: 15 * 1024 * 1024,
+  maxPages: 5,
+};
 
 function fileToDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -111,15 +134,40 @@ function fileToDataUrl(file: File): Promise<string> {
 // Shared by the home page's "Upload Appraisal Notice" button and the /intake upload
 // widget so both go through the exact same validation + classification + audit trail.
 export async function classifyAndStoreDocument(file: File): Promise<Extraction> {
-  if (file.size > MAX_FILE_BYTES) {
-    throw new Error("Document exceeds 15 MB maximum file size.");
+  if (file.size > UPLOAD_LIMITS.maxFileBytes) {
+    throw new Error(
+      `Document exceeds ${Math.round(UPLOAD_LIMITS.maxFileBytes / (1024 * 1024))} MB maximum file size.`,
+    );
   }
   if (!/pdf|png|jpe?g/i.test(file.type)) {
     throw new Error("Supported types: PDF, PNG, JPG.");
   }
 
-  const dataUrl = await fileToDataUrl(file);
   appendAudit({ actor: "user", action: "upload_document", to: file.name });
+
+  // Stage 1: check page 1 only, before paying for a full extraction pass.
+  const firstPage = await getFirstPage(file);
+  if (firstPage.pageCount > UPLOAD_LIMITS.maxPages) {
+    throw new Error(
+      `This document has ${firstPage.pageCount} pages — the maximum is ${UPLOAD_LIMITS.maxPages}. ` +
+        "Upload just the appraisal notice or tax bill pages.",
+    );
+  }
+
+  const validation = await validateDocument({
+    fileName: file.name,
+    mimeType: firstPage.mimeType,
+    dataUrl: firstPage.dataUrl,
+  });
+  if (!validation.isValid) {
+    appendAudit({ actor: "ai", action: "reject_invalid_document", reason: validation.reason ?? undefined });
+    throw new Error(
+      validation.reason ?? "This doesn't look like a Texas property tax document. Please try another file.",
+    );
+  }
+
+  // Stage 2: full multi-field extraction across the whole document.
+  const dataUrl = await fileToDataUrl(file);
   const extraction = await classifyDocument({
     fileName: file.name,
     mimeType: file.type,
@@ -130,6 +178,7 @@ export async function classifyAndStoreDocument(file: File): Promise<Extraction> 
     action: "classify_document",
     to: `${extraction.documentType} (conf ${(extraction.confidence * 100).toFixed(0)}%)`,
   });
+  setPendingFile(file);
 
   const prior = readIntake();
   const mismatchFlag = detectMismatch(extraction, prior);

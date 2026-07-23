@@ -12,23 +12,21 @@ const corsHeaders = {
 
 // Fixed allow-list of real destinations. The model must pick one of these paths —
 // never invent a page that doesn't exist (e.g. no fake "deadline checker" route).
+//
+// Deliberately excludes /property-protest, /bpp-rendition, /tax-payment: those are
+// static marketing pages whose own CTAs just link back to "/" to start a review —
+// functional dead-ends. Routing the assistant there instead of straight to /intake
+// would just add an extra click with no new capability, so every actionable intent
+// (protest, BPP, deadlines, EPIN, tax value/payment questions) points at /intake.
 const DESTINATIONS = [
   {
     path: "/intake",
     about:
-      "Start a property review: upload a Texas appraisal notice or enter a property address. This is also the right destination for EPIN retrieval or deadline questions, since uploading a notice is the real way AI extracts those today.",
-  },
-  {
-    path: "/property-protest",
-    about: "Learn how CorvusRF's AI-assisted real property value protest works.",
-  },
-  {
-    path: "/bpp-rendition",
-    about: "Learn about filing a Business Personal Property (BPP) rendition.",
-  },
-  {
-    path: "/tax-payment",
-    about: "Learn about tracking property tax payments and due dates.",
+      "Start a property review: upload a Texas appraisal notice or enter a property address. " +
+      "This is the right destination for essentially every property-tax action today — " +
+      "protesting an overvaluation, filing a BPP rendition, checking a deadline, retrieving " +
+      "an EPIN, or checking what's owed — since uploading a notice or entering an address is " +
+      "the real way AI extracts and acts on all of those.",
   },
   { path: "/pricing", about: "See CorvusRF's pricing plans." },
   { path: "/sign-in", about: "Sign in or create an account." },
