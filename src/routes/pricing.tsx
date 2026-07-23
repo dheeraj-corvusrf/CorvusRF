@@ -2,7 +2,7 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
-import { startCheckout, getMyPlan } from "@/lib/billing";
+import { startCheckout, openBillingPortal, getMyBilling } from "@/lib/billing";
 
 export const Route = createFileRoute("/pricing")({
   head: () => ({
@@ -72,17 +72,36 @@ function Page() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [checkingOut, setCheckingOut] = useState(false);
+  const [openingPortal, setOpeningPortal] = useState(false);
   const [alreadySubscribed, setAlreadySubscribed] = useState(false);
+  const [subscriptionStatus, setSubscriptionStatus] = useState<string | null>(null);
+  const [cancelAtPeriodEnd, setCancelAtPeriodEnd] = useState(false);
+  const [cancelAt, setCancelAt] = useState<string | null>(null);
 
   useEffect(() => {
     if (!user) {
       setAlreadySubscribed(false);
+      setSubscriptionStatus(null);
+      setCancelAtPeriodEnd(false);
+      setCancelAt(null);
       return;
     }
-    getMyPlan(user.id)
-      .then((plan) => setAlreadySubscribed(plan === "ai_report" || plan === "managed_protest"))
-      .catch(() => setAlreadySubscribed(false));
+    getMyBilling(user.id)
+      .then(({ plan, subscriptionStatus, cancelAtPeriodEnd, cancelAt }) => {
+        setAlreadySubscribed(plan === "ai_report" || plan === "managed_protest");
+        setSubscriptionStatus(subscriptionStatus);
+        setCancelAtPeriodEnd(cancelAtPeriodEnd);
+        setCancelAt(cancelAt);
+      })
+      .catch(() => {
+        setAlreadySubscribed(false);
+        setSubscriptionStatus(null);
+        setCancelAtPeriodEnd(false);
+        setCancelAt(null);
+      });
   }, [user]);
+
+  const hasPaymentProblem = subscriptionStatus === "past_due" || subscriptionStatus === "unpaid";
 
   async function handleSubscribe() {
     if (!user) {
@@ -100,6 +119,18 @@ function Page() {
     }
   }
 
+  async function handleManageSubscription() {
+    setOpeningPortal(true);
+    try {
+      await openBillingPortal();
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Could not open billing portal. Please try again.",
+      );
+      setOpeningPortal(false);
+    }
+  }
+
   return (
     <div className="container-page py-16">
       <div className="max-w-3xl">
@@ -110,6 +141,22 @@ function Page() {
           save you money.
         </p>
       </div>
+      {hasPaymentProblem && (
+        <div className="mt-6 max-w-3xl rounded-lg border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">
+          There's a problem with your last payment — update your billing details to keep your AI
+          Report access.
+        </div>
+      )}
+      {cancelAtPeriodEnd && (
+        <div className="mt-6 max-w-3xl rounded-lg border border-warning/40 bg-warning/10 p-4 text-sm">
+          Your AI Report subscription is set to cancel
+          {cancelAt
+            ? ` on ${new Date(cancelAt).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}`
+            : " at the end of your current billing period"}
+          . You'll keep full access until then — use Manage Subscription below if you'd like to
+          resume it.
+        </div>
+      )}
       <div className="mt-10 grid gap-5 md:grid-cols-3">
         {PLANS.map((p) => (
           <div
@@ -134,10 +181,11 @@ function Page() {
               {p.name === "AI Report" ? (
                 alreadySubscribed ? (
                   <button
-                    disabled
-                    className="w-full btn-outline disabled:opacity-100 cursor-default"
+                    onClick={handleManageSubscription}
+                    disabled={openingPortal}
+                    className="w-full btn-outline disabled:opacity-60"
                   >
-                    Subscribed ✓
+                    {openingPortal ? "Redirecting…" : "Manage Subscription"}
                   </button>
                 ) : (
                   <button

@@ -146,6 +146,18 @@ create policy "Admins can delete any property"
 alter table public.profiles add column if not exists stripe_customer_id text;
 alter table public.profiles add column if not exists stripe_subscription_id text;
 
+-- Mirrors Stripe's own subscription status verbatim (active/past_due/unpaid/canceled/
+-- etc.) — separate from `plan` so the UI can show a payment-problem banner without
+-- prematurely revoking access; Stripe's own dunning schedule governs actual expiry.
+alter table public.profiles add column if not exists subscription_status text;
+
+-- Stripe's Customer Portal "cancel" flow defaults to canceling at the end of the
+-- current billing period rather than immediately — the subscription's `status` stays
+-- "active" the whole time, so without tracking this separately a scheduled
+-- cancellation is invisible in the app until it actually takes effect.
+alter table public.profiles add column if not exists cancel_at_period_end boolean not null default false;
+alter table public.profiles add column if not exists cancel_at timestamptz;
+
 -- ── ONE-TIME MANUAL STEP — do NOT run this as part of the routine schema paste ──
 -- After you have an account (sign up normally through the app first), run this once,
 -- by itself, substituting your real email, to make that account an admin:
