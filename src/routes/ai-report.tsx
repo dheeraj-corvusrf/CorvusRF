@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { readIntake, updateIntake, currency, type IntakeState } from "@/lib/intake-store";
 import { MODULES, type Module } from "@/lib/modules";
 import { useAuth } from "@/lib/auth";
-import { getMyPlan } from "@/lib/billing";
+import { getMyBilling } from "@/lib/billing";
 
 export const Route = createFileRoute("/ai-report")({
   head: () => ({
@@ -41,8 +41,15 @@ function Report() {
 
   useEffect(() => {
     if (!user) return;
-    getMyPlan(user.id)
-      .then((plan) => setHasFullAccess(plan === "ai_report" || plan === "managed_protest"))
+    getMyBilling(user.id)
+      .then(({ plan }) =>
+        setHasFullAccess(
+          plan === "owner_managed" ||
+            plan === "corvusrf_managed" ||
+            plan === "ai_report" ||
+            plan === "managed_protest",
+        ),
+      )
       .catch(() => setHasFullAccess(false));
   }, [user]);
 

@@ -6,12 +6,18 @@ import {
   checkIsAdmin,
   listAllUsers,
   updateUserPlan,
+  updateUserAdminStatus,
   deleteUserAccount,
   createUserAccount,
+  listAllProtests,
+  updateProtestStatus,
   PLAN_OPTIONS,
+  PROTEST_STATUS_OPTIONS,
   type AdminUserRecord,
   type PlanValue,
+  type AdminProtestRecord,
 } from "@/lib/admin";
+import type { ProtestStatus } from "@/lib/protests";
 import { listProperties, addProperty, deleteProperty, type PropertyRecord } from "@/lib/properties";
 import { currency } from "@/lib/intake-store";
 import { AddressAutocomplete } from "@/components/AddressAutocomplete";
@@ -32,6 +38,9 @@ function AdminPanel() {
   const [usersLoading, setUsersLoading] = useState(true);
   const [usersError, setUsersError] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  const [protests, setProtests] = useState<AdminProtestRecord[]>([]);
+  const [protestsLoading, setProtestsLoading] = useState(true);
 
   useEffect(() => {
     if (loading) return;
@@ -54,7 +63,23 @@ function AdminPanel() {
       .then(setUsers)
       .catch((err) => setUsersError(err instanceof Error ? err.message : "Could not load users."))
       .finally(() => setUsersLoading(false));
+    listAllProtests()
+      .then(setProtests)
+      .catch((err) => console.error(err))
+      .finally(() => setProtestsLoading(false));
   }, [isAdmin]);
+
+  async function handleProtestStatusChange(protestId: string, status: ProtestStatus) {
+    const prev = protests;
+    setProtests((cur) => cur.map((p) => (p.id === protestId ? { ...p, status } : p)));
+    try {
+      await updateProtestStatus(protestId, status);
+      toast.success("Protest status updated.");
+    } catch (err) {
+      setProtests(prev);
+      toast.error(err instanceof Error ? err.message : "Could not update protest status.");
+    }
+  }
 
   async function handlePlanChange(userId: string, plan: PlanValue) {
     setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, plan } : u)));
@@ -63,6 +88,17 @@ function AdminPanel() {
       toast.success("Plan updated.");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not update plan.");
+    }
+  }
+
+  async function handleToggleAdmin(userId: string, makeAdmin: boolean) {
+    setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, isAdmin: makeAdmin } : u)));
+    try {
+      await updateUserAdminStatus(userId, makeAdmin);
+      toast.success(makeAdmin ? "User is now an admin." : "Admin access removed.");
+    } catch (err) {
+      setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, isAdmin: !makeAdmin } : u)));
+      toast.error(err instanceof Error ? err.message : "Could not update admin status.");
     }
   }
 
@@ -93,6 +129,53 @@ function AdminPanel() {
 
       <AddUserForm onCreated={(u) => setUsers((prev) => [u, ...prev])} />
 
+      <section className="mt-10">
+        <h2 className="font-serif text-xl font-semibold">Protest Requests</h2>
+        <p className="text-sm text-muted-foreground">
+          Real requests from users clicking "Request Protest Filing" on their dashboard. Update
+          status as staff progress each one.
+        </p>
+        <div className="mt-4 grid gap-3">
+          {protestsLoading ? (
+            <PropertyRowSkeleton />
+          ) : protests.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No protest requests yet.</p>
+          ) : (
+            protests.map((p) => {
+              const requester = users.find((u) => u.id === p.userId);
+              return (
+                <div
+                  key={p.id}
+                  className="card-elev p-4 flex items-center justify-between flex-wrap gap-2"
+                >
+                  <div>
+                    <div className="font-medium">{p.propertyAddress ?? "Property removed"}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {requester?.email ?? p.userId} • Requested{" "}
+                      {new Date(p.requestedAt).toLocaleDateString()}
+                    </div>
+                  </div>
+                  <select
+                    value={p.status}
+                    onChange={(e) =>
+                      handleProtestStatusChange(p.id, e.target.value as ProtestStatus)
+                    }
+                    className="rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  >
+                    {PROTEST_STATUS_OPTIONS.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </section>
+
+      <h2 className="mt-10 font-serif text-xl font-semibold">Users</h2>
       {usersError && <p className="mt-4 text-sm text-destructive">{usersError}</p>}
 
       <div className="mt-6 grid gap-4">
@@ -111,6 +194,7 @@ function AdminPanel() {
               expanded={expandedId === u.id}
               onToggleExpand={() => setExpandedId(expandedId === u.id ? null : u.id)}
               onPlanChange={(plan) => handlePlanChange(u.id, plan)}
+              onToggleAdmin={(makeAdmin) => handleToggleAdmin(u.id, makeAdmin)}
               onDelete={() => handleDeleteUser(u.id)}
             />
           ))
@@ -230,6 +314,7 @@ function UserRow({
   expanded,
   onToggleExpand,
   onPlanChange,
+  onToggleAdmin,
   onDelete,
 }: {
   record: AdminUserRecord;
@@ -237,6 +322,7 @@ function UserRow({
   expanded: boolean;
   onToggleExpand: () => void;
   onPlanChange: (plan: PlanValue) => void;
+  onToggleAdmin: (makeAdmin: boolean) => void;
   onDelete: () => void;
 }) {
   return (
@@ -246,6 +332,9 @@ function UserRow({
           <h3 className="font-serif text-lg font-semibold">
             {record.firstName} {record.lastName}
             {isSelf && <span className="ml-2 text-xs text-muted-foreground">(you)</span>}
+            {record.isAdmin && (
+              <span className="ml-2 badge-soft text-[10px] align-middle">Admin</span>
+            )}
           </h3>
           <p className="text-sm text-muted-foreground">
             {record.email} • {record.phone}
@@ -269,6 +358,12 @@ function UserRow({
           <button onClick={onToggleExpand} className="btn-outline text-sm">
             {expanded ? "Hide properties" : "View properties"}
           </button>
+          {/* Hidden for yourself so an admin can't accidentally revoke their own access. */}
+          {!isSelf && (
+            <button onClick={() => onToggleAdmin(!record.isAdmin)} className="btn-outline text-sm">
+              {record.isAdmin ? "Remove Admin" : "Make Admin"}
+            </button>
+          )}
           {!isSelf && (
             <button onClick={onDelete} className="btn-outline text-sm text-destructive">
               Delete User

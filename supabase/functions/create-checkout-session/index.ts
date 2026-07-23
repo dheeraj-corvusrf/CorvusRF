@@ -1,6 +1,7 @@
 // Deploy via CLI: `supabase functions deploy create-checkout-session`.
-// Requires STRIPE_SECRET_KEY and STRIPE_PRICE_ID secrets (test-mode key + the Price id
-// for the recurring $29/year "AI Report" Product, created in the Stripe Dashboard).
+// Requires STRIPE_SECRET_KEY, STRIPE_PRICE_ID_OWNER_MANAGED, and
+// STRIPE_PRICE_ID_CORVUSRF_MANAGED secrets — the two real per-property monthly
+// Price ids created in the Stripe Dashboard ($99/mo and $199/mo respectively).
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import Stripe from "npm:stripe@17";
 
@@ -12,13 +13,31 @@ const corsHeaders = {
   "Content-Type": "application/json",
 };
 
+type Tier = "owner_managed" | "corvusrf_managed";
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   try {
+    const { tier, quantity } = (await req.json()) as { tier?: Tier; quantity?: number };
+    if (tier !== "owner_managed" && tier !== "corvusrf_managed") {
+      return new Response(JSON.stringify({ error: "tier must be owner_managed or corvusrf_managed" }), {
+        status: 400,
+        headers: corsHeaders,
+      });
+    }
+    const qty = Number.isInteger(quantity) && (quantity as number) > 0 ? (quantity as number) : 1;
+
     const secretKey = Deno.env.get("STRIPE_SECRET_KEY");
-    const priceId = Deno.env.get("STRIPE_PRICE_ID");
-    if (!secretKey || !priceId) throw new Error("Missing STRIPE_SECRET_KEY or STRIPE_PRICE_ID");
+    const priceId =
+      tier === "owner_managed"
+        ? Deno.env.get("STRIPE_PRICE_ID_OWNER_MANAGED")
+        : Deno.env.get("STRIPE_PRICE_ID_CORVUSRF_MANAGED");
+    if (!secretKey || !priceId) {
+      throw new Error(
+        `Missing STRIPE_SECRET_KEY or price id secret for ${tier}`,
+      );
+    }
 
     // Identify the caller from their own JWT (forwarded from the client's session) —
     // subscriptions must be tied to a real signed-in user, same auth pattern as the
@@ -54,10 +73,12 @@ Deno.serve(async (req: Request) => {
 
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",
-      line_items: [{ price: priceId, quantity: 1 }],
+      line_items: [{ price: priceId, quantity: qty }],
       client_reference_id: user.id,
       customer: profile?.stripe_customer_id ?? undefined,
       customer_email: profile?.stripe_customer_id ? undefined : (user.email ?? undefined),
+      subscription_data: { metadata: { tier } },
+      metadata: { tier },
       success_url: `${origin}/CorvusRF/dashboard?checkout=success`,
       cancel_url: `${origin}/CorvusRF/pricing`,
     });
