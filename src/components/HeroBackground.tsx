@@ -35,6 +35,23 @@ function Sun({ className }: { className: string }) {
   );
 }
 
+// A crescent moon — one disc, plus a second disc in the sky's own color offset on
+// top of it to "cut out" the crescent, clipped by the wrapper's own circular bounds.
+function Moon({ className }: { className: string }) {
+  return (
+    <div className={className}>
+      <div className="absolute inset-0 rounded-full blur-lg" style={{ background: "var(--hero-moon)", opacity: 0.35 }} />
+      <div className="absolute inset-[18%] rounded-full overflow-hidden">
+        <div className="absolute inset-0 rounded-full" style={{ background: "var(--hero-moon)" }} />
+        <div
+          className="absolute rounded-full"
+          style={{ background: "var(--hero-sky-top)", width: "85%", height: "85%", top: "-15%", right: "-28%" }}
+        />
+      </div>
+    </div>
+  );
+}
+
 // Decorative background — a sky/green-field split (mirroring the reference's bold
 // proportions and grass tones), real illustration artwork for the house/people/dog
 // (sourced from unDraw, recolored to CorvusRF's navy/gold/teal — see
@@ -53,8 +70,13 @@ export function HeroBackground() {
           background: "linear-gradient(180deg, var(--hero-sky-top) 0%, var(--hero-sky-bottom) 100%)",
         }}
       />
-      {/* Sun, upper sky */}
-      <Sun className="absolute top-4 right-[16%] h-16 w-16 md:h-20 md:w-20" />
+      {/* Sun (light mode) / Moon (dark mode) — same spot, swapped by theme */}
+      <div className="hero-sun-wrap absolute top-4 right-[16%] h-16 w-16 md:h-20 md:w-20">
+        <Sun className="absolute inset-0" />
+      </div>
+      <div className="hero-moon-wrap absolute top-4 right-[16%] h-16 w-16 md:h-20 md:w-20">
+        <Moon className="absolute inset-0" />
+      </div>
 
       {/* Clouds in the sky */}
       <Cloud className="absolute top-8 left-[6%] h-10 w-24 md:h-12 md:w-28" />

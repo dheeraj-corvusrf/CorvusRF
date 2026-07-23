@@ -85,7 +85,14 @@
   --hero-field-shade: oklch(0.74 0.13 148);   /* deeper green, for the second wave */
   --hero-tree: oklch(0.42 0.12 145);           /* dark green foliage */
   --hero-sun: oklch(0.85 0.15 90);             /* warm sun yellow */
+  --hero-moon: oklch(0.9 0.02 250);            /* pale moon (only shown in dark mode) */
 }
+
+/* The hero shows a sun in light mode and a moon in dark mode — same spot, swapped
+   via display rather than two separately-positioned elements, so there's no layout
+   shift between themes. */
+.hero-sun-wrap { display: block; }
+.hero-moon-wrap { display: none; }
 
 /* Follows the OS/browser's own light-vs-dark preference — no manual toggle. */
 @media (prefers-color-scheme: dark) {
@@ -116,7 +123,11 @@
     --hero-field-shade: oklch(0.24 0.07 148);
     --hero-tree: oklch(0.32 0.09 145);
     --hero-sun: oklch(0.8 0.16 85);
+    --hero-moon: oklch(0.88 0.02 250);
   }
+
+  .hero-sun-wrap { display: none; }
+  .hero-moon-wrap { display: block; }
 }
 
 @layer base {
