@@ -1,7 +1,8 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useState } from "react";
+import { toast } from "sonner";
 import heroImage from "@/assets/hero.jpg";
-import { updateIntake } from "@/lib/intake-store";
+import { updateIntake, classifyAndStoreDocument } from "@/lib/intake-store";
 import { AddressAutocomplete } from "@/components/AddressAutocomplete";
 
 export const Route = createFileRoute("/")({
@@ -27,6 +28,7 @@ export const Route = createFileRoute("/")({
 function Home() {
   const navigate = useNavigate();
   const [address, setAddress] = useState("");
+  const [uploading, setUploading] = useState(false);
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -34,6 +36,22 @@ function Home() {
     updateIntake({ address: address.trim() });
     navigate({ to: "/intake" });
   };
+
+  async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    setUploading(true);
+    try {
+      await classifyAndStoreDocument(f);
+      navigate({ to: "/document-review" });
+    } catch (err) {
+      console.error(err);
+      toast.error(
+        err instanceof Error ? err.message : "Could not read this document. Please try again.",
+      );
+      setUploading(false);
+    }
+  }
 
   return (
     <section className="relative overflow-hidden">
@@ -54,13 +72,12 @@ function Home() {
             <span className="h-1.5 w-1.5 rounded-full bg-accent" /> Texas • All 254 counties
           </span>
           <h1 className="mt-4 font-serif text-4xl md:text-6xl font-semibold leading-[1.05]">
-            Texas property tax help,{" "}
-            <span className="text-accent">powered by AI.</span>
+            Texas property tax help, <span className="text-accent">powered by AI.</span>
           </h1>
           <p className="mt-5 max-w-2xl text-lg text-brand-foreground/85">
             Upload your notice or enter your property. AI checks your county value, BPP filing
-            needs, protest deadline, possible overvaluation, evidence gaps, and savings
-            opportunity — before you even sign in.
+            needs, protest deadline, possible overvaluation, evidence gaps, and savings opportunity
+            — before you even sign in.
           </p>
 
           <form
@@ -80,10 +97,20 @@ function Home() {
           </form>
 
           <div className="mt-6 flex flex-wrap gap-3">
-            <Link to="/intake" className="btn-outline bg-brand-foreground/10 border-white/30 text-brand-foreground hover:bg-brand-foreground/20">
-              Upload Appraisal Notice
-            </Link>
-            <Link to="/intake" className="btn-outline bg-brand-foreground/10 border-white/30 text-brand-foreground hover:bg-brand-foreground/20">
+            <label className="btn-outline bg-brand-foreground/10 border-white/30 text-brand-foreground hover:bg-brand-foreground/20 cursor-pointer">
+              <input
+                type="file"
+                className="hidden"
+                accept=".pdf,image/*"
+                disabled={uploading}
+                onChange={onFile}
+              />
+              {uploading ? "Reading document…" : "Upload Appraisal Notice"}
+            </label>
+            <Link
+              to="/intake"
+              className="btn-outline bg-brand-foreground/10 border-white/30 text-brand-foreground hover:bg-brand-foreground/20"
+            >
               Check My Property Taxes
             </Link>
           </div>
@@ -107,7 +134,13 @@ function Home() {
 
 function CheckIcon() {
   return (
-    <svg viewBox="0 0 24 24" className="mt-0.5 h-4 w-4 shrink-0 text-accent" fill="none" stroke="currentColor" strokeWidth="2.5">
+    <svg
+      viewBox="0 0 24 24"
+      className="mt-0.5 h-4 w-4 shrink-0 text-accent"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+    >
       <path d="M5 12l5 5L20 7" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );

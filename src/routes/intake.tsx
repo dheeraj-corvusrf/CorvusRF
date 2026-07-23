@@ -4,13 +4,10 @@ import { toast } from "sonner";
 import {
   readIntake,
   updateIntake,
-  appendAudit,
-  detectMismatch,
+  classifyAndStoreDocument,
   currency,
-  LOW_CONFIDENCE_THRESHOLD,
   type IntakeState,
 } from "@/lib/intake-store";
-import { classifyDocument } from "@/lib/document-ai";
 import { cadLookup } from "@/lib/cad-lookup";
 import { AddressAutocomplete } from "@/components/AddressAutocomplete";
 import { useAuth } from "@/lib/auth";
@@ -87,44 +84,12 @@ function Intake() {
   async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0];
     if (!f) return;
-    if (f.size > 15 * 1024 * 1024) {
-      setError("Document exceeds 15 MB maximum file size.");
-      return;
-    }
-    if (!/pdf|png|jpe?g/i.test(f.type)) {
-      setError("Supported types: PDF, PNG, JPG.");
-      return;
-    }
     setError(null);
     setNoticeName(f.name);
-    updateIntake({ noticeFileName: f.name });
     setStep("classifying");
 
     try {
-      const dataUrl = await fileToDataUrl(f);
-      appendAudit({ actor: "user", action: "upload_document", to: f.name });
-      const extraction = await classifyDocument({ fileName: f.name, mimeType: f.type, dataUrl });
-      appendAudit({
-        actor: "ai",
-        action: "classify_document",
-        to: `${extraction.documentType} (conf ${(extraction.confidence * 100).toFixed(0)}%)`,
-      });
-      const prior = readIntake();
-      const mismatchFlag = detectMismatch(extraction, prior);
-      const lowConfidenceFlag = extraction.confidence < LOW_CONFIDENCE_THRESHOLD;
-      if (lowConfidenceFlag) {
-        appendAudit({ actor: "ai", action: "flag_low_confidence" });
-      }
-      if (mismatchFlag) {
-        appendAudit({ actor: "ai", action: "flag_mismatch" });
-      }
-      updateIntake({
-        extraction,
-        extractionEdited: undefined,
-        extractionConfirmed: false,
-        lowConfidenceFlag,
-        mismatchFlag,
-      });
+      await classifyAndStoreDocument(f);
       nav({ to: "/document-review" });
     } catch (err) {
       console.error(err);
@@ -136,15 +101,6 @@ function Intake() {
       toast.error(message);
       setStep("address");
     }
-  }
-
-  function fileToDataUrl(file: File): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const r = new FileReader();
-      r.onload = () => resolve(String(r.result));
-      r.onerror = () => reject(new Error("Failed to read file"));
-      r.readAsDataURL(file);
-    });
   }
 
   return (

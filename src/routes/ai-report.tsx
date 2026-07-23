@@ -2,6 +2,8 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { readIntake, updateIntake, currency, type IntakeState } from "@/lib/intake-store";
 import { MODULES, type Module } from "@/lib/modules";
+import { useAuth } from "@/lib/auth";
+import { getMyPlan } from "@/lib/billing";
 
 export const Route = createFileRoute("/ai-report")({
   head: () => ({
@@ -19,10 +21,12 @@ const MAX_PREVIEWS = 3;
 
 function Report() {
   const nav = useNavigate();
+  const { user } = useAuth();
   const [state, setState] = useState<IntakeState>({ previewsUsed: [] });
   const [analyzing, setAnalyzing] = useState(true);
   const [openId, setOpenId] = useState<string | null>(null);
   const [showWall, setShowWall] = useState(false);
+  const [hasFullAccess, setHasFullAccess] = useState(false);
 
   useEffect(() => {
     const s = readIntake();
@@ -35,6 +39,13 @@ function Report() {
     return () => clearTimeout(t);
   }, [nav]);
 
+  useEffect(() => {
+    if (!user) return;
+    getMyPlan(user.id)
+      .then((plan) => setHasFullAccess(plan === "ai_report" || plan === "managed_protest"))
+      .catch(() => setHasFullAccess(false));
+  }, [user]);
+
   const previewsUsed = state.previewsUsed ?? [];
   const estimated = useMemo(() => {
     if (!state.totalValue) return { reduction: 0, savings: 0 };
@@ -44,7 +55,7 @@ function Report() {
   }, [state.totalValue]);
 
   function openModule(m: Module) {
-    if (previewsUsed.includes(m.id)) {
+    if (hasFullAccess || previewsUsed.includes(m.id)) {
       setOpenId(m.id);
       return;
     }
@@ -102,8 +113,18 @@ function Report() {
           </p>
         </div>
         <div className="text-right text-sm">
-          <div>Preview {Math.min(previewsUsed.length, MAX_PREVIEWS)} of {MAX_PREVIEWS}</div>
-          <div className="text-primary-foreground/70 text-xs">Complimentary AI insight previews</div>
+          {hasFullAccess ? (
+            <div className="text-primary-foreground/70 text-xs">AI Report subscription active</div>
+          ) : (
+            <>
+              <div>
+                Preview {Math.min(previewsUsed.length, MAX_PREVIEWS)} of {MAX_PREVIEWS}
+              </div>
+              <div className="text-primary-foreground/70 text-xs">
+                Complimentary AI insight previews
+              </div>
+            </>
+          )}
         </div>
       </section>
 
@@ -111,7 +132,9 @@ function Report() {
       <section className="mt-8">
         <h2 className="font-serif text-2xl font-semibold">10 Premium AI Modules</h2>
         <p className="text-muted-foreground text-sm">
-          Tap any module to unlock a preview. Subscribe for the full report.
+          {hasFullAccess
+            ? "All modules unlocked with your AI Report subscription."
+            : "Tap any module to unlock a preview. Subscribe for the full report."}
         </p>
         <div className="mt-5 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {MODULES.map((m) => (
@@ -119,7 +142,7 @@ function Report() {
               key={m.id}
               m={m}
               analyzing={analyzing}
-              unlocked={previewsUsed.includes(m.id)}
+              unlocked={hasFullAccess || previewsUsed.includes(m.id)}
               onOpen={() => openModule(m)}
             />
           ))}
@@ -130,15 +153,30 @@ function Report() {
       {openModel && (
         <Modal onClose={() => setOpenId(null)}>
           <div className="flex items-center justify-between">
-            <span className="badge-soft">Preview {previewsUsed.indexOf(openModel.id) + 1} of {MAX_PREVIEWS}</span>
-            <button onClick={() => setOpenId(null)} className="text-sm text-muted-foreground hover:text-foreground">Close</button>
+            <span className="badge-soft">
+              {hasFullAccess
+                ? "Unlocked"
+                : `Preview ${previewsUsed.indexOf(openModel.id) + 1} of ${MAX_PREVIEWS}`}
+            </span>
+            <button
+              onClick={() => setOpenId(null)}
+              className="text-sm text-muted-foreground hover:text-foreground"
+            >
+              Close
+            </button>
           </div>
           <h3 className="mt-2 font-serif text-2xl font-semibold">{openModel.title}</h3>
           <p className="text-muted-foreground">{openModel.question}</p>
           <ModulePreviewBody m={openModel} estimated={estimated} state={state} />
           <div className="mt-6 flex gap-2 justify-end">
-            <button onClick={() => setOpenId(null)} className="btn-outline">Return to Property Summary</button>
-            <Link to="/pricing" className="btn-accent">Subscribe & Unlock Full Report</Link>
+            <button onClick={() => setOpenId(null)} className="btn-outline">
+              Return to Property Summary
+            </button>
+            {!hasFullAccess && (
+              <Link to="/pricing" className="btn-accent">
+                Subscribe & Unlock Full Report
+              </Link>
+            )}
           </div>
         </Modal>
       )}
@@ -146,16 +184,26 @@ function Report() {
       {/* Subscription wall */}
       {showWall && (
         <Modal onClose={() => setShowWall(false)}>
-          <h3 className="font-serif text-2xl font-semibold">Unlock Your Complete AI Property Analysis</h3>
+          <h3 className="font-serif text-2xl font-semibold">
+            Unlock Your Complete AI Property Analysis
+          </h3>
           <p className="text-muted-foreground mt-2">
             You have viewed your three complimentary AI insight previews. Subscribe to unlock all
             ten modules and the complete commercial property analysis.
           </p>
           <div className="mt-6 grid gap-2 sm:grid-cols-2">
-            <Link to="/sign-in" className="btn-primary btn-primary-hover">Create Account and Continue</Link>
-            <Link to="/pricing" className="btn-accent">Subscribe & Unlock Full Report</Link>
-            <Link to="/pricing" className="btn-outline">Compare Plans</Link>
-            <button onClick={() => setShowWall(false)} className="btn-outline">Return to Property Summary</button>
+            <Link to="/sign-in" className="btn-primary btn-primary-hover">
+              Create Account and Continue
+            </Link>
+            <Link to="/pricing" className="btn-accent">
+              Subscribe & Unlock Full Report
+            </Link>
+            <Link to="/pricing" className="btn-outline">
+              Compare Plans
+            </Link>
+            <button onClick={() => setShowWall(false)} className="btn-outline">
+              Return to Property Summary
+            </button>
           </div>
         </Modal>
       )}
@@ -185,9 +233,7 @@ function ModuleCard({
         <StatusChip status={status} />
       </div>
       <p className="mt-2 text-sm text-muted-foreground">{m.question}</p>
-      <div className={`mt-3 text-sm ${!unlocked ? "locked-blur" : ""}`}>
-        {m.teaser}
-      </div>
+      <div className={`mt-3 text-sm ${!unlocked ? "locked-blur" : ""}`}>{m.teaser}</div>
       <div className="mt-4 flex items-center justify-between gap-2">
         {unlocked ? (
           <span className="text-xs font-medium text-success">Preview unlocked</span>
@@ -208,7 +254,11 @@ function StatusChip({ status }: { status: Module["status"] }) {
     Completed: "bg-success/15 text-success",
     "Additional Data Needed": "bg-warning/20 text-warning-foreground",
   };
-  return <span className={`text-[10px] font-semibold px-2 py-1 rounded-full ${map[status]}`}>{status}</span>;
+  return (
+    <span className={`text-[10px] font-semibold px-2 py-1 rounded-full ${map[status]}`}>
+      {status}
+    </span>
+  );
 }
 
 function ModulePreviewBody({
@@ -224,9 +274,9 @@ function ModulePreviewBody({
     return (
       <div className="mt-4 card-elev p-4 bg-secondary/60">
         <p className="text-sm">
-          This module requires private financial data (P&L, rent roll, or operating statement)
-          to complete. Upload once you subscribe — AI will run the income approach and compare
-          to your assessed value.
+          This module requires private financial data (P&L, rent roll, or operating statement) to
+          complete. Upload once you subscribe — AI will run the income approach and compare to your
+          assessed value.
         </p>
       </div>
     );
@@ -235,10 +285,17 @@ function ModulePreviewBody({
     health: (
       <div className="mt-4 grid gap-2">
         <ScoreBar score={78} />
-        <p className="text-sm text-muted-foreground">Strong protest opportunity based on value trend, comps, and site factors.</p>
+        <p className="text-sm text-muted-foreground">
+          Strong protest opportunity based on value trend, comps, and site factors.
+        </p>
       </div>
     ),
-    strategy: <p className="mt-4 text-sm">Recommended path: <strong>Unequal Appraisal</strong> combined with market-value comps. Filed by CorvusRF.</p>,
+    strategy: (
+      <p className="mt-4 text-sm">
+        Recommended path: <strong>Unequal Appraisal</strong> combined with market-value comps. Filed
+        by CorvusRF.
+      </p>
+    ),
     comps: (
       <ul className="mt-4 text-sm space-y-1">
         <li>• 3 sale comps within 1.5 miles, avg 11% below CAD value</li>
@@ -246,9 +303,23 @@ function ModulePreviewBody({
         <li>• 1 outlier excluded (renovated in-year)</li>
       </ul>
     ),
-    site: <p className="mt-4 text-sm">Access is limited on the east frontage; drainage easement reduces usable land. AI recommends including in the packet.</p>,
-    improvement: <p className="mt-4 text-sm">Effective age 22 years vs. CAD assumption of 15. Deferred maintenance findings included.</p>,
-    zoning: <p className="mt-4 text-sm">CAD class matches actual use. No reclassification opportunity, but land use may support lower land value.</p>,
+    site: (
+      <p className="mt-4 text-sm">
+        Access is limited on the east frontage; drainage easement reduces usable land. AI recommends
+        including in the packet.
+      </p>
+    ),
+    improvement: (
+      <p className="mt-4 text-sm">
+        Effective age 22 years vs. CAD assumption of 15. Deferred maintenance findings included.
+      </p>
+    ),
+    zoning: (
+      <p className="mt-4 text-sm">
+        CAD class matches actual use. No reclassification opportunity, but land use may support
+        lower land value.
+      </p>
+    ),
     evidence: (
       <ul className="mt-4 text-sm space-y-1">
         <li>• Recent comp sales report</li>
@@ -259,16 +330,29 @@ function ModulePreviewBody({
     ),
     savings: (
       <div className="mt-4 grid gap-2">
-        <p className="text-sm">Estimated value reduction: <strong>{currency(estimated.reduction)}</strong></p>
-        <p className="text-sm">Estimated tax savings: <strong>{currency(estimated.savings)}</strong></p>
-        <p className="text-xs text-muted-foreground">Based on assessed value {currency(state.totalValue)} and typical Texas effective rate.</p>
+        <p className="text-sm">
+          Estimated value reduction: <strong>{currency(estimated.reduction)}</strong>
+        </p>
+        <p className="text-sm">
+          Estimated tax savings: <strong>{currency(estimated.savings)}</strong>
+        </p>
+        <p className="text-xs text-muted-foreground">
+          Based on assessed value {currency(state.totalValue)} and typical Texas effective rate.
+        </p>
       </div>
     ),
     executive: (
       <div className="mt-4 grid gap-2 text-sm">
-        <p><strong>Recommendation:</strong> File a protest this cycle.</p>
-        <p><strong>Basis:</strong> Unequal appraisal + market value comps + site conditions.</p>
-        <p><strong>Next step:</strong> Subscribe to unlock the full packet and let CorvusRF file on your behalf.</p>
+        <p>
+          <strong>Recommendation:</strong> File a protest this cycle.
+        </p>
+        <p>
+          <strong>Basis:</strong> Unequal appraisal + market value comps + site conditions.
+        </p>
+        <p>
+          <strong>Next step:</strong> Subscribe to unlock the full packet and let CorvusRF file on
+          your behalf.
+        </p>
       </div>
     ),
   };
@@ -300,7 +384,10 @@ function Field({ label, value, bold }: { label: string; value?: string; bold?: b
 
 function Modal({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center p-4 bg-primary/60 backdrop-blur-sm" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 grid place-items-center p-4 bg-primary/60 backdrop-blur-sm"
+      onClick={onClose}
+    >
       <div className="card-elev p-6 w-full max-w-lg" onClick={(e) => e.stopPropagation()}>
         {children}
       </div>

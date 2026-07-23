@@ -140,6 +140,12 @@ create policy "Admins can delete any property"
   on public.properties for delete
   using (public.is_admin());
 
+-- Stripe billing: the webhook (supabase/functions/stripe-webhook) writes plan and
+-- these two ids; the admin panel's manual plan dropdown still works unchanged since
+-- it edits the same `plan` column.
+alter table public.profiles add column if not exists stripe_customer_id text;
+alter table public.profiles add column if not exists stripe_subscription_id text;
+
 -- ── ONE-TIME MANUAL STEP — do NOT run this as part of the routine schema paste ──
 -- After you have an account (sign up normally through the app first), run this once,
 -- by itself, substituting your real email, to make that account an admin:

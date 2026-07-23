@@ -1,5 +1,5 @@
 // Session-scoped intake store for the guest flow.
-import type { Extraction, DocumentType } from "./document-ai";
+import { classifyDocument, type Extraction, type DocumentType } from "./document-ai";
 
 export type AuditEntry = {
   ts: number;
@@ -96,6 +96,58 @@ export function effectiveExtraction(s: IntakeState): Extraction | null {
 }
 
 export const LOW_CONFIDENCE_THRESHOLD = 0.6;
+
+const MAX_FILE_BYTES = 15 * 1024 * 1024;
+
+function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result));
+    r.onerror = () => reject(new Error("Failed to read file"));
+    r.readAsDataURL(file);
+  });
+}
+
+// Shared by the home page's "Upload Appraisal Notice" button and the /intake upload
+// widget so both go through the exact same validation + classification + audit trail.
+export async function classifyAndStoreDocument(file: File): Promise<Extraction> {
+  if (file.size > MAX_FILE_BYTES) {
+    throw new Error("Document exceeds 15 MB maximum file size.");
+  }
+  if (!/pdf|png|jpe?g/i.test(file.type)) {
+    throw new Error("Supported types: PDF, PNG, JPG.");
+  }
+
+  const dataUrl = await fileToDataUrl(file);
+  appendAudit({ actor: "user", action: "upload_document", to: file.name });
+  const extraction = await classifyDocument({
+    fileName: file.name,
+    mimeType: file.type,
+    dataUrl,
+  });
+  appendAudit({
+    actor: "ai",
+    action: "classify_document",
+    to: `${extraction.documentType} (conf ${(extraction.confidence * 100).toFixed(0)}%)`,
+  });
+
+  const prior = readIntake();
+  const mismatchFlag = detectMismatch(extraction, prior);
+  const lowConfidenceFlag = extraction.confidence < LOW_CONFIDENCE_THRESHOLD;
+  if (lowConfidenceFlag) appendAudit({ actor: "ai", action: "flag_low_confidence" });
+  if (mismatchFlag) appendAudit({ actor: "ai", action: "flag_mismatch" });
+
+  updateIntake({
+    noticeFileName: file.name,
+    extraction,
+    extractionEdited: undefined,
+    extractionConfirmed: false,
+    lowConfidenceFlag,
+    mismatchFlag,
+  });
+
+  return extraction;
+}
 
 export function detectMismatch(e: Extraction, prior?: IntakeState): boolean {
   if (!prior) return false;
