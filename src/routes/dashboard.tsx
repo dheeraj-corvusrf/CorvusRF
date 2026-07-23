@@ -50,6 +50,11 @@ function Dashboard() {
     try {
       await deleteProperty(id);
       setProperties((prev) => prev.filter((p) => p.id !== id));
+      // The journey tracker reads session state that has no link to a specific
+      // property id, so a deleted property's "completed" journey would otherwise
+      // keep showing as in-progress forever. Deleting is a deliberate action, so
+      // treat it as a clean-slate signal.
+      resetIntake();
       toast.success("Property removed.");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not remove this property.");
@@ -79,7 +84,9 @@ function Dashboard() {
       </div>
 
       <div className="mt-6">
-        <JourneyTracker />
+        {/* Remount on every list change (e.g. a delete) so it re-reads session state
+            fresh, instead of keeping a stale render from before a resetIntake(). */}
+        <JourneyTracker key={properties.length} />
       </div>
 
       <nav className="mt-6 flex flex-wrap gap-1 border-b border-border">
