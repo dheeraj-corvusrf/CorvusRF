@@ -47,6 +47,20 @@ export async function classifyDocument(input: {
   return invokeEdgeFunction<Extraction>("classify-document", input);
 }
 
+export type ValidationResult = {
+  isValid: boolean;
+  cadName: string | null;
+  reason: string | null;
+};
+
+export async function validateDocument(input: {
+  fileName: string;
+  mimeType: string;
+  dataUrl: string;
+}): Promise<ValidationResult> {
+  return invokeEdgeFunction<ValidationResult>("validate-document", input);
+}
+
 export async function askAboutDocument(input: {
   question: string;
   context?: string;

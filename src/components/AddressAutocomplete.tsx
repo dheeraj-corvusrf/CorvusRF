@@ -123,6 +123,14 @@ export function AddressAutocomplete({
     };
   }, []);
 
+  // Triggered by any change to the controlled `value` — typing (below) or an
+  // external setter like voice input — so suggestions show up either way instead
+  // of only reacting to direct keystrokes in this input.
+  useEffect(() => {
+    scheduleSearch(value);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value]);
+
   useEffect(() => {
     function onClickOutside(e: MouseEvent) {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
@@ -185,10 +193,7 @@ export function AddressAutocomplete({
     <div ref={containerRef} className="relative flex-1">
       <input
         value={value}
-        onChange={(e) => {
-          onChange(e.target.value);
-          scheduleSearch(e.target.value);
-        }}
+        onChange={(e) => onChange(e.target.value)}
         onFocus={() => {
           if (suggestions.length > 0) setOpen(true);
         }}

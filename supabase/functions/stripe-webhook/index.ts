@@ -60,12 +60,19 @@ Deno.serve(async (req: Request) => {
     if (event.type === "checkout.session.completed") {
       const session = event.data.object as Stripe.Checkout.Session;
       const userId = session.client_reference_id;
+      const tier = session.metadata?.tier === "corvusrf_managed" ? "corvusrf_managed" : "owner_managed";
       if (userId) {
+        let quantity = 1;
+        if (typeof session.subscription === "string") {
+          const sub = await stripe.subscriptions.retrieve(session.subscription);
+          quantity = sub.items.data[0]?.quantity ?? 1;
+        }
         await adminClient
           .from("profiles")
           .update({
-            plan: "ai_report",
+            plan: tier,
             subscription_status: "active",
+            subscription_quantity: quantity,
             stripe_customer_id: typeof session.customer === "string" ? session.customer : null,
             stripe_subscription_id:
               typeof session.subscription === "string" ? session.subscription : null,
@@ -76,14 +83,17 @@ Deno.serve(async (req: Request) => {
       const subscription = event.data.object as Stripe.Subscription;
       const customerId = typeof subscription.customer === "string" ? subscription.customer : null;
       if (customerId) {
-        const update: Record<string, string | boolean | null> = {
+        const tier =
+          subscription.metadata?.tier === "corvusrf_managed" ? "corvusrf_managed" : "owner_managed";
+        const update: Record<string, string | number | boolean | null> = {
           subscription_status: subscription.status,
+          subscription_quantity: subscription.items.data[0]?.quantity ?? 1,
           cancel_at_period_end: subscription.cancel_at_period_end,
           cancel_at: subscription.cancel_at
             ? new Date(subscription.cancel_at * 1000).toISOString()
             : null,
         };
-        if (subscription.status === "active") update.plan = "ai_report";
+        if (subscription.status === "active") update.plan = tier;
         if (subscription.status === "canceled") update.plan = "free_ai_review";
         await adminClient.from("profiles").update(update).eq("stripe_customer_id", customerId);
       }
@@ -96,6 +106,7 @@ Deno.serve(async (req: Request) => {
           .update({
             plan: "free_ai_review",
             subscription_status: "canceled",
+            subscription_quantity: 1,
             cancel_at_period_end: false,
             cancel_at: null,
           })

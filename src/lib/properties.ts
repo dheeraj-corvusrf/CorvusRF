@@ -11,6 +11,7 @@ export type PropertyRecord = {
   improvementValue: number | null;
   totalValue: number | null;
   taxYear: number | null;
+  protestDeadline: string | null;
   createdAt: string;
 };
 
@@ -25,6 +26,7 @@ type PropertyRow = {
   improvement_value: number | null;
   total_value: number | null;
   tax_year: number | null;
+  protest_deadline: string | null;
   created_at: string;
 };
 
@@ -40,6 +42,7 @@ function fromRow(row: PropertyRow): PropertyRecord {
     improvementValue: row.improvement_value,
     totalValue: row.total_value,
     taxYear: row.tax_year,
+    protestDeadline: row.protest_deadline,
     createdAt: row.created_at,
   };
 }
@@ -48,7 +51,7 @@ export async function listProperties(userId: string): Promise<PropertyRecord[]> 
   const { data, error } = await supabase
     .from("properties")
     .select(
-      "id, address, cad, account_number, owner_name, property_type, land_value, improvement_value, total_value, tax_year, created_at",
+      "id, address, cad, account_number, owner_name, property_type, land_value, improvement_value, total_value, tax_year, protest_deadline, created_at",
     )
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
@@ -68,6 +71,7 @@ export async function addProperty(
     improvementValue?: number;
     totalValue?: number;
     taxYear?: number;
+    protestDeadline?: string;
   },
 ): Promise<PropertyRecord> {
   const { data, error } = await supabase
@@ -83,6 +87,7 @@ export async function addProperty(
       improvement_value: property.improvementValue ?? null,
       total_value: property.totalValue ?? null,
       tax_year: property.taxYear ?? null,
+      protest_deadline: property.protestDeadline ?? null,
     })
     .select()
     .single();
