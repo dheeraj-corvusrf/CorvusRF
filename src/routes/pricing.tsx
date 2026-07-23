@@ -1,8 +1,8 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
-import { startCheckout } from "@/lib/billing";
+import { startCheckout, getMyPlan } from "@/lib/billing";
 
 export const Route = createFileRoute("/pricing")({
   head: () => ({
@@ -72,6 +72,17 @@ function Page() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [checkingOut, setCheckingOut] = useState(false);
+  const [alreadySubscribed, setAlreadySubscribed] = useState(false);
+
+  useEffect(() => {
+    if (!user) {
+      setAlreadySubscribed(false);
+      return;
+    }
+    getMyPlan(user.id)
+      .then((plan) => setAlreadySubscribed(plan === "ai_report" || plan === "managed_protest"))
+      .catch(() => setAlreadySubscribed(false));
+  }, [user]);
 
   async function handleSubscribe() {
     if (!user) {
@@ -121,13 +132,22 @@ function Page() {
             </ul>
             <div className="mt-6">
               {p.name === "AI Report" ? (
-                <button
-                  onClick={handleSubscribe}
-                  disabled={checkingOut}
-                  className={`w-full ${p.highlight ? "btn-accent" : "btn-primary btn-primary-hover"} disabled:opacity-60`}
-                >
-                  {checkingOut ? "Redirecting to checkout…" : p.cta}
-                </button>
+                alreadySubscribed ? (
+                  <button
+                    disabled
+                    className="w-full btn-outline disabled:opacity-100 cursor-default"
+                  >
+                    Subscribed ✓
+                  </button>
+                ) : (
+                  <button
+                    onClick={handleSubscribe}
+                    disabled={checkingOut}
+                    className={`w-full ${p.highlight ? "btn-accent" : "btn-primary btn-primary-hover"} disabled:opacity-60`}
+                  >
+                    {checkingOut ? "Redirecting to checkout…" : p.cta}
+                  </button>
+                )
               ) : (
                 <Link
                   to={p.name === "Managed Protest" ? "/contact" : "/"}

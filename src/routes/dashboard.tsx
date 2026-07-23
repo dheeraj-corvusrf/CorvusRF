@@ -1,7 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { currency, resetIntake } from "@/lib/intake-store";
+import { currency, resetIntake, updateIntake } from "@/lib/intake-store";
 import { useAuth } from "@/lib/auth";
 import { listProperties, deleteProperty, type PropertyRecord } from "@/lib/properties";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -149,6 +149,20 @@ function Dashboard() {
                 <Link
                   key={p.id}
                   to="/ai-report"
+                  onClick={() =>
+                    updateIntake({
+                      address: p.address,
+                      cad: p.cad ?? undefined,
+                      accountNumber: p.accountNumber ?? undefined,
+                      ownerName: p.ownerName ?? undefined,
+                      propertyType: p.propertyType ?? undefined,
+                      landValue: p.landValue ?? undefined,
+                      improvementValue: p.improvementValue ?? undefined,
+                      totalValue: p.totalValue ?? undefined,
+                      taxYear: p.taxYear ?? undefined,
+                      confirmed: true,
+                    })
+                  }
                   className="card-elev p-5 flex items-center justify-between hover:bg-secondary/40"
                 >
                   <div>
