@@ -2,7 +2,7 @@ import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { toast } from "sonner";
 import heroImage from "@/assets/hero.jpg";
-import { updateIntake, classifyAndStoreDocument } from "@/lib/intake-store";
+import { updateIntake, resetIntake, classifyAndStoreDocument } from "@/lib/intake-store";
 import { AddressAutocomplete } from "@/components/AddressAutocomplete";
 
 export const Route = createFileRoute("/")({
@@ -33,6 +33,7 @@ function Home() {
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!address.trim()) return;
+    resetIntake();
     updateIntake({ address: address.trim() });
     navigate({ to: "/intake" });
   };
@@ -109,6 +110,7 @@ function Home() {
             </label>
             <Link
               to="/intake"
+              onClick={() => resetIntake()}
               className="btn-outline bg-brand-foreground/10 border-white/30 text-brand-foreground hover:bg-brand-foreground/20"
             >
               Check My Property Taxes
