@@ -1,8 +1,9 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { toast } from "sonner";
-import heroImage from "@/assets/hero.jpg";
+import { Upload, Scale, Gavel, Wallet, LogIn, Send, Sparkles } from "lucide-react";
 import { updateIntake, resetIntake, classifyAndStoreDocument } from "@/lib/intake-store";
+import { askRouter } from "@/lib/ask-router";
 import { AddressAutocomplete } from "@/components/AddressAutocomplete";
 
 export const Route = createFileRoute("/")({
@@ -25,10 +26,22 @@ export const Route = createFileRoute("/")({
   component: Home,
 });
 
+const PROMPT_CHIPS = [
+  "My appraisal is too high",
+  "I missed my deadline",
+  "I need my EPIN",
+  "I own a daycare",
+  "I want to protest my value",
+  "I need to pay taxes",
+];
+
 function Home() {
   const navigate = useNavigate();
   const [address, setAddress] = useState("");
   const [uploading, setUploading] = useState(false);
+  const [askQuery, setAskQuery] = useState("");
+  const [asking, setAsking] = useState(false);
+  const [askResult, setAskResult] = useState<{ destination: string; message: string } | null>(null);
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -54,51 +67,57 @@ function Home() {
     }
   }
 
+  async function submitAsk(query: string) {
+    if (!query.trim()) return;
+    setAsking(true);
+    setAskResult(null);
+    try {
+      const result = await askRouter(query.trim());
+      setAskResult(result);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not process that. Please try again.");
+    } finally {
+      setAsking(false);
+    }
+  }
+
   return (
-    <section className="relative overflow-hidden">
-      <div className="absolute inset-0 -z-10">
-        <img
-          src={heroImage}
-          alt="Aerial view of a Texas commercial property district"
-          width={1600}
-          height={1000}
-          className="h-full w-full object-cover"
-        />
-        <div className="absolute inset-0 bg-gradient-to-b from-brand/85 via-brand/75 to-brand/95" />
-      </div>
+    <section className="container-page pt-8 pb-16 md:pt-12 md:pb-24">
+      <div className="mx-auto max-w-3xl text-center">
+        <span className="badge-soft">
+          <span className="h-1.5 w-1.5 rounded-full bg-accent" /> AI Powered Property Tax Assistant
+        </span>
+        <h1 className="mt-5 font-serif text-4xl md:text-6xl font-semibold leading-[1.1]">
+          AI-Powered Property Tax
+          <br />
+          <span className="text-accent">&amp; Protest Management</span>
+          <br />
+          From Notice to Savings.
+        </h1>
+        <p className="mt-5 text-lg text-muted-foreground">
+          Upload your notice or enter your property address. Check value. File BPP. Protest
+          overvaluation. Track your savings — all in one place.
+        </p>
 
-      <div className="container-page py-20 md:py-28 text-brand-foreground">
-        <div className="max-w-3xl">
-          <span className="badge-soft">
-            <span className="h-1.5 w-1.5 rounded-full bg-accent" /> Texas • All 254 counties
-          </span>
-          <h1 className="mt-4 font-serif text-4xl md:text-6xl font-semibold leading-[1.05]">
-            Texas property tax help, <span className="text-accent">powered by AI.</span>
-          </h1>
-          <p className="mt-5 max-w-2xl text-lg text-brand-foreground/85">
-            Upload your notice or enter your property. AI checks your county value, BPP filing
-            needs, protest deadline, possible overvaluation, evidence gaps, and savings opportunity
-            — before you even sign in.
-          </p>
+        <form
+          onSubmit={submit}
+          className="mt-8 flex flex-col sm:flex-row gap-2 bg-card p-2 rounded-xl shadow-elev border border-border"
+        >
+          <AddressAutocomplete
+            value={address}
+            onChange={setAddress}
+            placeholder="Enter a commercial property address in Texas"
+            className="flex-1 bg-transparent text-foreground placeholder:text-muted-foreground px-4 py-3 outline-none rounded-lg"
+            ariaLabel="Commercial property address"
+          />
+          <button type="submit" className="btn-accent">
+            Start Free AI Powered Review
+          </button>
+        </form>
 
-          <form
-            onSubmit={submit}
-            className="mt-8 flex flex-col sm:flex-row gap-2 bg-background/95 p-2 rounded-xl shadow-elev"
-          >
-            <AddressAutocomplete
-              value={address}
-              onChange={setAddress}
-              placeholder="Enter a commercial property address in Texas"
-              className="flex-1 bg-transparent text-foreground placeholder:text-muted-foreground px-4 py-3 outline-none rounded-lg"
-              ariaLabel="Commercial property address"
-            />
-            <button type="submit" className="btn-accent">
-              Start Free AI Property Review
-            </button>
-          </form>
-
-          <div className="mt-6 flex flex-wrap gap-3">
-            <label className="btn-outline bg-brand-foreground/10 border-white/30 text-brand-foreground hover:bg-brand-foreground/20 cursor-pointer">
+        <div className="mt-6 flex flex-wrap justify-center gap-2">
+          <PillLabel icon={<Upload className="h-3.5 w-3.5" />} disabled={uploading}>
+            <label className="cursor-pointer flex items-center gap-1.5">
               <input
                 type="file"
                 className="hidden"
@@ -106,44 +125,124 @@ function Home() {
                 disabled={uploading}
                 onChange={onFile}
               />
-              {uploading ? "Reading document…" : "Upload Appraisal Notice"}
+              Upload Tax Notice
             </label>
-            <Link
-              to="/intake"
-              onClick={() => resetIntake()}
-              className="btn-outline bg-brand-foreground/10 border-white/30 text-brand-foreground hover:bg-brand-foreground/20"
+          </PillLabel>
+          <PillLink to="/bpp-rendition" icon={<Gavel className="h-3.5 w-3.5" />}>
+            File BPP Rendition
+          </PillLink>
+          <PillLink to="/property-protest" icon={<Scale className="h-3.5 w-3.5" />}>
+            Protest Property Value
+          </PillLink>
+          <PillLink to="/tax-payment" icon={<Wallet className="h-3.5 w-3.5" />}>
+            Track Tax Payment
+          </PillLink>
+          <PillLink to="/sign-in" icon={<LogIn className="h-3.5 w-3.5" />}>
+            Sign In
+          </PillLink>
+        </div>
+
+        <div className="mt-10 card-elev p-2 flex items-center gap-2 text-left">
+          <span className="ml-2 grid h-8 w-8 shrink-0 place-items-center rounded-full bg-accent/20 text-accent">
+            <Sparkles className="h-4 w-4" />
+          </span>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              submitAsk(askQuery);
+            }}
+            className="flex flex-1 items-center gap-2"
+          >
+            <input
+              value={askQuery}
+              onChange={(e) => setAskQuery(e.target.value)}
+              placeholder="Ask AI what to do with your property tax notice."
+              className="flex-1 bg-transparent px-1 py-3 text-sm outline-none placeholder:text-muted-foreground"
+            />
+            <button
+              type="submit"
+              disabled={asking || !askQuery.trim()}
+              className="btn-accent px-3 py-2 disabled:opacity-50"
+              aria-label="Ask AI"
             >
-              Check My Property Taxes
+              <Send className="h-4 w-4" />
+            </button>
+          </form>
+        </div>
+
+        <div className="mt-3 flex flex-wrap justify-center gap-2">
+          {PROMPT_CHIPS.map((chip) => (
+            <button
+              key={chip}
+              onClick={() => {
+                setAskQuery(chip);
+                submitAsk(chip);
+              }}
+              className="rounded-full border border-border px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:border-accent transition-colors"
+            >
+              {chip}
+            </button>
+          ))}
+        </div>
+
+        {asking && (
+          <div className="mt-4 card-elev p-4 text-left text-sm text-muted-foreground">
+            AI is thinking…
+          </div>
+        )}
+        {askResult && !asking && (
+          <div className="mt-4 card-elev p-4 text-left">
+            <p className="text-sm">{askResult.message}</p>
+            <Link
+              to={askResult.destination}
+              className="btn-primary btn-primary-hover mt-3 inline-flex text-sm py-2"
+            >
+              Continue
             </Link>
           </div>
-
-          <ul className="mt-10 grid gap-3 sm:grid-cols-3 max-w-2xl">
-            {[
-              "Reads your county's rules automatically",
-              "Finds evidence humans usually miss",
-              "Tracks deadlines, filings & savings",
-            ].map((t) => (
-              <li key={t} className="flex items-start gap-2 text-sm text-brand-foreground/90">
-                <CheckIcon /> {t}
-              </li>
-            ))}
-          </ul>
-        </div>
+        )}
       </div>
     </section>
   );
 }
 
-function CheckIcon() {
+function PillLabel({
+  icon,
+  disabled,
+  children,
+}: {
+  icon: React.ReactNode;
+  disabled?: boolean;
+  children: React.ReactNode;
+}) {
   return (
-    <svg
-      viewBox="0 0 24 24"
-      className="mt-0.5 h-4 w-4 shrink-0 text-accent"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2.5"
+    <span
+      className={`inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-xs font-medium text-foreground ${
+        disabled ? "opacity-60" : "hover:border-accent"
+      } transition-colors`}
     >
-      <path d="M5 12l5 5L20 7" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
+      {icon}
+      {children}
+    </span>
+  );
+}
+
+function PillLink({
+  to,
+  icon,
+  children,
+}: {
+  to: string;
+  icon: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <Link
+      to={to}
+      className="inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:border-accent transition-colors"
+    >
+      {icon}
+      {children}
+    </Link>
   );
 }
