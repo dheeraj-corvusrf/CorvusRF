@@ -6,6 +6,7 @@ import {
   checkIsAdmin,
   listAllUsers,
   updateUserPlan,
+  updateUserAdminStatus,
   deleteUserAccount,
   createUserAccount,
   PLAN_OPTIONS,
@@ -66,6 +67,17 @@ function AdminPanel() {
     }
   }
 
+  async function handleToggleAdmin(userId: string, makeAdmin: boolean) {
+    setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, isAdmin: makeAdmin } : u)));
+    try {
+      await updateUserAdminStatus(userId, makeAdmin);
+      toast.success(makeAdmin ? "User is now an admin." : "Admin access removed.");
+    } catch (err) {
+      setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, isAdmin: !makeAdmin } : u)));
+      toast.error(err instanceof Error ? err.message : "Could not update admin status.");
+    }
+  }
+
   async function handleDeleteUser(userId: string) {
     if (
       !window.confirm(
@@ -111,6 +123,7 @@ function AdminPanel() {
               expanded={expandedId === u.id}
               onToggleExpand={() => setExpandedId(expandedId === u.id ? null : u.id)}
               onPlanChange={(plan) => handlePlanChange(u.id, plan)}
+              onToggleAdmin={(makeAdmin) => handleToggleAdmin(u.id, makeAdmin)}
               onDelete={() => handleDeleteUser(u.id)}
             />
           ))
@@ -230,6 +243,7 @@ function UserRow({
   expanded,
   onToggleExpand,
   onPlanChange,
+  onToggleAdmin,
   onDelete,
 }: {
   record: AdminUserRecord;
@@ -237,6 +251,7 @@ function UserRow({
   expanded: boolean;
   onToggleExpand: () => void;
   onPlanChange: (plan: PlanValue) => void;
+  onToggleAdmin: (makeAdmin: boolean) => void;
   onDelete: () => void;
 }) {
   return (
@@ -246,6 +261,9 @@ function UserRow({
           <h3 className="font-serif text-lg font-semibold">
             {record.firstName} {record.lastName}
             {isSelf && <span className="ml-2 text-xs text-muted-foreground">(you)</span>}
+            {record.isAdmin && (
+              <span className="ml-2 badge-soft text-[10px] align-middle">Admin</span>
+            )}
           </h3>
           <p className="text-sm text-muted-foreground">
             {record.email} • {record.phone}
@@ -269,6 +287,12 @@ function UserRow({
           <button onClick={onToggleExpand} className="btn-outline text-sm">
             {expanded ? "Hide properties" : "View properties"}
           </button>
+          {/* Hidden for yourself so an admin can't accidentally revoke their own access. */}
+          {!isSelf && (
+            <button onClick={() => onToggleAdmin(!record.isAdmin)} className="btn-outline text-sm">
+              {record.isAdmin ? "Remove Admin" : "Make Admin"}
+            </button>
+          )}
           {!isSelf && (
             <button onClick={onDelete} className="btn-outline text-sm text-destructive">
               Delete User

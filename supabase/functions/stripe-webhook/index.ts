@@ -1,7 +1,8 @@
 // Deploy via CLI: `supabase functions deploy stripe-webhook`.
 // Requires STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET secrets. After deploying, add
 // this function's URL as a webhook endpoint in the Stripe Dashboard, subscribed to
-// checkout.session.completed and customer.subscription.deleted.
+// checkout.session.completed, customer.subscription.updated, and
+// customer.subscription.deleted.
 //
 // No Supabase auth here — Stripe calls this directly and authenticates via an HMAC
 // signature (verified below) instead of a Supabase JWT. The service-role client is
@@ -64,11 +65,27 @@ Deno.serve(async (req: Request) => {
           .from("profiles")
           .update({
             plan: "ai_report",
+            subscription_status: "active",
             stripe_customer_id: typeof session.customer === "string" ? session.customer : null,
             stripe_subscription_id:
               typeof session.subscription === "string" ? session.subscription : null,
           })
           .eq("id", userId);
+      }
+    } else if (event.type === "customer.subscription.updated") {
+      const subscription = event.data.object as Stripe.Subscription;
+      const customerId = typeof subscription.customer === "string" ? subscription.customer : null;
+      if (customerId) {
+        const update: Record<string, string | boolean | null> = {
+          subscription_status: subscription.status,
+          cancel_at_period_end: subscription.cancel_at_period_end,
+          cancel_at: subscription.cancel_at
+            ? new Date(subscription.cancel_at * 1000).toISOString()
+            : null,
+        };
+        if (subscription.status === "active") update.plan = "ai_report";
+        if (subscription.status === "canceled") update.plan = "free_ai_review";
+        await adminClient.from("profiles").update(update).eq("stripe_customer_id", customerId);
       }
     } else if (event.type === "customer.subscription.deleted") {
       const subscription = event.data.object as Stripe.Subscription;
@@ -76,7 +93,12 @@ Deno.serve(async (req: Request) => {
       if (customerId) {
         await adminClient
           .from("profiles")
-          .update({ plan: "free_ai_review" })
+          .update({
+            plan: "free_ai_review",
+            subscription_status: "canceled",
+            cancel_at_period_end: false,
+            cancel_at: null,
+          })
           .eq("stripe_customer_id", customerId);
       }
     }

@@ -72,6 +72,11 @@ export async function updateUserPlan(userId: string, plan: PlanValue): Promise<v
   if (error) throw error;
 }
 
+export async function updateUserAdminStatus(userId: string, isAdmin: boolean): Promise<void> {
+  const { error } = await supabase.from("profiles").update({ is_admin: isAdmin }).eq("id", userId);
+  if (error) throw error;
+}
+
 export async function deleteUserAccount(userId: string): Promise<void> {
   await invokeEdgeFunction("admin-delete-user", { userId });
 }

@@ -1,0 +1,72 @@
+// Deploy via CLI: `supabase functions deploy create-billing-portal-session`.
+// Requires the Stripe Dashboard's Customer Portal settings to be saved at least once
+// (Settings > Billing > Customer Portal) or billingPortal.sessions.create errors out.
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import Stripe from "npm:stripe@17";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  // Without this, supabase-js's functions.invoke() parses the body as plain text
+  // (a JSON string) instead of a parsed object, based on the response Content-Type.
+  "Content-Type": "application/json",
+};
+
+Deno.serve(async (req: Request) => {
+  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+
+  try {
+    const secretKey = Deno.env.get("STRIPE_SECRET_KEY");
+    if (!secretKey) throw new Error("Missing STRIPE_SECRET_KEY");
+
+    const callerClient = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_ANON_KEY")!,
+      { global: { headers: { Authorization: req.headers.get("Authorization") ?? "" } } },
+    );
+    const {
+      data: { user },
+      error: userErr,
+    } = await callerClient.auth.getUser();
+    if (userErr || !user) {
+      return new Response(JSON.stringify({ error: "unauthenticated" }), {
+        status: 401,
+        headers: corsHeaders,
+      });
+    }
+
+    const adminClient = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+    );
+    const { data: profile } = await adminClient
+      .from("profiles")
+      .select("stripe_customer_id")
+      .eq("id", user.id)
+      .single();
+    if (!profile?.stripe_customer_id) {
+      return new Response(JSON.stringify({ error: "No billing account found for this user" }), {
+        status: 400,
+        headers: corsHeaders,
+      });
+    }
+
+    const stripe = new Stripe(secretKey, { apiVersion: "2024-06-20" });
+    const origin = req.headers.get("origin") ?? new URL(req.url).origin;
+
+    const session = await stripe.billingPortal.sessions.create({
+      customer: profile.stripe_customer_id,
+      return_url: `${origin}/CorvusRF/dashboard`,
+    });
+
+    return new Response(JSON.stringify({ url: session.url }), {
+      status: 200,
+      headers: corsHeaders,
+    });
+  } catch (err) {
+    return new Response(
+      JSON.stringify({ error: err instanceof Error ? err.message : "unknown error" }),
+      { status: 500, headers: corsHeaders },
+    );
+  }
+});
