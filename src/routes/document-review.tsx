@@ -1,5 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 import {
   readIntake,
   updateIntake,
@@ -15,14 +16,22 @@ import {
 } from "@/lib/intake-store";
 import { askAboutDocument } from "@/lib/document-ai";
 import type { Extraction } from "@/lib/document-ai";
+import { useAuth } from "@/lib/auth";
+import { addProperty } from "@/lib/properties";
 
 export const Route = createFileRoute("/document-review")({
   head: () => ({
     meta: [
       { title: "Document Review — CorvusRF.ai" },
-      { name: "description", content: "AI read your Texas property tax document. Review and confirm." },
+      {
+        name: "description",
+        content: "AI read your Texas property tax document. Review and confirm.",
+      },
       { property: "og:title", content: "Document Review — CorvusRF.ai" },
-      { property: "og:description", content: "Confirm classification, extraction, and next-best workflow." },
+      {
+        property: "og:description",
+        content: "Confirm classification, extraction, and next-best workflow.",
+      },
       { name: "robots", content: "noindex" },
     ],
   }),
@@ -33,9 +42,11 @@ type Mode = "review" | "edit" | "confirmed";
 
 function DocumentReview() {
   const nav = useNavigate();
+  const { user } = useAuth();
   const [state, setState] = useState<IntakeState>({ previewsUsed: [] });
   const [mode, setMode] = useState<Mode>("review");
   const [askOpen, setAskOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     const s = readIntake();
@@ -78,7 +89,7 @@ function DocumentReview() {
     setState(next);
   }
 
-  function onConfirm() {
+  async function onConfirm() {
     if (mismatch) return;
     if (lowConfidence) return;
     const eff = effectiveExtraction(state);
@@ -102,11 +113,34 @@ function DocumentReview() {
       landValue: eff.landValue ?? state.landValue,
       improvementValue: eff.improvementValue ?? state.improvementValue,
       totalValue:
-        eff.noticeValue ??
-        (((eff.landValue ?? 0) + (eff.improvementValue ?? 0)) || state.totalValue),
+        eff.noticeValue ?? ((eff.landValue ?? 0) + (eff.improvementValue ?? 0) || state.totalValue),
       confirmed: true,
     });
     setState(next);
+
+    if (user && next.address) {
+      setSaving(true);
+      try {
+        await addProperty(user.id, {
+          address: next.address,
+          cad: next.cad,
+          accountNumber: next.accountNumber,
+          ownerName: next.ownerName,
+          landValue: next.landValue,
+          improvementValue: next.improvementValue,
+          totalValue: next.totalValue,
+          taxYear: next.taxYear,
+        });
+        toast.success("Property added to your dashboard.");
+      } catch (err) {
+        toast.error(
+          err instanceof Error ? err.message : "Could not save this property to your dashboard.",
+        );
+      } finally {
+        setSaving(false);
+      }
+    }
+
     setMode("confirmed");
   }
 
@@ -159,7 +193,13 @@ function DocumentReview() {
             mode={mode}
             onChange={saveEdit}
           />
-          <FieldRow label="Owner Name" k="ownerName" v={extraction.ownerName} mode={mode} onChange={saveEdit} />
+          <FieldRow
+            label="Owner Name"
+            k="ownerName"
+            v={extraction.ownerName}
+            mode={mode}
+            onChange={saveEdit}
+          />
           <FieldRow
             label="Property Address"
             k="propertyAddress"
@@ -177,8 +217,20 @@ function DocumentReview() {
         </Card>
         <Card>
           <CardTitle>Jurisdiction</CardTitle>
-          <FieldRow label="County" k="county" v={extraction.county} mode={mode} onChange={saveEdit} />
-          <FieldRow label="CAD Name" k="cadName" v={extraction.cadName} mode={mode} onChange={saveEdit} />
+          <FieldRow
+            label="County"
+            k="county"
+            v={extraction.county}
+            mode={mode}
+            onChange={saveEdit}
+          />
+          <FieldRow
+            label="CAD Name"
+            k="cadName"
+            v={extraction.cadName}
+            mode={mode}
+            onChange={saveEdit}
+          />
           <FieldRow
             label="Account Number"
             k="accountNumber"
@@ -186,8 +238,21 @@ function DocumentReview() {
             mode={mode}
             onChange={saveEdit}
           />
-          <FieldRow label="Parcel ID" k="parcelId" v={extraction.parcelId} mode={mode} onChange={saveEdit} />
-          <FieldRow label="Tax Year" k="taxYear" v={extraction.taxYear} mode={mode} onChange={saveEdit} numeric />
+          <FieldRow
+            label="Parcel ID"
+            k="parcelId"
+            v={extraction.parcelId}
+            mode={mode}
+            onChange={saveEdit}
+          />
+          <FieldRow
+            label="Tax Year"
+            k="taxYear"
+            v={extraction.taxYear}
+            mode={mode}
+            onChange={saveEdit}
+            numeric
+          />
         </Card>
         <Card>
           <CardTitle>Values</CardTitle>
@@ -246,7 +311,13 @@ function DocumentReview() {
             mode={mode}
             onChange={saveEdit}
           />
-          <FieldRow label="Mail Date" k="mailDate" v={extraction.mailDate} mode={mode} onChange={saveEdit} />
+          <FieldRow
+            label="Mail Date"
+            k="mailDate"
+            v={extraction.mailDate}
+            mode={mode}
+            onChange={saveEdit}
+          />
           <FieldRow
             label="Protest Deadline"
             k="protestDeadline"
@@ -294,7 +365,10 @@ function DocumentReview() {
               saveEdit({
                 exemptions:
                   typeof val === "string"
-                    ? val.split(",").map((s) => s.trim()).filter(Boolean)
+                    ? val
+                        .split(",")
+                        .map((s) => s.trim())
+                        .filter(Boolean)
                     : null,
               });
             }}
@@ -314,10 +388,10 @@ function DocumentReview() {
             <>
               <button
                 onClick={onConfirm}
-                disabled={mismatch || lowConfidence}
+                disabled={mismatch || lowConfidence || saving}
                 className={`btn-primary btn-primary-hover ${
                   mismatch || lowConfidence ? "opacity-50 cursor-not-allowed" : ""
-                }`}
+                } ${saving ? "opacity-60" : ""}`}
                 title={
                   mismatch
                     ? "Blocked — resolve mismatch"
@@ -326,7 +400,7 @@ function DocumentReview() {
                       : ""
                 }
               >
-                Confirm Details
+                {saving ? "Saving…" : "Confirm Details"}
               </button>
               <button onClick={() => setMode("edit")} className="btn-outline">
                 Edit Details
@@ -349,9 +423,12 @@ function DocumentReview() {
       {/* Workflow routing shown after confirm */}
       {mode === "confirmed" && (
         <section className="mt-8">
-          <h2 className="font-serif text-2xl font-semibold">AI identified the next best workflow.</h2>
+          <h2 className="font-serif text-2xl font-semibold">
+            AI identified the next best workflow.
+          </h2>
           <p className="text-muted-foreground text-sm">
-            Based on this document, AI recommends the following path{workflows.length > 1 ? "s" : ""}.
+            Based on this document, AI recommends the following path
+            {workflows.length > 1 ? "s" : ""}.
           </p>
           <div className="mt-4 grid gap-3 md:grid-cols-2">
             {workflows.map((w) => (
@@ -366,7 +443,7 @@ function DocumentReview() {
                     Continue
                   </Link>
                   <Link to="/dashboard" className="btn-outline text-sm py-2">
-                    Add to Dashboard
+                    {user ? "View on Dashboard" : "Go to Dashboard"}
                   </Link>
                 </div>
               </div>
@@ -374,7 +451,8 @@ function DocumentReview() {
           </div>
           {(lowConfidence || mismatch) && (
             <p className="mt-4 text-sm text-muted-foreground">
-              Because this document was flagged, CorvusRF staff will review the routing before any filing action.
+              Because this document was flagged, CorvusRF staff will review the routing before any
+              filing action.
             </p>
           )}
         </section>
@@ -409,7 +487,10 @@ function DocumentReview() {
         <AskModal
           onClose={() => setAskOpen(false)}
           ask={async (q) => {
-            const res = await askAboutDocument({ question: q, context: JSON.stringify(extraction) });
+            const res = await askAboutDocument({
+              question: q,
+              context: JSON.stringify(extraction),
+            });
             return res.answer;
           }}
         />
@@ -511,20 +592,17 @@ function FieldRow<K extends keyof Extraction>({
   );
 }
 
-function AskModal({
-  onClose,
-  ask,
-}: {
-  onClose: () => void;
-  ask: (q: string) => Promise<string>;
-}) {
+function AskModal({ onClose, ask }: { onClose: () => void; ask: (q: string) => Promise<string> }) {
   const [q, setQ] = useState("");
   const [a, setA] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center p-4 bg-primary/60 backdrop-blur-sm" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 grid place-items-center p-4 bg-primary/60 backdrop-blur-sm"
+      onClick={onClose}
+    >
       <div className="card-elev p-6 w-full max-w-lg" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between">
           <h3 className="font-serif text-xl font-semibold">Ask AI about this document</h3>
@@ -544,7 +622,9 @@ function AskModal({
               setA(res);
             } catch (e2) {
               console.error(e2);
-              setErr(e2 instanceof Error ? e2.message : "Could not get an answer. Please try again.");
+              setErr(
+                e2 instanceof Error ? e2.message : "Could not get an answer. Please try again.",
+              );
             } finally {
               setLoading(false);
             }
