@@ -5,6 +5,7 @@ import { currency, resetIntake, updateIntake } from "@/lib/intake-store";
 import { useAuth } from "@/lib/auth";
 import { listProperties, deleteProperty, type PropertyRecord } from "@/lib/properties";
 import { Skeleton } from "@/components/ui/skeleton";
+import { JourneyTracker } from "@/components/JourneyTracker";
 
 export const Route = createFileRoute("/dashboard")({
   head: () => ({
@@ -67,15 +68,18 @@ function Dashboard() {
     <div className="container-page py-10">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <span className="badge-soft">Your Journey</span>
-          <h1 className="mt-2 font-serif text-3xl font-semibold">Welcome back.</h1>
+          <h1 className="font-serif text-3xl font-semibold">Always know where you are.</h1>
           <p className="text-muted-foreground">
-            Every property, protest, deadline, and dollar — connected.
+            One unified profile. Every property, every account, every deadline.
           </p>
         </div>
         <Link to="/intake" onClick={() => resetIntake()} className="btn-primary btn-primary-hover">
           Add another property
         </Link>
+      </div>
+
+      <div className="mt-6">
+        <JourneyTracker />
       </div>
 
       <nav className="mt-6 flex flex-wrap gap-1 border-b border-border">
