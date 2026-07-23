@@ -144,16 +144,23 @@ function Dashboard() {
         )}
         {tab === "AI Reports" &&
           (hasProperty ? (
-            <Link
-              to="/ai-report"
-              className="card-elev p-5 flex items-center justify-between hover:bg-secondary/40"
-            >
-              <div>
-                <div className="font-medium">AI Property Review — {properties[0].address}</div>
-                <div className="text-xs text-muted-foreground">10 modules • preview available</div>
-              </div>
-              <span className="btn-outline text-sm">Open</span>
-            </Link>
+            <div className="grid gap-4">
+              {properties.map((p) => (
+                <Link
+                  key={p.id}
+                  to="/ai-report"
+                  className="card-elev p-5 flex items-center justify-between hover:bg-secondary/40"
+                >
+                  <div>
+                    <div className="font-medium">AI Property Review — {p.address}</div>
+                    <div className="text-xs text-muted-foreground">
+                      10 modules • preview available
+                    </div>
+                  </div>
+                  <span className="btn-outline text-sm">Open</span>
+                </Link>
+              ))}
+            </div>
           ) : (
             <EmptyState />
           ))}

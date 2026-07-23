@@ -1,4 +1,5 @@
 import { supabase } from "./supabase";
+import { invokeEdgeFunction } from "./edge-functions";
 
 // Reads/writes here rely on the admin-only RLS policies in supabase/schema.sql
 // (public.is_admin()) — never import this module from customer-facing routes,
@@ -71,28 +72,8 @@ export async function updateUserPlan(userId: string, plan: PlanValue): Promise<v
   if (error) throw error;
 }
 
-async function invokeAdminFunction<T>(name: string, body: Record<string, unknown>): Promise<T> {
-  const { data, error } = await supabase.functions.invoke<T>(name, { body });
-  if (error) {
-    // supabase-js's default error.message is a generic "non-2xx status" string —
-    // the function's actual { error: "..." } reason is in the response body.
-    const context = (error as { context?: Response }).context;
-    let extractedMessage: string | undefined;
-    if (context) {
-      try {
-        const payload = (await context.clone().json()) as { error?: string };
-        extractedMessage = payload?.error;
-      } catch {
-        // response body wasn't JSON — fall through to the generic error below
-      }
-    }
-    throw extractedMessage ? new Error(extractedMessage) : error;
-  }
-  return data as T;
-}
-
 export async function deleteUserAccount(userId: string): Promise<void> {
-  await invokeAdminFunction("admin-delete-user", { userId });
+  await invokeEdgeFunction("admin-delete-user", { userId });
 }
 
 export async function createUserAccount(input: {
@@ -102,5 +83,5 @@ export async function createUserAccount(input: {
   lastName: string;
   phone: string;
 }): Promise<void> {
-  await invokeAdminFunction("admin-create-user", input);
+  await invokeEdgeFunction("admin-create-user", input);
 }

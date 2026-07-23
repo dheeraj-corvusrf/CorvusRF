@@ -1,6 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
-import { useServerFn } from "@tanstack/react-start";
 import {
   readIntake,
   updateIntake,
@@ -14,8 +13,8 @@ import {
   type IntakeState,
   type WorkflowSuggestion,
 } from "@/lib/intake-store";
-import { askAboutDocument } from "@/lib/document.functions";
-import type { Extraction } from "@/lib/document.functions";
+import { askAboutDocument } from "@/lib/document-ai";
+import type { Extraction } from "@/lib/document-ai";
 
 export const Route = createFileRoute("/document-review")({
   head: () => ({
@@ -34,7 +33,6 @@ type Mode = "review" | "edit" | "confirmed";
 
 function DocumentReview() {
   const nav = useNavigate();
-  const askFn = useServerFn(askAboutDocument);
   const [state, setState] = useState<IntakeState>({ previewsUsed: [] });
   const [mode, setMode] = useState<Mode>("review");
   const [askOpen, setAskOpen] = useState(false);
@@ -411,7 +409,7 @@ function DocumentReview() {
         <AskModal
           onClose={() => setAskOpen(false)}
           ask={async (q) => {
-            const res = await askFn({ data: { question: q, context: JSON.stringify(extraction) } });
+            const res = await askAboutDocument({ question: q, context: JSON.stringify(extraction) });
             return res.answer;
           }}
         />
@@ -546,7 +544,7 @@ function AskModal({
               setA(res);
             } catch (e2) {
               console.error(e2);
-              setErr("AI Q&A isn't available in this demo deployment.");
+              setErr(e2 instanceof Error ? e2.message : "Could not get an answer. Please try again.");
             } finally {
               setLoading(false);
             }

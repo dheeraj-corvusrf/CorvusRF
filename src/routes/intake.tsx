@@ -1,9 +1,7 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import {
-  mockCadLookup,
   readIntake,
   updateIntake,
   appendAudit,
@@ -12,7 +10,8 @@ import {
   LOW_CONFIDENCE_THRESHOLD,
   type IntakeState,
 } from "@/lib/intake-store";
-import { classifyDocument } from "@/lib/document.functions";
+import { classifyDocument } from "@/lib/document-ai";
+import { cadLookup } from "@/lib/cad-lookup";
 import { AddressAutocomplete } from "@/components/AddressAutocomplete";
 import { useAuth } from "@/lib/auth";
 import { addProperty } from "@/lib/properties";
@@ -37,7 +36,6 @@ type Step = "address" | "validating" | "notice" | "confirm" | "notfound" | "clas
 function Intake() {
   const nav = useNavigate();
   const { user } = useAuth();
-  const classifyFn = useServerFn(classifyDocument);
   const [state, setState] = useState<IntakeState>({ previewsUsed: [] });
   const [step, setStep] = useState<Step>("address");
   const [error, setError] = useState<string | null>(null);
@@ -53,32 +51,37 @@ function Intake() {
       setAddress(s.address);
       runValidation(s.address);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function runValidation(addr: string) {
+  async function runValidation(addr: string) {
     setStep("validating");
     setError(null);
-    setTimeout(() => {
-      const res = mockCadLookup(addr);
-      if (!res.matched || !res.record) {
+    try {
+      const res = await cadLookup(addr);
+      if (!res.matched) {
         setStep("notfound");
         return;
       }
       const next = updateIntake({
         address: res.record.propertyAddress,
         cad: res.record.cad,
-        accountNumber: res.record.accountNumber,
-        ownerName: res.record.ownerName,
-        propertyType: res.record.propertyType,
-        landValue: res.record.landValue,
-        improvementValue: res.record.improvementValue,
-        totalValue: res.record.totalValue,
-        taxYear: res.record.taxYear,
+        accountNumber: res.record.accountNumber ?? undefined,
+        ownerName: res.record.ownerName ?? undefined,
+        propertyType: res.record.propertyType ?? undefined,
+        landValue: res.record.landValue ?? undefined,
+        improvementValue: res.record.improvementValue ?? undefined,
+        totalValue: res.record.totalValue ?? undefined,
+        taxYear: res.record.taxYear ?? undefined,
       });
       setState(next);
       setStep("confirm");
-    }, 1600);
+    } catch (err) {
+      console.error(err);
+      const message =
+        err instanceof Error ? err.message : "Could not look up this property. Please try again.";
+      toast.error(message);
+      setStep("address");
+    }
   }
 
   async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
@@ -100,9 +103,7 @@ function Intake() {
     try {
       const dataUrl = await fileToDataUrl(f);
       appendAudit({ actor: "user", action: "upload_document", to: f.name });
-      const extraction = await classifyFn({
-        data: { fileName: f.name, mimeType: f.type, dataUrl },
-      });
+      const extraction = await classifyDocument({ fileName: f.name, mimeType: f.type, dataUrl });
       appendAudit({
         actor: "ai",
         action: "classify_document",
@@ -127,9 +128,12 @@ function Intake() {
       nav({ to: "/document-review" });
     } catch (err) {
       console.error(err);
-      setError(
-        "AI document review isn't available in this demo deployment. Please enter the property address above instead.",
-      );
+      const message =
+        err instanceof Error
+          ? err.message
+          : "Could not read this document. Please enter the property address above instead.";
+      setError(message);
+      toast.error(message);
       setStep("address");
     }
   }
@@ -255,6 +259,11 @@ function Intake() {
             <Field label="Improvement Value" value={currency(state.improvementValue)} />
             <Field label="Total Appraised Value" value={currency(state.totalValue)} bold />
           </dl>
+          {state.totalValue == null && (
+            <p className="mt-3 text-xs text-muted-foreground">
+              Value data is not published in this county's public records.
+            </p>
+          )}
           {saveError && <p className="mt-4 text-sm text-destructive">{saveError}</p>}
           <div className="mt-6 flex flex-wrap gap-2">
             <button

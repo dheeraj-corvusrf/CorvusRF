@@ -9,6 +9,9 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  // Without this, supabase-js's functions.invoke() parses the body as plain text
+  // (a JSON string) instead of a parsed object, based on the response Content-Type.
+  "Content-Type": "application/json",
 };
 
 Deno.serve(async (req: Request) => {
