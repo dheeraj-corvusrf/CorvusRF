@@ -4,6 +4,14 @@ import { readIntake, updateIntake, currency, type IntakeState } from "@/lib/inta
 import { MODULES, type Module } from "@/lib/modules";
 import { useAuth } from "@/lib/auth";
 import { getMyBilling } from "@/lib/billing";
+import { getHealthScore, type HealthScoreResult } from "@/lib/ai-health-score";
+import { getModuleAnalysis, type BatchModuleId, type ModuleResultMap } from "@/lib/ai-report-modules";
+
+type ModuleAsyncState = {
+  data: unknown;
+  loading: boolean;
+  error: string | null;
+};
 
 export const Route = createFileRoute("/ai-report")({
   head: () => ({
@@ -27,6 +35,11 @@ function Report() {
   const [openId, setOpenId] = useState<string | null>(null);
   const [showWall, setShowWall] = useState(false);
   const [hasFullAccess, setHasFullAccess] = useState(false);
+  // AI content for every module (health + the 8 batch modules) is fetched lazily —
+  // only when the user clicks "Unlock preview" on that specific module, via
+  // loadModule() below — rather than all up front, so tokens are only spent on
+  // modules the user actually opens.
+  const [moduleData, setModuleData] = useState<Record<string, ModuleAsyncState>>({});
 
   useEffect(() => {
     const s = readIntake();
@@ -38,6 +51,34 @@ function Report() {
     const t = setTimeout(() => setAnalyzing(false), 1800);
     return () => clearTimeout(t);
   }, [nav]);
+
+  function loadModule(id: string) {
+    const existing = moduleData[id];
+    if ((existing && (existing.loading || existing.data)) || !state.totalValue) return;
+    setModuleData((prev) => ({ ...prev, [id]: { data: null, loading: true, error: null } }));
+    const input = {
+      address: state.address,
+      cad: state.cad,
+      propertyType: state.propertyType,
+      landValue: state.landValue,
+      improvementValue: state.improvementValue,
+      totalValue: state.totalValue,
+      taxYear: state.taxYear,
+    };
+    const promise = id === "health" ? getHealthScore(input) : getModuleAnalysis(id as BatchModuleId, input);
+    promise
+      .then((data) => setModuleData((prev) => ({ ...prev, [id]: { data, loading: false, error: null } })))
+      .catch((err) =>
+        setModuleData((prev) => ({
+          ...prev,
+          [id]: {
+            data: null,
+            loading: false,
+            error: err instanceof Error ? err.message : "Could not generate this analysis.",
+          },
+        })),
+      );
+  }
 
   useEffect(() => {
     if (!user) return;
@@ -54,16 +95,23 @@ function Report() {
   }, [user]);
 
   const previewsUsed = state.previewsUsed ?? [];
+  const savingsData = moduleData.savings?.data as ModuleResultMap["savings"] | undefined;
+  // Prefers the AI-estimated reduction/rate once the user has unlocked the Savings
+  // module; falls back to a fixed 12% reduction / 2.5% effective rate until then (or
+  // if that call fails), so the summary banner always shows a number.
   const estimated = useMemo(() => {
     if (!state.totalValue) return { reduction: 0, savings: 0 };
-    const reduction = Math.round(state.totalValue * 0.12);
-    const savings = Math.round(reduction * 0.025); // ~2.5% effective tax rate
+    const reductionPct = savingsData ? savingsData.reductionPct / 100 : 0.12;
+    const ratePct = savingsData ? savingsData.effectiveTaxRatePct / 100 : 0.025;
+    const reduction = Math.round(state.totalValue * reductionPct);
+    const savings = Math.round(reduction * ratePct);
     return { reduction, savings };
-  }, [state.totalValue]);
+  }, [state.totalValue, savingsData]);
 
   function openModule(m: Module) {
     if (hasFullAccess || previewsUsed.includes(m.id)) {
       setOpenId(m.id);
+      if (!m.requiresUserData) loadModule(m.id);
       return;
     }
     if (previewsUsed.length >= MAX_PREVIEWS) {
@@ -73,6 +121,7 @@ function Report() {
     const next = updateIntake({ previewsUsed: [...previewsUsed, m.id] });
     setState(next);
     setOpenId(m.id);
+    if (!m.requiresUserData) loadModule(m.id);
   }
 
   const openModel = MODULES.find((m) => m.id === openId) ?? null;
@@ -174,7 +223,13 @@ function Report() {
           </div>
           <h3 className="mt-2 font-serif text-2xl font-semibold">{openModel.title}</h3>
           <p className="text-muted-foreground">{openModel.question}</p>
-          <ModulePreviewBody m={openModel} estimated={estimated} state={state} />
+          <ModulePreviewBody
+            m={openModel}
+            estimated={estimated}
+            state={state}
+            moduleState={moduleData[openModel.id]}
+            onRetry={() => loadModule(openModel.id)}
+          />
           <div className="mt-6 flex gap-2 justify-end">
             <button onClick={() => setOpenId(null)} className="btn-outline">
               Return to Property Summary
@@ -272,10 +327,14 @@ function ModulePreviewBody({
   m,
   estimated,
   state,
+  moduleState,
+  onRetry,
 }: {
   m: Module;
   estimated: { reduction: number; savings: number };
   state: IntakeState;
+  moduleState: ModuleAsyncState | undefined;
+  onRetry: () => void;
 }) {
   if (m.requiresUserData) {
     return (
@@ -288,54 +347,17 @@ function ModulePreviewBody({
       </div>
     );
   }
-  const body: Record<string, React.ReactNode> = {
-    health: (
-      <div className="mt-4 grid gap-2">
-        <ScoreBar score={78} />
-        <p className="text-sm text-muted-foreground">
-          Strong protest opportunity based on value trend, comps, and site factors.
-        </p>
-      </div>
-    ),
-    strategy: (
-      <p className="mt-4 text-sm">
-        Recommended path: <strong>Unequal Appraisal</strong> combined with market-value comps. Filed
-        by CorvusRF.
-      </p>
-    ),
-    comps: (
-      <ul className="mt-4 text-sm space-y-1">
-        <li>• 3 sale comps within 1.5 miles, avg 11% below CAD value</li>
-        <li>• 5 equity comps in same class, median 9% below</li>
-        <li>• 1 outlier excluded (renovated in-year)</li>
-      </ul>
-    ),
-    site: (
-      <p className="mt-4 text-sm">
-        Access is limited on the east frontage; drainage easement reduces usable land. AI recommends
-        including in the packet.
-      </p>
-    ),
-    improvement: (
-      <p className="mt-4 text-sm">
-        Effective age 22 years vs. CAD assumption of 15. Deferred maintenance findings included.
-      </p>
-    ),
-    zoning: (
-      <p className="mt-4 text-sm">
-        CAD class matches actual use. No reclassification opportunity, but land use may support
-        lower land value.
-      </p>
-    ),
-    evidence: (
-      <ul className="mt-4 text-sm space-y-1">
-        <li>• Recent comp sales report</li>
-        <li>• Site photos + deferred maintenance list</li>
-        <li>• Rent roll (if available)</li>
-        <li>• Prior year settlements</li>
-      </ul>
-    ),
-    savings: (
+
+  const loading = !moduleState || moduleState.loading;
+  const error = moduleState?.error;
+
+  // Savings always has a number to show — `estimated` (computed by the caller)
+  // already falls back to a fixed 12%/2.5% assumption until this module is
+  // unlocked (or if the call fails), so this renders its own loading/error copy
+  // inline rather than going blank.
+  if (m.id === "savings") {
+    const savings = moduleState?.data as ModuleResultMap["savings"] | undefined;
+    return (
       <div className="mt-4 grid gap-2">
         <p className="text-sm">
           Estimated value reduction: <strong>{currency(estimated.reduction)}</strong>
@@ -344,26 +366,136 @@ function ModulePreviewBody({
           Estimated tax savings: <strong>{currency(estimated.savings)}</strong>
         </p>
         <p className="text-xs text-muted-foreground">
-          Based on assessed value {currency(state.totalValue)} and typical Texas effective rate.
+          Based on assessed value {currency(state.totalValue)} —{" "}
+          {savings?.rationale ??
+            (loading ? "AI is refining this estimate…" : "typical Texas commercial effective tax rate.")}
         </p>
+        {error && <ErrorWithRetry message={error} onRetry={onRetry} />}
       </div>
-    ),
-    executive: (
-      <div className="mt-4 grid gap-2 text-sm">
-        <p>
-          <strong>Recommendation:</strong> File a protest this cycle.
-        </p>
-        <p>
-          <strong>Basis:</strong> Unequal appraisal + market value comps + site conditions.
-        </p>
-        <p>
-          <strong>Next step:</strong> Subscribe to unlock the full packet and let CorvusRF file on
-          your behalf.
-        </p>
+    );
+  }
+
+  if (loading) {
+    return (
+      <p className="mt-4 text-sm text-muted-foreground">
+        {m.id === "health" ? "AI is scoring this property…" : "AI is generating this analysis…"}
+      </p>
+    );
+  }
+  if (error) {
+    return <ErrorWithRetry message={error} onRetry={onRetry} />;
+  }
+  if (!moduleState?.data) return null;
+
+  if (m.id === "health") {
+    const data = moduleState.data as HealthScoreResult;
+    return (
+      <div className="mt-4 grid gap-2">
+        <ScoreBar score={data.score} />
+        <p className="text-sm text-muted-foreground">{data.summary}</p>
+        {data.factors.length > 0 && (
+          <ul className="text-sm space-y-1">
+            {data.factors.map((f, i) => (
+              <li key={i}>• {f}</li>
+            ))}
+          </ul>
+        )}
       </div>
-    ),
-  };
-  return <>{body[m.id] ?? <p className="mt-4 text-sm">{m.teaser}</p>}</>;
+    );
+  }
+
+  switch (m.id) {
+    case "strategy": {
+      const d = moduleState.data as ModuleResultMap["strategy"];
+      return (
+        <p className="mt-4 text-sm">
+          Recommended path: <strong>{d.recommendation}</strong>. {d.rationale}
+        </p>
+      );
+    }
+    case "comps": {
+      const d = moduleState.data as ModuleResultMap["comps"];
+      return (
+        <div className="mt-4 grid gap-2">
+          <p className="text-sm">{d.guidance}</p>
+          <ul className="text-sm space-y-1">
+            {d.checklist.map((c, i) => (
+              <li key={i}>• {c}</li>
+            ))}
+          </ul>
+        </div>
+      );
+    }
+    case "site": {
+      const d = moduleState.data as ModuleResultMap["site"];
+      return (
+        <div className="mt-4 grid gap-2">
+          <p className="text-sm">{d.guidance}</p>
+          <ul className="text-sm space-y-1">
+            {d.checklist.map((c, i) => (
+              <li key={i}>• {c}</li>
+            ))}
+          </ul>
+        </div>
+      );
+    }
+    case "improvement": {
+      const d = moduleState.data as ModuleResultMap["improvement"];
+      return (
+        <div className="mt-4 grid gap-2">
+          <p className="text-sm">{d.guidance}</p>
+          <ul className="text-sm space-y-1">
+            {d.checklist.map((c, i) => (
+              <li key={i}>• {c}</li>
+            ))}
+          </ul>
+        </div>
+      );
+    }
+    case "zoning": {
+      const d = moduleState.data as ModuleResultMap["zoning"];
+      return <p className="mt-4 text-sm">{d.assessment}</p>;
+    }
+    case "evidence": {
+      const d = moduleState.data as ModuleResultMap["evidence"];
+      return (
+        <ul className="mt-4 text-sm space-y-1">
+          {d.checklist.map((c, i) => (
+            <li key={i}>• {c}</li>
+          ))}
+        </ul>
+      );
+    }
+    case "executive": {
+      const d = moduleState.data as ModuleResultMap["executive"];
+      return (
+        <div className="mt-4 grid gap-2 text-sm">
+          <p>
+            <strong>Recommendation:</strong> {d.recommendation}
+          </p>
+          <p>
+            <strong>Basis:</strong> {d.basis}
+          </p>
+          <p>
+            <strong>Next step:</strong> {d.nextStep}
+          </p>
+        </div>
+      );
+    }
+  }
+
+  return <p className="mt-4 text-sm">{m.teaser}</p>;
+}
+
+function ErrorWithRetry({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <div className="mt-4 grid gap-2">
+      <p className="text-sm text-destructive">{message}</p>
+      <button onClick={onRetry} className="btn-outline w-fit text-sm py-1.5">
+        Retry
+      </button>
+    </div>
+  );
 }
 
 function ScoreBar({ score }: { score: number }) {

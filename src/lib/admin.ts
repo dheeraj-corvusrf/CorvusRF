@@ -1,26 +1,14 @@
 import { supabase } from "./supabase";
 import { invokeEdgeFunction } from "./edge-functions";
 import type { ProtestStatus } from "./protests";
+import { PLAN_OPTIONS, type PlanValue } from "./billing";
 
 // Reads/writes here rely on the admin-only RLS policies in supabase/schema.sql
 // (public.is_admin()) — never import this module from customer-facing routes,
 // only from the /admin panel, which independently re-checks checkIsAdmin() itself.
-
-// "ai_report" and the old contingency-based "managed_protest" are retained only for
-// backward compatibility with any pre-existing rows from before the per-property
-// pricing overhaul — new subscriptions always write owner_managed/corvusrf_managed.
-export type PlanValue =
-  | "free_ai_review"
-  | "ai_report"
-  | "managed_protest"
-  | "owner_managed"
-  | "corvusrf_managed";
-
-export const PLAN_OPTIONS: { value: PlanValue; label: string }[] = [
-  { value: "free_ai_review", label: "Free AI Review" },
-  { value: "owner_managed", label: "Owner-Managed ($99/mo/property)" },
-  { value: "corvusrf_managed", label: "CorvusRF-Managed ($199/mo/property)" },
-];
+// PlanValue/PLAN_OPTIONS live in ./billing (customer-facing) and are just re-exported
+// here for admin-panel convenience, since plan values aren't admin-specific data.
+export { PLAN_OPTIONS, type PlanValue };
 
 export type AdminUserRecord = {
   id: string;

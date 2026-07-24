@@ -60,9 +60,19 @@ function Moon({ className }: { className: string }) {
 // below `lg` where there isn't room for them, and share a common "ground line"
 // (bottom-28) positioned higher up than the section's true bottom edge so they're
 // visible without scrolling.
-export function HeroBackground() {
+// `blurred` renders the same scene softened into ambient texture for content-heavy
+// marketing pages (pricing, how-it-works, etc.) rather than the crisp, literal
+// illustration used on the homepage hero. The wrapper is sized larger than its
+// container (-inset-10) so the blur has real pixels to sample at the edges instead
+// of fading into transparency there — the page section wrapping this must itself be
+// `relative overflow-hidden` to clip that bleed back to the visible area.
+export function HeroBackground({ blurred = false }: { blurred?: boolean } = {}) {
   return (
-    <div className="absolute inset-0 -z-10 overflow-hidden" aria-hidden="true">
+    <div
+      className={blurred ? "absolute -inset-10 -z-10" : "absolute inset-0 -z-10 overflow-hidden"}
+      aria-hidden="true"
+      style={blurred ? { filter: "blur(14px)", opacity: 0.4 } : undefined}
+    >
       {/* Sky */}
       <div
         className="absolute inset-0"

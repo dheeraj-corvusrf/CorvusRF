@@ -85,7 +85,7 @@ function Home() {
   }
 
   return (
-    <section className="relative overflow-hidden">
+    <section className="relative overflow-hidden min-h-[70vh]">
       <HeroBackground />
       <div className="container-page pt-8 pb-16 md:pt-12 md:pb-24">
       <div className="mx-auto max-w-3xl text-center">

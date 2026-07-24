@@ -174,6 +174,44 @@ alter table public.profiles add column if not exists cancel_at timestamptz;
 -- Notifications tab can compute real "N days left" alerts instead of inventing them.
 alter table public.properties add column if not exists protest_deadline date;
 
+-- Tax bill data extracted from an uploaded "Tax Bill / Statement" document, persisted
+-- so the dashboard's Payments tab can show real due dates and amounts. paid_at is set
+-- by the user clicking "Mark as Paid" — CorvusRF has no live payment integration, so
+-- payment status is a user-reported fact, not something the app can verify itself.
+alter table public.properties add column if not exists payment_due_date date;
+alter table public.properties add column if not exists tax_amount_due numeric;
+alter table public.properties add column if not exists paid_at timestamptz;
+
+-- Business Personal Property tax accounts — a distinct entity from real property
+-- (public.properties): a business can render BPP for a location without owning the
+-- real estate it sits in, so this isn't just a property with a type filter.
+create table if not exists public.bpp_accounts (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users (id) on delete cascade,
+  business_name text not null,
+  account_number text,
+  cad text,
+  location_address text,
+  created_at timestamptz not null default now()
+);
+
+alter table public.bpp_accounts enable row level security;
+
+drop policy if exists "Users can view their own BPP accounts" on public.bpp_accounts;
+create policy "Users can view their own BPP accounts"
+  on public.bpp_accounts for select
+  using (auth.uid() = user_id);
+
+drop policy if exists "Users can insert their own BPP accounts" on public.bpp_accounts;
+create policy "Users can insert their own BPP accounts"
+  on public.bpp_accounts for insert
+  with check (auth.uid() = user_id);
+
+drop policy if exists "Users can delete their own BPP accounts" on public.bpp_accounts;
+create policy "Users can delete their own BPP accounts"
+  on public.bpp_accounts for delete
+  using (auth.uid() = user_id);
+
 -- Real, staff-actioned protest requests — created when a user clicks "Request Protest
 -- Filing" on a property. Status starts at 'requested' and is only ever advanced by an
 -- admin (mirrors the manual is_admin()-gated pattern already used for profiles.plan),

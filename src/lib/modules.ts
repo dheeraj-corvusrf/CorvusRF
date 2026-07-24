@@ -15,7 +15,7 @@ export const MODULES: Module[] = [
     title: "AI Property Health Score",
     question: "Should I protest my property?",
     status: "Completed",
-    teaser: "Overall protest opportunity score based on valuation, comps, and county trends.",
+    teaser: "AI-generated protest opportunity score based on your property's official CAD valuation record.",
   },
   {
     id: "strategy",
@@ -23,7 +23,7 @@ export const MODULES: Module[] = [
     title: "AI Recommended Protest Strategy",
     question: "What is the best strategy to reduce my property taxes?",
     status: "Completed",
-    teaser: "Best-fit approach: market value, unequal appraisal, or condition-based reduction.",
+    teaser: "AI-recommended approach — market value, unequal appraisal, or condition-based reduction — for your CAD record.",
   },
   {
     id: "comps",
@@ -31,7 +31,7 @@ export const MODULES: Module[] = [
     title: "Comparable Sales & Market Analysis",
     question: "How does my property compare with similar nearby commercial properties?",
     status: "Completed",
-    teaser: "Filtered comparable sales and equity comps ranked by relevance.",
+    teaser: "AI guidance on what comparable-sale and equity evidence to gather for this property type and county.",
   },
   {
     id: "site",
@@ -39,7 +39,7 @@ export const MODULES: Module[] = [
     title: "Site Condition Analysis",
     question: "Are there land or site-related issues that could support a lower valuation?",
     status: "Completed",
-    teaser: "Access, drainage, easements, and other site factors that reduce market value.",
+    teaser: "AI checklist of site factors — access, drainage, easements — worth documenting for this property type.",
   },
   {
     id: "improvement",
@@ -47,7 +47,7 @@ export const MODULES: Module[] = [
     title: "Improvement Condition Analysis",
     question: "Is the building being valued fairly based on its age and condition?",
     status: "Completed",
-    teaser: "Effective age, deferred maintenance, and functional obsolescence review.",
+    teaser: "AI checklist of condition and functional-obsolescence factors worth documenting for this property.",
   },
   {
     id: "zoning",
@@ -55,7 +55,7 @@ export const MODULES: Module[] = [
     title: "Zoning & Property Classification Review",
     question: "Is the property being assessed under the correct zoning and classification?",
     status: "Completed",
-    teaser: "Confirms CAD class code matches actual use and zoning designation.",
+    teaser: "AI assessment of whether your CAD classification appears consistent with the stated property type.",
   },
   {
     id: "income",
@@ -72,7 +72,7 @@ export const MODULES: Module[] = [
     title: "AI Evidence Builder",
     question: "What evidence may provide the strongest support for a protest?",
     status: "Completed",
-    teaser: "Prioritized evidence checklist with drafts and comp packet outline.",
+    teaser: "AI-prioritized evidence checklist for your protest packet.",
   },
   {
     id: "savings",
@@ -80,7 +80,7 @@ export const MODULES: Module[] = [
     title: "Estimated Tax Savings & ROI",
     question: "How much could I potentially save, and is filing a protest worthwhile?",
     status: "Completed",
-    teaser: "Estimated reduction range, tax savings, and confidence tier.",
+    teaser: "AI-estimated value reduction and tax savings based on your assessed value.",
   },
   {
     id: "executive",
@@ -88,6 +88,6 @@ export const MODULES: Module[] = [
     title: "AI Executive Protest Report",
     question: "What is the final AI recommendation and what should I do next?",
     status: "Completed",
-    teaser: "Executive summary with a recommended next step and filing timeline.",
+    teaser: "AI executive summary with a recommended next step, synthesized from the other modules.",
   },
 ];

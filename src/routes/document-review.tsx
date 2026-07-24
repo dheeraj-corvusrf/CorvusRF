@@ -133,6 +133,8 @@ function DocumentReview() {
           totalValue: next.totalValue,
           taxYear: next.taxYear,
           protestDeadline: eff.protestDeadline ?? undefined,
+          paymentDueDate: eff.paymentDueDate ?? undefined,
+          taxAmountDue: eff.taxAmountDue ?? undefined,
         });
         toast.success("Property added to your dashboard.");
 

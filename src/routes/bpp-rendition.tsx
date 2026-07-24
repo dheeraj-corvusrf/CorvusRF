@@ -1,4 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { HeroBackground } from "@/components/HeroBackground";
 
 export const Route = createFileRoute("/bpp-rendition")({
   head: () => ({
@@ -24,27 +25,30 @@ function Page() {
     ["County rules", "Hidden County Rule Engine handles filing requirements."],
   ];
   return (
-    <div className="container-page py-16">
-      <div className="max-w-3xl">
-        <span className="badge-soft">BPP Rendition</span>
-        <h1 className="mt-3 text-4xl md:text-5xl font-semibold">
-          BPP rendition without the paperwork.
-        </h1>
-        <p className="mt-4 text-lg text-muted-foreground">
-          Upload a prior rendition or start with a template. AI extracts assets, applies
-          county depreciation, and prepares the filing. CorvusRF files and defends it.
-        </p>
-      </div>
-      <div className="mt-10 grid gap-5 md:grid-cols-2">
-        {items.map(([t, d]) => (
-          <div key={t} className="card-elev p-6">
-            <h3 className="font-semibold text-lg">{t}</h3>
-            <p className="mt-2 text-muted-foreground">{d}</p>
-          </div>
-        ))}
-      </div>
-      <div className="mt-8">
-        <Link to="/" className="btn-primary btn-primary-hover">Start Free Review</Link>
+    <div className="relative overflow-hidden min-h-[70vh]">
+      <HeroBackground blurred />
+      <div className="container-page py-16">
+        <div className="max-w-3xl">
+          <span className="badge-soft">BPP Rendition</span>
+          <h1 className="mt-3 text-4xl md:text-5xl font-semibold">
+            BPP rendition without the paperwork.
+          </h1>
+          <p className="mt-4 text-lg text-muted-foreground">
+            Upload a prior rendition or start with a template. AI extracts assets, applies
+            county depreciation, and prepares the filing. CorvusRF files and defends it.
+          </p>
+        </div>
+        <div className="mt-10 grid gap-5 md:grid-cols-2">
+          {items.map(([t, d]) => (
+            <div key={t} className="card-elev p-6">
+              <h3 className="font-semibold text-lg">{t}</h3>
+              <p className="mt-2 text-muted-foreground">{d}</p>
+            </div>
+          ))}
+        </div>
+        <div className="mt-8">
+          <Link to="/" className="btn-primary btn-primary-hover">Start Free Review</Link>
+        </div>
       </div>
     </div>
   );

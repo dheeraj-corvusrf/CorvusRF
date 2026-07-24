@@ -156,7 +156,7 @@ export function SiteNav() {
 
 export function SiteFooter() {
   return (
-    <footer className="border-t border-border/70 bg-secondary/40 mt-16">
+    <footer className="border-t border-border/70 bg-secondary/40">
       <div className="container-page grid gap-8 py-12 md:grid-cols-4">
         <div>
           <div className="flex items-center gap-2">

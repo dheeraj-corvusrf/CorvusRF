@@ -2,8 +2,14 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
-import { startCheckout, openBillingPortal, getMyBilling } from "@/lib/billing";
-import type { PlanValue } from "@/lib/admin";
+import { HeroBackground } from "@/components/HeroBackground";
+import {
+  startCheckout,
+  openBillingPortal,
+  resumeSubscription,
+  getMyBilling,
+  type PlanValue,
+} from "@/lib/billing";
 
 export const Route = createFileRoute("/pricing")({
   head: () => ({
@@ -64,11 +70,23 @@ const PAID_PLANS: {
 
 const SUBSCRIBED_PLANS: PlanValue[] = ["owner_managed", "corvusrf_managed", "ai_report", "managed_protest"];
 
+// "ai_report" (flat-rate, self-file) and "managed_protest" (contingency, staff-filed)
+// are the legacy tiers this pricing overhaul replaced — mapped to their closest
+// current equivalent so a pre-existing subscriber's card still highlights correctly
+// instead of matching neither of the two current tiers.
+const CURRENT_TIER: Partial<Record<PlanValue, Tier>> = {
+  owner_managed: "owner_managed",
+  ai_report: "owner_managed",
+  corvusrf_managed: "corvusrf_managed",
+  managed_protest: "corvusrf_managed",
+};
+
 function Page() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [checkingOutTier, setCheckingOutTier] = useState<Tier | null>(null);
   const [openingPortal, setOpeningPortal] = useState(false);
+  const [resuming, setResuming] = useState(false);
   const [currentPlan, setCurrentPlan] = useState<PlanValue | null>(null);
   const [subscriptionStatus, setSubscriptionStatus] = useState<string | null>(null);
   const [subscriptionQuantity, setSubscriptionQuantity] = useState(1);
@@ -116,6 +134,7 @@ function Page() {
   }, [user]);
 
   const alreadySubscribed = !!currentPlan && SUBSCRIBED_PLANS.includes(currentPlan);
+  const currentTier = currentPlan ? CURRENT_TIER[currentPlan] : undefined;
   const hasPaymentProblem = subscriptionStatus === "past_due" || subscriptionStatus === "unpaid";
 
   async function handleSubscribe(tier: Tier) {
@@ -146,8 +165,26 @@ function Page() {
     }
   }
 
+  async function handleResume() {
+    setResuming(true);
+    try {
+      await resumeSubscription();
+      setCancelAtPeriodEnd(false);
+      setCancelAt(null);
+      toast.success("Your subscription will continue — it's no longer set to cancel.");
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Could not resume your subscription. Please try again.",
+      );
+    } finally {
+      setResuming(false);
+    }
+  }
+
   return (
-    <div className="container-page py-16">
+    <div className="relative overflow-hidden min-h-[70vh]">
+      <HeroBackground blurred />
+      <div className="container-page py-16">
       <div className="max-w-3xl">
         <span className="badge-soft">Pricing</span>
         <h1 className="mt-3 text-4xl md:text-5xl font-semibold">Simple, per-property pricing.</h1>
@@ -168,8 +205,8 @@ function Page() {
           {cancelAt
             ? ` on ${new Date(cancelAt).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}`
             : " at the end of your current billing period"}
-          . You'll keep full access until then — use Manage Subscription below if you'd like to
-          resume it.
+          . You'll keep full access until then — click Resubscribe below if you'd like to keep
+          it going.
         </div>
       )}
       {alreadySubscribed && (
@@ -241,14 +278,46 @@ function Page() {
                 </li>
               ))}
             </ul>
-            <div className="mt-6">
-              {alreadySubscribed ? (
+            <div className="mt-6 grid gap-2">
+              {currentTier === p.tier ? (
+                cancelAtPeriodEnd ? (
+                  // Scheduled to cancel — two distinct actions rather than one button,
+                  // since "keep it" and "manage billing details" are different intents.
+                  <>
+                    <button
+                      onClick={handleResume}
+                      disabled={resuming}
+                      className="w-full btn-accent disabled:opacity-60"
+                    >
+                      {resuming ? "Resuming…" : "Resubscribe"}
+                    </button>
+                    <button
+                      onClick={handleManageSubscription}
+                      disabled={openingPortal}
+                      className="w-full btn-outline disabled:opacity-60"
+                    >
+                      {openingPortal ? "Redirecting…" : "Manage Subscription"}
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    onClick={handleManageSubscription}
+                    disabled={openingPortal}
+                    className="w-full btn-outline disabled:opacity-60"
+                  >
+                    {openingPortal ? "Redirecting…" : "Manage Subscription"}
+                  </button>
+                )
+              ) : alreadySubscribed ? (
+                // Subscribed, but to the *other* tier — switching plans is a change to
+                // the existing subscription, not a brand new checkout, so this also
+                // opens the billing portal rather than starting a second subscription.
                 <button
                   onClick={handleManageSubscription}
                   disabled={openingPortal}
                   className="w-full btn-outline disabled:opacity-60"
                 >
-                  {openingPortal ? "Redirecting…" : "Manage Subscription"}
+                  {openingPortal ? "Redirecting…" : `Switch to ${p.name}`}
                 </button>
               ) : (
                 <button
@@ -264,6 +333,7 @@ function Page() {
             </div>
           </div>
         ))}
+      </div>
       </div>
     </div>
   );

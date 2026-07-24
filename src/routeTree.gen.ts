@@ -15,7 +15,6 @@ import { Route as AdminLoginRouteImport } from './routes/admin-login'
 import { Route as AiReportRouteImport } from './routes/ai-report'
 import { Route as BppRenditionRouteImport } from './routes/bpp-rendition'
 import { Route as ContactRouteImport } from './routes/contact'
-import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as DocumentReviewRouteImport } from './routes/document-review'
 import { Route as HowItWorksRouteImport } from './routes/how-it-works'
 import { Route as IntakeRouteImport } from './routes/intake'
@@ -24,6 +23,14 @@ import { Route as PropertyProtestRouteImport } from './routes/property-protest'
 import { Route as PropertyTaxManagementRouteImport } from './routes/property-tax-management'
 import { Route as SignInRouteImport } from './routes/sign-in'
 import { Route as TaxPaymentRouteImport } from './routes/tax-payment'
+import { Route as DashboardLayoutRouteImport } from './routes/dashboard/_layout'
+import { Route as DashboardLayoutIndexRouteImport } from './routes/dashboard/_layout.index'
+import { Route as DashboardLayoutBillingRouteImport } from './routes/dashboard/_layout.billing'
+import { Route as DashboardLayoutBppAccountsRouteImport } from './routes/dashboard/_layout.bpp-accounts'
+import { Route as DashboardLayoutDeadlinesRouteImport } from './routes/dashboard/_layout.deadlines'
+import { Route as DashboardLayoutDocumentsRouteImport } from './routes/dashboard/_layout.documents'
+import { Route as DashboardLayoutPropertiesRouteImport } from './routes/dashboard/_layout.properties'
+import { Route as DashboardLayoutSettingsRouteImport } from './routes/dashboard/_layout.settings'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -53,11 +60,6 @@ const BppRenditionRoute = BppRenditionRouteImport.update({
 const ContactRoute = ContactRouteImport.update({
   id: '/contact',
   path: '/contact',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const DashboardRoute = DashboardRouteImport.update({
-  id: '/dashboard',
-  path: '/dashboard',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DocumentReviewRoute = DocumentReviewRouteImport.update({
@@ -100,6 +102,50 @@ const TaxPaymentRoute = TaxPaymentRouteImport.update({
   path: '/tax-payment',
   getParentRoute: () => rootRouteImport,
 } as any)
+const DashboardLayoutRoute = DashboardLayoutRouteImport.update({
+  id: '/dashboard/_layout',
+  path: '/dashboard',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DashboardLayoutIndexRoute = DashboardLayoutIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => DashboardLayoutRoute,
+} as any)
+const DashboardLayoutBillingRoute = DashboardLayoutBillingRouteImport.update({
+  id: '/billing',
+  path: '/billing',
+  getParentRoute: () => DashboardLayoutRoute,
+} as any)
+const DashboardLayoutBppAccountsRoute =
+  DashboardLayoutBppAccountsRouteImport.update({
+    id: '/bpp-accounts',
+    path: '/bpp-accounts',
+    getParentRoute: () => DashboardLayoutRoute,
+  } as any)
+const DashboardLayoutDeadlinesRoute =
+  DashboardLayoutDeadlinesRouteImport.update({
+    id: '/deadlines',
+    path: '/deadlines',
+    getParentRoute: () => DashboardLayoutRoute,
+  } as any)
+const DashboardLayoutDocumentsRoute =
+  DashboardLayoutDocumentsRouteImport.update({
+    id: '/documents',
+    path: '/documents',
+    getParentRoute: () => DashboardLayoutRoute,
+  } as any)
+const DashboardLayoutPropertiesRoute =
+  DashboardLayoutPropertiesRouteImport.update({
+    id: '/properties',
+    path: '/properties',
+    getParentRoute: () => DashboardLayoutRoute,
+  } as any)
+const DashboardLayoutSettingsRoute = DashboardLayoutSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => DashboardLayoutRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -108,7 +154,6 @@ export interface FileRoutesByFullPath {
   '/ai-report': typeof AiReportRoute
   '/bpp-rendition': typeof BppRenditionRoute
   '/contact': typeof ContactRoute
-  '/dashboard': typeof DashboardRoute
   '/document-review': typeof DocumentReviewRoute
   '/how-it-works': typeof HowItWorksRoute
   '/intake': typeof IntakeRoute
@@ -117,6 +162,14 @@ export interface FileRoutesByFullPath {
   '/property-tax-management': typeof PropertyTaxManagementRoute
   '/sign-in': typeof SignInRoute
   '/tax-payment': typeof TaxPaymentRoute
+  '/dashboard': typeof DashboardLayoutRouteWithChildren
+  '/dashboard/billing': typeof DashboardLayoutBillingRoute
+  '/dashboard/bpp-accounts': typeof DashboardLayoutBppAccountsRoute
+  '/dashboard/deadlines': typeof DashboardLayoutDeadlinesRoute
+  '/dashboard/documents': typeof DashboardLayoutDocumentsRoute
+  '/dashboard/properties': typeof DashboardLayoutPropertiesRoute
+  '/dashboard/settings': typeof DashboardLayoutSettingsRoute
+  '/dashboard/': typeof DashboardLayoutIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -125,7 +178,6 @@ export interface FileRoutesByTo {
   '/ai-report': typeof AiReportRoute
   '/bpp-rendition': typeof BppRenditionRoute
   '/contact': typeof ContactRoute
-  '/dashboard': typeof DashboardRoute
   '/document-review': typeof DocumentReviewRoute
   '/how-it-works': typeof HowItWorksRoute
   '/intake': typeof IntakeRoute
@@ -134,6 +186,13 @@ export interface FileRoutesByTo {
   '/property-tax-management': typeof PropertyTaxManagementRoute
   '/sign-in': typeof SignInRoute
   '/tax-payment': typeof TaxPaymentRoute
+  '/dashboard/billing': typeof DashboardLayoutBillingRoute
+  '/dashboard/bpp-accounts': typeof DashboardLayoutBppAccountsRoute
+  '/dashboard/deadlines': typeof DashboardLayoutDeadlinesRoute
+  '/dashboard/documents': typeof DashboardLayoutDocumentsRoute
+  '/dashboard/properties': typeof DashboardLayoutPropertiesRoute
+  '/dashboard/settings': typeof DashboardLayoutSettingsRoute
+  '/dashboard': typeof DashboardLayoutIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -143,7 +202,6 @@ export interface FileRoutesById {
   '/ai-report': typeof AiReportRoute
   '/bpp-rendition': typeof BppRenditionRoute
   '/contact': typeof ContactRoute
-  '/dashboard': typeof DashboardRoute
   '/document-review': typeof DocumentReviewRoute
   '/how-it-works': typeof HowItWorksRoute
   '/intake': typeof IntakeRoute
@@ -152,6 +210,14 @@ export interface FileRoutesById {
   '/property-tax-management': typeof PropertyTaxManagementRoute
   '/sign-in': typeof SignInRoute
   '/tax-payment': typeof TaxPaymentRoute
+  '/dashboard/_layout': typeof DashboardLayoutRouteWithChildren
+  '/dashboard/_layout/billing': typeof DashboardLayoutBillingRoute
+  '/dashboard/_layout/bpp-accounts': typeof DashboardLayoutBppAccountsRoute
+  '/dashboard/_layout/deadlines': typeof DashboardLayoutDeadlinesRoute
+  '/dashboard/_layout/documents': typeof DashboardLayoutDocumentsRoute
+  '/dashboard/_layout/properties': typeof DashboardLayoutPropertiesRoute
+  '/dashboard/_layout/settings': typeof DashboardLayoutSettingsRoute
+  '/dashboard/_layout/': typeof DashboardLayoutIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -162,7 +228,6 @@ export interface FileRouteTypes {
     | '/ai-report'
     | '/bpp-rendition'
     | '/contact'
-    | '/dashboard'
     | '/document-review'
     | '/how-it-works'
     | '/intake'
@@ -171,6 +236,14 @@ export interface FileRouteTypes {
     | '/property-tax-management'
     | '/sign-in'
     | '/tax-payment'
+    | '/dashboard'
+    | '/dashboard/billing'
+    | '/dashboard/bpp-accounts'
+    | '/dashboard/deadlines'
+    | '/dashboard/documents'
+    | '/dashboard/properties'
+    | '/dashboard/settings'
+    | '/dashboard/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -179,7 +252,6 @@ export interface FileRouteTypes {
     | '/ai-report'
     | '/bpp-rendition'
     | '/contact'
-    | '/dashboard'
     | '/document-review'
     | '/how-it-works'
     | '/intake'
@@ -188,6 +260,13 @@ export interface FileRouteTypes {
     | '/property-tax-management'
     | '/sign-in'
     | '/tax-payment'
+    | '/dashboard/billing'
+    | '/dashboard/bpp-accounts'
+    | '/dashboard/deadlines'
+    | '/dashboard/documents'
+    | '/dashboard/properties'
+    | '/dashboard/settings'
+    | '/dashboard'
   id:
     | '__root__'
     | '/'
@@ -196,7 +275,6 @@ export interface FileRouteTypes {
     | '/ai-report'
     | '/bpp-rendition'
     | '/contact'
-    | '/dashboard'
     | '/document-review'
     | '/how-it-works'
     | '/intake'
@@ -205,6 +283,14 @@ export interface FileRouteTypes {
     | '/property-tax-management'
     | '/sign-in'
     | '/tax-payment'
+    | '/dashboard/_layout'
+    | '/dashboard/_layout/billing'
+    | '/dashboard/_layout/bpp-accounts'
+    | '/dashboard/_layout/deadlines'
+    | '/dashboard/_layout/documents'
+    | '/dashboard/_layout/properties'
+    | '/dashboard/_layout/settings'
+    | '/dashboard/_layout/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -214,7 +300,6 @@ export interface RootRouteChildren {
   AiReportRoute: typeof AiReportRoute
   BppRenditionRoute: typeof BppRenditionRoute
   ContactRoute: typeof ContactRoute
-  DashboardRoute: typeof DashboardRoute
   DocumentReviewRoute: typeof DocumentReviewRoute
   HowItWorksRoute: typeof HowItWorksRoute
   IntakeRoute: typeof IntakeRoute
@@ -223,6 +308,7 @@ export interface RootRouteChildren {
   PropertyTaxManagementRoute: typeof PropertyTaxManagementRoute
   SignInRoute: typeof SignInRoute
   TaxPaymentRoute: typeof TaxPaymentRoute
+  DashboardLayoutRoute: typeof DashboardLayoutRouteWithChildren
 }
 
 declare module '@tanstack/react-router' {
@@ -267,13 +353,6 @@ declare module '@tanstack/react-router' {
       path: '/contact'
       fullPath: '/contact'
       preLoaderRoute: typeof ContactRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/dashboard': {
-      id: '/dashboard'
-      path: '/dashboard'
-      fullPath: '/dashboard'
-      preLoaderRoute: typeof DashboardRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/document-review': {
@@ -332,8 +411,88 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TaxPaymentRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/dashboard/_layout': {
+      id: '/dashboard/_layout'
+      path: '/dashboard'
+      fullPath: '/dashboard'
+      preLoaderRoute: typeof DashboardLayoutRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/dashboard/_layout/': {
+      id: '/dashboard/_layout/'
+      path: '/'
+      fullPath: '/dashboard/'
+      preLoaderRoute: typeof DashboardLayoutIndexRouteImport
+      parentRoute: typeof DashboardLayoutRoute
+    }
+    '/dashboard/_layout/billing': {
+      id: '/dashboard/_layout/billing'
+      path: '/billing'
+      fullPath: '/dashboard/billing'
+      preLoaderRoute: typeof DashboardLayoutBillingRouteImport
+      parentRoute: typeof DashboardLayoutRoute
+    }
+    '/dashboard/_layout/bpp-accounts': {
+      id: '/dashboard/_layout/bpp-accounts'
+      path: '/bpp-accounts'
+      fullPath: '/dashboard/bpp-accounts'
+      preLoaderRoute: typeof DashboardLayoutBppAccountsRouteImport
+      parentRoute: typeof DashboardLayoutRoute
+    }
+    '/dashboard/_layout/deadlines': {
+      id: '/dashboard/_layout/deadlines'
+      path: '/deadlines'
+      fullPath: '/dashboard/deadlines'
+      preLoaderRoute: typeof DashboardLayoutDeadlinesRouteImport
+      parentRoute: typeof DashboardLayoutRoute
+    }
+    '/dashboard/_layout/documents': {
+      id: '/dashboard/_layout/documents'
+      path: '/documents'
+      fullPath: '/dashboard/documents'
+      preLoaderRoute: typeof DashboardLayoutDocumentsRouteImport
+      parentRoute: typeof DashboardLayoutRoute
+    }
+    '/dashboard/_layout/properties': {
+      id: '/dashboard/_layout/properties'
+      path: '/properties'
+      fullPath: '/dashboard/properties'
+      preLoaderRoute: typeof DashboardLayoutPropertiesRouteImport
+      parentRoute: typeof DashboardLayoutRoute
+    }
+    '/dashboard/_layout/settings': {
+      id: '/dashboard/_layout/settings'
+      path: '/settings'
+      fullPath: '/dashboard/settings'
+      preLoaderRoute: typeof DashboardLayoutSettingsRouteImport
+      parentRoute: typeof DashboardLayoutRoute
+    }
   }
 }
+
+interface DashboardLayoutRouteChildren {
+  DashboardLayoutBillingRoute: typeof DashboardLayoutBillingRoute
+  DashboardLayoutBppAccountsRoute: typeof DashboardLayoutBppAccountsRoute
+  DashboardLayoutDeadlinesRoute: typeof DashboardLayoutDeadlinesRoute
+  DashboardLayoutDocumentsRoute: typeof DashboardLayoutDocumentsRoute
+  DashboardLayoutPropertiesRoute: typeof DashboardLayoutPropertiesRoute
+  DashboardLayoutSettingsRoute: typeof DashboardLayoutSettingsRoute
+  DashboardLayoutIndexRoute: typeof DashboardLayoutIndexRoute
+}
+
+const DashboardLayoutRouteChildren: DashboardLayoutRouteChildren = {
+  DashboardLayoutBillingRoute: DashboardLayoutBillingRoute,
+  DashboardLayoutBppAccountsRoute: DashboardLayoutBppAccountsRoute,
+  DashboardLayoutDeadlinesRoute: DashboardLayoutDeadlinesRoute,
+  DashboardLayoutDocumentsRoute: DashboardLayoutDocumentsRoute,
+  DashboardLayoutPropertiesRoute: DashboardLayoutPropertiesRoute,
+  DashboardLayoutSettingsRoute: DashboardLayoutSettingsRoute,
+  DashboardLayoutIndexRoute: DashboardLayoutIndexRoute,
+}
+
+const DashboardLayoutRouteWithChildren = DashboardLayoutRoute._addFileChildren(
+  DashboardLayoutRouteChildren,
+)
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
@@ -342,7 +501,6 @@ const rootRouteChildren: RootRouteChildren = {
   AiReportRoute: AiReportRoute,
   BppRenditionRoute: BppRenditionRoute,
   ContactRoute: ContactRoute,
-  DashboardRoute: DashboardRoute,
   DocumentReviewRoute: DocumentReviewRoute,
   HowItWorksRoute: HowItWorksRoute,
   IntakeRoute: IntakeRoute,
@@ -351,6 +509,7 @@ const rootRouteChildren: RootRouteChildren = {
   PropertyTaxManagementRoute: PropertyTaxManagementRoute,
   SignInRoute: SignInRoute,
   TaxPaymentRoute: TaxPaymentRoute,
+  DashboardLayoutRoute: DashboardLayoutRouteWithChildren,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

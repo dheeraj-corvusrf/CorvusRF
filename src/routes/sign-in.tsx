@@ -4,6 +4,7 @@ import { supabase, isSupabaseConfigured } from "@/lib/supabase";
 import { searchPropertiesByOwner } from "@/lib/cad-owner-search";
 import type { CadRecord } from "@/lib/cad-lookup";
 import { OwnerMatchModal } from "@/components/OwnerMatchModal";
+import { HeroBackground } from "@/components/HeroBackground";
 
 export const Route = createFileRoute("/sign-in")({
   head: () => ({
@@ -126,22 +127,27 @@ function SignIn() {
 
   if (checkEmail) {
     return (
-      <div className="container-page py-16 max-w-md">
-        <span className="badge-soft">Almost there</span>
-        <h1 className="mt-3 font-serif text-3xl font-semibold">Check your email.</h1>
-        <p className="mt-2 text-muted-foreground">
-          We sent a confirmation link to <strong>{email}</strong>. Click it to activate your
-          account, then sign in.
-        </p>
-        <button onClick={() => switchMode("signin")} className="btn-primary btn-primary-hover mt-6">
-          Back to sign in
-        </button>
+      <div className="relative overflow-hidden min-h-[70vh]">
+        <HeroBackground blurred />
+        <div className="container-page py-16 max-w-md">
+          <span className="badge-soft">Almost there</span>
+          <h1 className="mt-3 font-serif text-3xl font-semibold">Check your email.</h1>
+          <p className="mt-2 text-muted-foreground">
+            We sent a confirmation link to <strong>{email}</strong>. Click it to activate your
+            account, then sign in.
+          </p>
+          <button onClick={() => switchMode("signin")} className="btn-primary btn-primary-hover mt-6">
+            Back to sign in
+          </button>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="container-page py-16 max-w-md">
+    <div className="relative overflow-hidden min-h-[70vh]">
+      <HeroBackground blurred />
+      <div className="container-page py-16 max-w-md">
       <span className="badge-soft">{mode === "signin" ? "Sign In" : "Create Account"}</span>
       <h1 className="mt-3 font-serif text-3xl font-semibold">
         {mode === "signin" ? "Welcome back." : "Create your CorvusRF account."}
@@ -267,6 +273,7 @@ function SignIn() {
           }}
         />
       )}
+      </div>
     </div>
   );
 }
