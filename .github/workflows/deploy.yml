@@ -3,6 +3,16 @@ name: Deploy to GitHub Pages
 on:
   push:
     branches: [dev]
+  # Belt-and-suspenders alongside the push trigger above: a PR merge into dev
+  # normally fires both a push event AND this pull_request-closed event as two
+  # independent webhook deliveries. On 2026-07-24 a merge into dev silently
+  # triggered neither workflow at all (a one-off GitHub Actions delivery miss,
+  # confirmed via the Actions API — no run of any kind for that commit). Having
+  # a second, independent trigger for the same "PR merged into dev" moment means
+  # one missed delivery no longer means no deployment.
+  pull_request:
+    types: [closed]
+    branches: [dev]
   workflow_dispatch:
 
 permissions:
@@ -16,9 +26,19 @@ concurrency:
 
 jobs:
   build:
+    # Only skip for the pull_request trigger when the PR was closed WITHOUT
+    # merging (a rejected/abandoned PR shouldn't deploy anything). Every other
+    # trigger (push, workflow_dispatch) always runs.
+    if: github.event_name != 'pull_request' || github.event.pull_request.merged == true
     runs-on: ubuntu-latest
     steps:
+      # Pinned to dev regardless of which trigger fired — the goal is always
+      # "deploy dev's current tip," not "build whatever ref the event points at"
+      # (the pull_request trigger's default ref is a synthetic merge commit, not
+      # the real commit that lands on dev).
       - uses: actions/checkout@v4
+        with:
+          ref: dev
 
       - uses: actions/setup-node@v4
         with:
