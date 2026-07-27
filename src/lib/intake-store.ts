@@ -1,6 +1,7 @@
 // Session-scoped intake store for the guest flow.
 import { classifyDocument, validateDocument, type Extraction, type DocumentType } from "./document-ai";
 import { getFirstPage } from "./pdf-utils";
+import type { CadDeed, CadValueHistoryEntry } from "./cad-lookup";
 
 export type AuditEntry = {
   ts: number;
@@ -45,6 +46,14 @@ export type IntakeState = {
   noticeFileName?: string;
   confirmed?: boolean;
   previewsUsed: string[];
+  legalDescription?: string | null;
+  subdivision?: string | null;
+  geoId?: string | null;
+  mailingAddress?: string | null;
+  ownershipPct?: number | null;
+  protestStatus?: string | null;
+  valueHistory?: CadValueHistoryEntry[];
+  deeds?: CadDeed[];
 
   // document classification flow
   extraction?: Extraction;

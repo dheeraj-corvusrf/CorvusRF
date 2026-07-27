@@ -49,6 +49,7 @@ function DocumentReview() {
   const [mode, setMode] = useState<Mode>("review");
   const [askOpen, setAskOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [hearingOpen, setHearingOpen] = useState(false);
 
   useEffect(() => {
     const s = readIntake();
@@ -180,6 +181,15 @@ function DocumentReview() {
           {(extraction.confidence * 100).toFixed(0)}%
         </span>
       </p>
+
+      {hearingOpen && (
+        <HearingDetails
+          hearingDate={extraction.hearingDate}
+          hearingTime={extraction.hearingTime}
+          hearingInstructions={extraction.hearingInstructions}
+          onClose={() => setHearingOpen(false)}
+        />
+      )}
 
       {/* Flags */}
       {lowConfidence && (
@@ -346,6 +356,7 @@ function DocumentReview() {
             v={extraction.hearingDate}
             mode={mode}
             onChange={saveEdit}
+            onValueClick={() => setHearingOpen(true)}
           />
           <FieldRow
             label="Payment Due Date"
@@ -514,6 +525,90 @@ function DocumentReview() {
   );
 }
 
+const WHATS_NEXT_STEPS = [
+  "If you haven't filed your protest yet, make sure you submit it before the deadline mentioned in your appraisal notice.",
+  "If your notice doesn't include a hearing date and time, keep an eye out for the hearing notice from your appraisal district.",
+  "When you receive your hearing notice, read it carefully. It will explain how your hearing will be conducted, what documents you need to submit, any deadlines you need to meet, and any other instructions you should follow.",
+  "Start gathering your evidence, such as comparable sales, photos, contractor estimates, or any other documents that support your protest.",
+  "Review the AI-generated protest summary and talking points so you know exactly what you'll present at the hearing.",
+  "Upload any additional evidence you'd like to include before your hearing.",
+  "Attend your hearing with your documents ready and present your case.",
+  "After the hearing, come back to record the outcome and track your updated property value and estimated tax savings.",
+];
+
+function formatHearingDate(iso: string | null): string | null {
+  if (!iso) return null;
+  const d = new Date(`${iso}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+}
+
+function HearingDetails({
+  hearingDate,
+  hearingTime,
+  hearingInstructions,
+  onClose,
+}: {
+  hearingDate: string | null;
+  hearingTime: string | null;
+  hearingInstructions: string | null;
+  onClose: () => void;
+}) {
+  const dateLabel = formatHearingDate(hearingDate);
+
+  return (
+    <section className="mt-6 card-elev p-6">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-xs uppercase tracking-wide text-muted-foreground">
+            Hearing Date &amp; Time
+          </div>
+          <div className="mt-1 font-serif text-2xl font-semibold">
+            {dateLabel ? (
+              <>
+                {dateLabel}
+                {hearingTime ? ` at ${hearingTime}` : ""}
+              </>
+            ) : (
+              "Not yet scheduled"
+            )}
+          </div>
+          {!dateLabel && (
+            <p className="mt-1 text-sm text-muted-foreground">
+              This notice didn't include a hearing date. See "What's Next?" below for what to do
+              in the meantime.
+            </p>
+          )}
+        </div>
+        <button
+          onClick={onClose}
+          className="text-sm text-muted-foreground hover:text-foreground"
+        >
+          Close
+        </button>
+      </div>
+
+      {hearingInstructions && (
+        <div className="mt-5">
+          <h3 className="text-sm font-semibold">Hearing Instructions (from your notice)</h3>
+          <p className="mt-2 rounded-md bg-secondary/60 p-4 text-sm whitespace-pre-wrap">
+            {hearingInstructions}
+          </p>
+        </div>
+      )}
+
+      <div className="mt-6">
+        <h3 className="font-serif text-lg font-semibold">What's Next?</h3>
+        <ol className="mt-3 grid gap-2 text-sm list-decimal list-inside">
+          {WHATS_NEXT_STEPS.map((step, i) => (
+            <li key={i}>{step}</li>
+          ))}
+        </ol>
+      </div>
+    </section>
+  );
+}
+
 function FlagBanner({
   tone,
   title,
@@ -550,6 +645,7 @@ function FieldRow<K extends keyof Extraction>({
   onChange,
   numeric,
   money,
+  onValueClick,
 }: {
   label: string;
   k: K;
@@ -558,6 +654,7 @@ function FieldRow<K extends keyof Extraction>({
   onChange: (patch: Partial<Extraction>) => void;
   numeric?: boolean;
   money?: boolean;
+  onValueClick?: () => void;
 }) {
   const [local, setLocal] = useState<string>(v == null ? "" : String(v));
   useEffect(() => {
@@ -575,9 +672,23 @@ function FieldRow<K extends keyof Extraction>({
     return (
       <div className="grid grid-cols-[minmax(140px,1fr)_2fr] items-baseline gap-3">
         <dt className="text-xs uppercase tracking-wide text-muted-foreground">{label}</dt>
-        <dd className={v == null || v === "" ? "text-muted-foreground italic text-sm" : "text-sm"}>
-          {shown}
-        </dd>
+        {onValueClick ? (
+          <dd>
+            <button
+              type="button"
+              onClick={onValueClick}
+              className={`text-sm text-left underline underline-offset-2 hover:text-accent ${
+                v == null || v === "" ? "text-muted-foreground italic" : "text-accent"
+              }`}
+            >
+              {shown}
+            </button>
+          </dd>
+        ) : (
+          <dd className={v == null || v === "" ? "text-muted-foreground italic text-sm" : "text-sm"}>
+            {shown}
+          </dd>
+        )}
       </div>
     );
   }

@@ -1,5 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
+import { CheckCircle2, AlertTriangle, HelpCircle } from "lucide-react";
+import { RadialBarChart, RadialBar, PolarAngleAxis, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Cell, LabelList } from "recharts";
 import { readIntake, updateIntake, currency, type IntakeState } from "@/lib/intake-store";
 import { MODULES, type Module } from "@/lib/modules";
 import { useAuth } from "@/lib/auth";
@@ -357,18 +359,22 @@ function ModulePreviewBody({
   // inline rather than going blank.
   if (m.id === "savings") {
     const savings = moduleState?.data as ModuleResultMap["savings"] | undefined;
+    const current = state.totalValue ?? 0;
+    const reduced = Math.max(0, current - estimated.reduction);
     return (
-      <div className="mt-4 grid gap-2">
-        <p className="text-sm">
-          Estimated value reduction: <strong>{currency(estimated.reduction)}</strong>
-        </p>
-        <p className="text-sm">
-          Estimated tax savings: <strong>{currency(estimated.savings)}</strong>
-        </p>
-        <p className="text-xs text-muted-foreground">
-          Based on assessed value {currency(state.totalValue)} —{" "}
+      <div className="mt-4 grid gap-3">
+        <div className="text-center">
+          <div className="text-xs uppercase tracking-wide text-muted-foreground">
+            Estimated Tax Savings
+          </div>
+          <div className="font-serif text-4xl font-bold text-success">
+            {currency(estimated.savings)}
+          </div>
+        </div>
+        <ValueComparisonChart current={current} reduced={reduced} />
+        <p className="text-center text-xs text-muted-foreground">
           {savings?.rationale ??
-            (loading ? "AI is refining this estimate…" : "typical Texas effective tax rate.")}
+            (loading ? "AI is refining this estimate…" : "Based on typical Texas effective tax rate.")}
         </p>
         {error && <ErrorWithRetry message={error} onRetry={onRetry} />}
       </div>
@@ -390,16 +396,18 @@ function ModulePreviewBody({
   if (m.id === "health") {
     const data = moduleState.data as HealthScoreResult;
     return (
-      <div className="mt-4 grid gap-2">
-        <ScoreBar score={data.score} />
-        <p className="text-sm text-muted-foreground">{data.summary}</p>
-        {data.factors.length > 0 && (
-          <ul className="text-sm space-y-1">
-            {data.factors.map((f, i) => (
-              <li key={i}>• {f}</li>
-            ))}
-          </ul>
-        )}
+      <div className="mt-4 grid gap-4 sm:grid-cols-[10rem_1fr] items-center">
+        <RadialGauge value={data.score} sublabel="Protest Opportunity" />
+        <div>
+          <p className="text-sm">{data.summary}</p>
+          {data.factors.length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {data.factors.map((f, i) => (
+                <Chip key={i}>{f}</Chip>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     );
   }
@@ -408,83 +416,238 @@ function ModulePreviewBody({
     case "strategy": {
       const d = moduleState.data as ModuleResultMap["strategy"];
       return (
-        <p className="mt-4 text-sm">
-          Recommended path: <strong>{d.recommendation}</strong>. {d.rationale}
-        </p>
+        <div className="mt-4 grid gap-4 sm:grid-cols-[10rem_1fr] items-center">
+          <RadialGauge value={d.confidencePct} sublabel="AI Confidence" />
+          <div>
+            <div className="font-serif text-xl font-semibold">{d.recommendation}</div>
+            <p className="mt-1 text-sm text-muted-foreground">{d.rationale}</p>
+          </div>
+        </div>
       );
     }
     case "comps": {
       const d = moduleState.data as ModuleResultMap["comps"];
       return (
-        <div className="mt-4 grid gap-2">
-          <p className="text-sm">{d.guidance}</p>
-          <ul className="text-sm space-y-1">
+        <div className="mt-4">
+          <p className="text-sm text-muted-foreground">{d.guidance}</p>
+          <div className="mt-3 flex flex-wrap gap-2">
             {d.checklist.map((c, i) => (
-              <li key={i}>• {c}</li>
+              <Chip key={i} icon>
+                {c}
+              </Chip>
             ))}
-          </ul>
+          </div>
         </div>
       );
     }
     case "site": {
       const d = moduleState.data as ModuleResultMap["site"];
       return (
-        <div className="mt-4 grid gap-2">
-          <p className="text-sm">{d.guidance}</p>
-          <ul className="text-sm space-y-1">
+        <div className="mt-4">
+          <p className="text-sm text-muted-foreground">{d.guidance}</p>
+          <div className="mt-3 flex flex-wrap gap-2">
             {d.checklist.map((c, i) => (
-              <li key={i}>• {c}</li>
+              <Chip key={i} icon>
+                {c}
+              </Chip>
             ))}
-          </ul>
+          </div>
         </div>
       );
     }
     case "improvement": {
       const d = moduleState.data as ModuleResultMap["improvement"];
       return (
-        <div className="mt-4 grid gap-2">
-          <p className="text-sm">{d.guidance}</p>
-          <ul className="text-sm space-y-1">
+        <div className="mt-4">
+          <p className="text-sm text-muted-foreground">{d.guidance}</p>
+          <div className="mt-3 flex flex-wrap gap-2">
             {d.checklist.map((c, i) => (
-              <li key={i}>• {c}</li>
+              <Chip key={i} icon>
+                {c}
+              </Chip>
             ))}
-          </ul>
+          </div>
         </div>
       );
     }
     case "zoning": {
       const d = moduleState.data as ModuleResultMap["zoning"];
-      return <p className="mt-4 text-sm">{d.assessment}</p>;
+      return (
+        <div className="mt-4 grid gap-3">
+          <ZoningBadge matches={d.matches} />
+          <p className="text-sm text-muted-foreground">{d.assessment}</p>
+        </div>
+      );
     }
     case "evidence": {
       const d = moduleState.data as ModuleResultMap["evidence"];
       return (
-        <ul className="mt-4 text-sm space-y-1">
+        <div className="mt-4 grid gap-2">
           {d.checklist.map((c, i) => (
-            <li key={i}>• {c}</li>
+            <PriorityRow key={i} item={c} rank={i} />
           ))}
-        </ul>
+        </div>
       );
     }
     case "executive": {
       const d = moduleState.data as ModuleResultMap["executive"];
       return (
-        <div className="mt-4 grid gap-2 text-sm">
-          <p>
-            <strong>Recommendation:</strong> {d.recommendation}
-          </p>
-          <p>
-            <strong>Basis:</strong> {d.basis}
-          </p>
-          <p>
-            <strong>Next step:</strong> {d.nextStep}
-          </p>
+        <div className="mt-4 grid gap-3">
+          <div className="rounded-lg bg-accent/10 p-4">
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-accent">
+              AI Recommendation
+            </div>
+            <div className="mt-1 font-serif text-lg font-semibold">{d.recommendation}</div>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <FactBox label="Basis" value={d.basis} />
+            <FactBox label="Next Step" value={d.nextStep} />
+          </div>
         </div>
       );
     }
   }
 
   return <p className="mt-4 text-sm">{m.teaser}</p>;
+}
+
+function scoreColor(score: number): string {
+  if (score >= 70) return "var(--success)";
+  if (score >= 40) return "var(--warning)";
+  return "var(--destructive)";
+}
+
+function RadialGauge({ value, sublabel }: { value: number; sublabel?: string }) {
+  const color = scoreColor(value);
+  const data = [{ value, fill: color }];
+  return (
+    <div className="relative mx-auto h-40 w-40">
+      <ResponsiveContainer width="100%" height="100%">
+        <RadialBarChart
+          innerRadius="72%"
+          outerRadius="100%"
+          data={data}
+          startAngle={90}
+          endAngle={-270}
+          barSize={14}
+        >
+          <PolarAngleAxis type="number" domain={[0, 100]} tick={false} />
+          <RadialBar background dataKey="value" cornerRadius={8} />
+        </RadialBarChart>
+      </ResponsiveContainer>
+      <div className="absolute inset-0 flex flex-col items-center justify-center">
+        <div className="text-3xl font-bold" style={{ color }}>
+          {value}
+        </div>
+        {sublabel && (
+          <div className="px-3 text-center text-[10px] text-muted-foreground">{sublabel}</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ValueComparisonChart({ current, reduced }: { current: number; reduced: number }) {
+  const data = [
+    { name: "Current", value: current, fill: "var(--muted-foreground)" },
+    { name: "Estimated", value: reduced, fill: "var(--success)" },
+  ];
+  return (
+    <ResponsiveContainer width="100%" height={110}>
+      <BarChart data={data} layout="vertical" margin={{ top: 4, right: 56, bottom: 4, left: 4 }}>
+        <XAxis type="number" hide domain={[0, (max: number) => max * 1.15]} />
+        <YAxis
+          type="category"
+          dataKey="name"
+          width={70}
+          tickLine={false}
+          axisLine={false}
+          tick={{ fontSize: 12 }}
+        />
+        <Bar dataKey="value" radius={[0, 6, 6, 0]} barSize={28}>
+          {data.map((d, i) => (
+            <Cell key={i} fill={d.fill} />
+          ))}
+          <LabelList
+            dataKey="value"
+            position="right"
+            formatter={(v: number) => currency(v)}
+            style={{ fontSize: 12, fontWeight: 600, fill: "var(--foreground)" }}
+          />
+        </Bar>
+      </BarChart>
+    </ResponsiveContainer>
+  );
+}
+
+function Chip({ children, icon }: { children: React.ReactNode; icon?: boolean }) {
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded-full bg-secondary/60 px-3 py-1.5 text-xs font-medium">
+      {icon && <CheckCircle2 className="h-3.5 w-3.5 text-success" />}
+      {children}
+    </span>
+  );
+}
+
+function PriorityRow({ item, rank }: { item: string; rank: number }) {
+  const tone =
+    rank === 0
+      ? { bg: "bg-destructive/10", text: "text-destructive", label: "Top Priority" }
+      : rank === 1
+        ? { bg: "bg-warning/15", text: "text-warning-foreground", label: "High Priority" }
+        : { bg: "bg-secondary/60", text: "text-muted-foreground", label: null };
+  return (
+    <div className={`flex items-center gap-3 rounded-lg p-3 ${tone.bg}`}>
+      {tone.label && (
+        <span className={`shrink-0 text-[10px] font-bold uppercase ${tone.text}`}>
+          {tone.label}
+        </span>
+      )}
+      <span className="text-sm">{item}</span>
+    </div>
+  );
+}
+
+const ZONING_STATUS = {
+  consistent: {
+    Icon: CheckCircle2,
+    color: "text-success",
+    bg: "bg-success/10",
+    label: "Classification Consistent",
+  },
+  inconsistent: {
+    Icon: AlertTriangle,
+    color: "text-destructive",
+    bg: "bg-destructive/10",
+    label: "Possible Mismatch",
+  },
+  uncertain: {
+    Icon: HelpCircle,
+    color: "text-warning-foreground",
+    bg: "bg-warning/15",
+    label: "Uncertain — Needs Review",
+  },
+} as const;
+
+function ZoningBadge({ matches }: { matches: keyof typeof ZONING_STATUS }) {
+  const { Icon, color, bg, label } = ZONING_STATUS[matches];
+  return (
+    <div className={`flex items-center gap-3 rounded-lg p-4 ${bg}`}>
+      <Icon className={`h-8 w-8 shrink-0 ${color}`} />
+      <div className={`font-serif text-lg font-semibold ${color}`}>{label}</div>
+    </div>
+  );
+}
+
+function FactBox({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg bg-secondary/60 p-3">
+      <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+        {label}
+      </div>
+      <div className="mt-0.5 text-sm">{value}</div>
+    </div>
+  );
 }
 
 function ErrorWithRetry({ message, onRetry }: { message: string; onRetry: () => void }) {
@@ -494,20 +657,6 @@ function ErrorWithRetry({ message, onRetry }: { message: string; onRetry: () => 
       <button onClick={onRetry} className="btn-outline w-fit text-sm py-1.5">
         Retry
       </button>
-    </div>
-  );
-}
-
-function ScoreBar({ score }: { score: number }) {
-  return (
-    <div>
-      <div className="flex justify-between text-xs text-muted-foreground">
-        <span>Protest opportunity</span>
-        <span>{score}/100</span>
-      </div>
-      <div className="mt-1 h-2 rounded-full bg-secondary overflow-hidden">
-        <div className="h-full bg-accent" style={{ width: `${score}%` }} />
-      </div>
     </div>
   );
 }

@@ -80,6 +80,14 @@ function Intake() {
         improvementValue: res.record.improvementValue ?? undefined,
         totalValue: res.record.totalValue ?? undefined,
         taxYear: res.record.taxYear ?? undefined,
+        legalDescription: res.record.legalDescription ?? undefined,
+        subdivision: res.record.subdivision ?? undefined,
+        geoId: res.record.geoId ?? undefined,
+        mailingAddress: res.record.mailingAddress ?? undefined,
+        ownershipPct: res.record.ownershipPct ?? undefined,
+        protestStatus: res.record.protestStatus ?? undefined,
+        valueHistory: res.record.valueHistory ?? undefined,
+        deeds: res.record.deeds ?? undefined,
       });
       setState(next);
       setStep("confirm");
@@ -115,7 +123,7 @@ function Intake() {
   }
 
   return (
-    <div className="container-page py-12 max-w-3xl">
+    <div className={`container-page py-12 ${step === "confirm" ? "max-w-5xl" : "max-w-3xl"}`}>
       <Stepper step={step} />
 
       {step === "address" && (
@@ -247,12 +255,81 @@ function Intake() {
             <Field label="Land Value" value={currency(state.landValue)} />
             <Field label="Improvement Value" value={currency(state.improvementValue)} />
             <Field label="Total Appraised Value" value={currency(state.totalValue)} bold />
+            {state.legalDescription && <Field label="Legal Description" value={state.legalDescription} />}
+            {state.subdivision && <Field label="Subdivision" value={state.subdivision} />}
+            {state.geoId && <Field label="Geographic ID" value={state.geoId} />}
+            {state.mailingAddress && <Field label="Owner Mailing Address" value={state.mailingAddress} />}
+            {state.ownershipPct != null && (
+              <Field label="% Ownership" value={`${state.ownershipPct}%`} />
+            )}
+            {state.protestStatus && <Field label="Protest Status" value={state.protestStatus} />}
           </dl>
           {state.totalValue == null && (
             <p className="mt-3 text-xs text-muted-foreground">
               Value data is not published in this county's public records.
             </p>
           )}
+
+          {state.valueHistory && state.valueHistory.length > 0 && (
+            <div className="mt-6">
+              <h3 className="text-sm font-semibold">Value History</h3>
+              <div className="mt-2 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-xs uppercase tracking-wide text-muted-foreground">
+                      <th className="py-1 pr-4">Year</th>
+                      <th className="py-1 pr-4">Land</th>
+                      <th className="py-1 pr-4">Improvement</th>
+                      <th className="py-1 pr-4">Market</th>
+                      <th className="py-1 pr-4">Appraised</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {state.valueHistory.map((v) => (
+                      <tr key={v.year} className="border-t border-border">
+                        <td className="py-1 pr-4">{v.year}</td>
+                        <td className="py-1 pr-4">{currency(v.landValue)}</td>
+                        <td className="py-1 pr-4">{currency(v.improvementValue)}</td>
+                        <td className="py-1 pr-4">{currency(v.marketValue)}</td>
+                        <td className="py-1 pr-4">{currency(v.appraisedValue)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {state.deeds && state.deeds.length > 0 && (
+            <div className="mt-6">
+              <h3 className="text-sm font-semibold">Deed History</h3>
+              <div className="mt-2 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-xs uppercase tracking-wide text-muted-foreground">
+                      <th className="py-1 pr-4">Date</th>
+                      <th className="py-1 pr-4">Type</th>
+                      <th className="py-1 pr-4">Seller</th>
+                      <th className="py-1 pr-4">Buyer</th>
+                      <th className="py-1 pr-4">Instrument #</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {state.deeds.map((d, i) => (
+                      <tr key={i} className="border-t border-border">
+                        <td className="py-1 pr-4">{d.date?.slice(0, 10) ?? "—"}</td>
+                        <td className="py-1 pr-4">{d.description ?? d.type ?? "—"}</td>
+                        <td className="py-1 pr-4">{d.seller ?? "—"}</td>
+                        <td className="py-1 pr-4">{d.buyer ?? "—"}</td>
+                        <td className="py-1 pr-4">{d.instrumentNum ?? "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
           {saveError && <p className="mt-4 text-sm text-destructive">{saveError}</p>}
           <div className="mt-6 flex flex-wrap gap-2">
             <button
