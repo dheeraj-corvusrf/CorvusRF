@@ -49,7 +49,13 @@ function Intake() {
     const s = readIntake();
     setState(s);
     if (s.propertyKind) setPropertyKind(s.propertyKind);
-    if (s.address) {
+    // Only resume straight into validation for an in-progress intake (address
+    // set, not yet confirmed). Once a property has already been confirmed and
+    // saved, a fresh visit to /intake should start a new search — otherwise the
+    // page silently jumps to the old Confirm step on every revisit, hiding the
+    // commercial/residential toggle (which only renders on the address step)
+    // behind an "Edit Address" click the user has no reason to expect.
+    if (s.address && !s.confirmed) {
       setAddress(s.address);
       runValidation(s.address);
     }
