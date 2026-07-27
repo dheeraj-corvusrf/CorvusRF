@@ -34,6 +34,31 @@ type CadRecord = {
   improvementValue: number | null;
   totalValue: number | null;
   taxYear: number | null;
+  // Enrichment fields — only populated for the counties whose public site runs on
+  // a vendor with a real JSON API (TrueProdigy: Denton/Montgomery/Tarrant/Travis;
+  // BIS Consultants: Fort Bend/Grayson). See texas_cad_vendor_landscape memory for
+  // why the other 5 counties can't offer this (bot-blocked or scraping-only).
+  legalDescription?: string | null;
+  subdivision?: string | null;
+  geoId?: string | null;
+  mailingAddress?: string | null;
+  ownershipPct?: number | null;
+  protestStatus?: string | null;
+  valueHistory?: Array<{
+    year: number;
+    landValue: number | null;
+    improvementValue: number | null;
+    marketValue: number | null;
+    appraisedValue: number | null;
+  }>;
+  deeds?: Array<{
+    date: string | null;
+    type: string | null;
+    description: string | null;
+    seller: string | null;
+    buyer: string | null;
+    instrumentNum: string | null;
+  }>;
 };
 
 // Every county below used to be gated behind a city-name regex (e.g. only try
@@ -694,6 +719,240 @@ async function queryDallas(address: string): Promise<CadRecord[]> {
   });
 }
 
+// --- Enrichment (Phase 5, 2026-07-27) ---------------------------------------
+// Best-effort second call, made ONLY after a county's own primary query above has
+// already matched a record by address. Never used to find or select a property —
+// only to attach extra detail (legal description, deed history, value history,
+// mailing address, protest status) that the ArcGIS parcel layers don't carry, by
+// looking up the SAME property on that county's own richer public website via its
+// vendor's JSON API. Enrichment failures (network error, vendor API shape change,
+// no match) are swallowed and simply leave the extra fields absent — a lookup
+// must never fail, and a confirm screen must never show stale/wrong enrichment,
+// just because a second, non-essential vendor call didn't work this time.
+//
+// Two vendor platforms cover 6 of the 11 counties (see texas_cad_vendor_landscape
+// memory for the other 5, which are either bot-protected or scraping-only):
+//   - TrueProdigy (Denton, Montgomery, Tarrant, Travis): confirmed live 2026-07-27
+//     that each county's own ArcGIS accountNumber IS that county's TrueProdigy
+//     "pid" (Tarrant's needs its leading zeros stripped first).
+//   - BIS Consultants (Fort Bend, Grayson): Fort Bend's ArcGIS accountNumber
+//     (PROPNUMBER) matches BIS's own "geoId" field; Grayson's ArcGIS accountNumber
+//     (PropertyNumber) matches BIS's own "propertyId" field instead — different
+//     cross-reference key per county, both confirmed live.
+//
+// In both cases, the enrichment lookup is keyed off the property ID already
+// trusted from the primary match — never re-derived from the user's typed
+// address — and is cross-checked against the primary match's own house number
+// before merging, so a wrong cross-county ID coincidence can never silently
+// attach one property's deed/value history onto a different property's screen.
+
+const TRUEPRODIGY_OFFICE_BY_CAD: Record<string, string> = {
+  "Denton Central Appraisal District": "Denton",
+  "Montgomery Central Appraisal District": "Montgomery",
+  "Tarrant Appraisal District": "Tarrant",
+  "Travis Central Appraisal District": "Travis",
+};
+
+async function getTrueProdigyToken(office: string): Promise<string> {
+  const res = await fetch(
+    "https://prod-container.trueprodigyapi.com/trueprodigy/cadpublic/auth/token",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ office }),
+    },
+  );
+  if (!res.ok) throw new Error(`TrueProdigy auth failed for ${office}: ${res.status}`);
+  const json = (await res.json()) as { user?: { token?: string } };
+  const token = json.user?.token;
+  if (!token) throw new Error(`TrueProdigy auth returned no token for ${office}`);
+  return token;
+}
+
+function houseNumberOf(address: string): string {
+  return address.trim().match(/^\d+/)?.[0] ?? "";
+}
+
+async function enrichTrueProdigy(
+  cadName: string,
+  accountNumber: string,
+  expectedHouseNumber: string,
+): Promise<Partial<CadRecord> | null> {
+  const office = TRUEPRODIGY_OFFICE_BY_CAD[cadName];
+  if (!office) return null;
+  const pid = parseInt(accountNumber, 10);
+  if (!Number.isFinite(pid)) return null;
+
+  try {
+    const token = await getTrueProdigyToken(office);
+    const headers = { "Content-Type": "application/json", Authorization: token };
+
+    // Deeds only needs the pid + token, not the search result, so it's fetched
+    // concurrently with the search call rather than after it — cuts a whole
+    // network round-trip off the enrichment latency.
+    const [searchRes, deedsRes] = await Promise.all([
+      fetch("https://prod-container.trueprodigyapi.com/public/property/search", {
+        method: "POST",
+        headers,
+        // The API 500s with a Python TypeError ("object of type 'int' has no
+        // len()") if value isn't a string — confirmed live 2026-07-27.
+        body: JSON.stringify({ pid: { operator: "=", value: String(pid) } }),
+      }),
+      fetch(`https://prod-container.trueprodigyapi.com/public/property/${pid}/deeds`, {
+        headers: { Authorization: token },
+      }),
+    ]);
+    if (!searchRes.ok) return null;
+    const searchJson = (await searchRes.json()) as { results?: Array<Record<string, unknown>> };
+    const rows = searchJson.results ?? [];
+    if (rows.length === 0) return null;
+
+    const latest = rows.reduce((a, b) => (Number(a.pYear) > Number(b.pYear) ? a : b));
+    const streetNum = String(latest.streetNum ?? "").trim();
+    if (streetNum && expectedHouseNumber && streetNum !== expectedHouseNumber) return null;
+
+    const valueHistory = rows
+      .map((r) => ({
+        year: Number(r.pYear),
+        landValue: typeof r.landValue === "number" ? r.landValue : null,
+        improvementValue: typeof r.improvementValue === "number" ? r.improvementValue : null,
+        marketValue: typeof r.marketValue === "number" ? r.marketValue : null,
+        appraisedValue: typeof r.appraisedValue === "number" ? r.appraisedValue : null,
+      }))
+      .sort((a, b) => b.year - a.year);
+
+    const deedsJson = deedsRes.ok
+      ? ((await deedsRes.json()) as { results?: Array<Record<string, unknown>> })
+      : {};
+    const deeds = (deedsJson.results ?? []).map((d) => ({
+      date: (d.deedDt as string) ?? null,
+      type: (d.deedType as string) ?? null,
+      description: (d.deedDescription as string) ?? null,
+      seller: (d.seller as string) ?? null,
+      buyer: (d.buyer as string) ?? null,
+      instrumentNum: (d.instrumentNum as string) ?? null,
+    }));
+
+    const mailingLine = [latest.addrDeliveryLine, latest.addrCity, latest.addrState]
+      .filter(Boolean)
+      .join(", ");
+    const mailingAddress = mailingLine
+      ? `${mailingLine}${latest.addrZip ? " " + latest.addrZip : ""}`
+      : null;
+
+    return {
+      legalDescription: (latest.legalDescription as string) || null,
+      geoId: (latest.geoID as string) || null,
+      mailingAddress,
+      ownershipPct: latest.ownerPct != null ? parseFloat(String(latest.ownerPct)) : null,
+      valueHistory,
+      deeds,
+    };
+  } catch {
+    return null;
+  }
+}
+
+// Both counties run the same "BIS Consultants" vendor software, but Fort Bend's
+// deployment answers a plain GET while Grayson's requires a short-lived session
+// token (minted via its own endpoint, then echoed back in both the POST body and
+// the Referer header) — a lightweight CSRF-style guard confirmed live 2026-07-27
+// (a bare GET or a token-less POST both 404/500 on Grayson specifically). Also,
+// each county's own ArcGIS accountNumber matches a DIFFERENT BIS field: Fort
+// Bend's matches BIS's "geoId", Grayson's matches BIS's "propertyId" — so
+// Grayson's search keywords need a "PropertyId:" prefix to hit the right field.
+const BIS_CONFIG_BY_CAD: Record<string, { host: string; sessionAuth: boolean }> = {
+  "Fort Bend Central Appraisal District": { host: "esearch.fbcad.org", sessionAuth: false },
+  "Grayson Central Appraisal District": { host: "esearch.graysonappraisal.org", sessionAuth: true },
+};
+
+async function fetchBisResults(
+  host: string,
+  sessionAuth: boolean,
+  keywords: string,
+): Promise<Array<Record<string, unknown>>> {
+  if (!sessionAuth) {
+    const res = await fetch(
+      `https://${host}/search/SearchResults?keywords=${encodeURIComponent(keywords)}&isArb=false`,
+    );
+    if (!res.ok) return [];
+    const json = (await res.json()) as { resultsList?: Array<Record<string, unknown>> };
+    return json.resultsList ?? [];
+  }
+
+  const tokenRes = await fetch(`https://${host}/search/requestSessionToken`);
+  if (!tokenRes.ok) return [];
+  const { searchSessionToken } = (await tokenRes.json()) as { searchSessionToken?: string };
+  if (!searchSessionToken) return [];
+
+  const encodedKeywords = encodeURIComponent(keywords);
+  const res = await fetch(`https://${host}/search/SearchResults?keywords=${encodedKeywords}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Requested-With": "XMLHttpRequest",
+      Referer: `https://${host}/search/result?keywords=${encodedKeywords}&searchSessionToken=${encodeURIComponent(searchSessionToken)}`,
+    },
+    body: JSON.stringify({
+      page: 1,
+      pageSize: 25,
+      isArb: false,
+      recaptchaToken: "",
+      searchToken: searchSessionToken,
+    }),
+  });
+  if (!res.ok) return [];
+  const json = (await res.json()) as { resultsList?: Array<Record<string, unknown>> };
+  return json.resultsList ?? [];
+}
+
+async function enrichBIS(
+  cadName: string,
+  accountNumber: string,
+  expectedHouseNumber: string,
+): Promise<Partial<CadRecord> | null> {
+  const config = BIS_CONFIG_BY_CAD[cadName];
+  if (!config) return null;
+
+  try {
+    const keywords = config.sessionAuth ? `PropertyId:${accountNumber}` : accountNumber;
+    const rows = await fetchBisResults(config.host, config.sessionAuth, keywords);
+    if (rows.length === 0) return null;
+
+    // Fort Bend's accountNumber matches BIS's own "geoId"; Grayson's matches BIS's
+    // "propertyId" instead — both confirmed live, so check either field.
+    const match =
+      rows.find((r) => r.geoId === accountNumber || r.propertyId === accountNumber) ?? rows[0];
+    const streetNum = String(match.streetNumber ?? "").trim();
+    if (streetNum && expectedHouseNumber && streetNum !== expectedHouseNumber) return null;
+
+    return {
+      legalDescription: (match.legalDescription as string) || null,
+      subdivision: (match.subdivision as string) || null,
+      geoId: (match.geoId as string) || null,
+      ownershipPct:
+        match.percentOwnership != null ? parseFloat(String(match.percentOwnership)) : null,
+      protestStatus: (match.status as string) || (match.arbStatus as string) || null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function enrichRecord(record: CadRecord): Promise<CadRecord> {
+  if (!record.accountNumber) return record;
+  const expectedHouseNumber = houseNumberOf(record.propertyAddress);
+
+  const enrichment =
+    record.cad in TRUEPRODIGY_OFFICE_BY_CAD
+      ? await enrichTrueProdigy(record.cad, record.accountNumber, expectedHouseNumber)
+      : record.cad in BIS_CONFIG_BY_CAD
+        ? await enrichBIS(record.cad, record.accountNumber, expectedHouseNumber)
+        : null;
+
+  return enrichment ? { ...record, ...enrichment } : record;
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
@@ -769,6 +1028,8 @@ Deno.serve(async (req: Request) => {
         headers: corsHeaders,
       });
     }
+
+    record = await enrichRecord(record);
 
     return new Response(JSON.stringify({ matched: true, record }), {
       status: 200,
