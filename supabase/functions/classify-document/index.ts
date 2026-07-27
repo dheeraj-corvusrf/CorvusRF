@@ -45,6 +45,8 @@ type Extraction = {
   mailDate: string | null;
   protestDeadline: string | null;
   hearingDate: string | null;
+  hearingTime: string | null;
+  hearingInstructions: string | null;
   paymentDueDate: string | null;
   taxAmountDue: number | null;
   pinOrEpin: string | null;
@@ -58,12 +60,13 @@ const SYSTEM = `You are a Texas property tax document classifier. The user uploa
 Rules:
 - Never invent values. If a field is not clearly visible, return null.
 - Money values are numbers (no commas, no $).
-- Dates in ISO YYYY-MM-DD format.
+- Dates in ISO YYYY-MM-DD format, EXCEPT hearingTime which is a plain time string exactly as printed (e.g. "9:00 AM").
+- hearingInstructions: if the document states how the hearing will be conducted, what documents/evidence to bring, any deadlines tied to the hearing, or other hearing-day instructions, copy that text VERBATIM (word-for-word, not summarized or reworded). If the document has no such instructions, return null.
 - documentType must be one of: "Real Property Appraisal Notice", "BPP Rendition Form", "BPP Appraisal Notice", "Tax Bill / Statement", "Hearing Notice / ARB", "Refund Notice", "EPIN / PIN Notice", "Exemption Notice", "Other".
 - confidence is a single 0..1 score for the overall extraction quality (OCR clarity + completeness of key fields).
 - Return ONLY a JSON object matching the schema. No prose.`;
 
-const SCHEMA_HINT = `{"documentType":"...","ownerName":null,"propertyName":null,"propertyAddress":null,"situsAddress":null,"county":null,"cadName":null,"accountNumber":null,"parcelId":null,"taxYear":null,"noticeValue":null,"landValue":null,"improvementValue":null,"bppValue":null,"priorValue":null,"noticeDate":null,"mailDate":null,"protestDeadline":null,"hearingDate":null,"paymentDueDate":null,"taxAmountDue":null,"pinOrEpin":null,"exemptions":null,"confidence":0.0,"reasoning":null}`;
+const SCHEMA_HINT = `{"documentType":"...","ownerName":null,"propertyName":null,"propertyAddress":null,"situsAddress":null,"county":null,"cadName":null,"accountNumber":null,"parcelId":null,"taxYear":null,"noticeValue":null,"landValue":null,"improvementValue":null,"bppValue":null,"priorValue":null,"noticeDate":null,"mailDate":null,"protestDeadline":null,"hearingDate":null,"hearingTime":null,"hearingInstructions":null,"paymentDueDate":null,"taxAmountDue":null,"pinOrEpin":null,"exemptions":null,"confidence":0.0,"reasoning":null}`;
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -152,6 +155,8 @@ Deno.serve(async (req: Request) => {
       mailDate: parsed.mailDate ?? null,
       protestDeadline: parsed.protestDeadline ?? null,
       hearingDate: parsed.hearingDate ?? null,
+      hearingTime: parsed.hearingTime ?? null,
+      hearingInstructions: parsed.hearingInstructions ?? null,
       paymentDueDate: parsed.paymentDueDate ?? null,
       taxAmountDue: parsed.taxAmountDue ?? null,
       pinOrEpin: parsed.pinOrEpin ?? null,
