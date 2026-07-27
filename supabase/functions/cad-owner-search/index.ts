@@ -1,6 +1,6 @@
 // Deploy via CLI: `supabase functions deploy cad-owner-search`.
 // No secrets required — same public ArcGIS FeatureServer endpoints as cad-lookup,
-// just queried by owner name instead of address, across all ten counties at once.
+// just queried by owner name instead of address, across all eleven counties at once.
 //
 // Used right after signup to find properties an LLC/business name may already own,
 // so the user doesn't have to manually enter every address. Real matches only — a
@@ -132,25 +132,75 @@ async function searchHarris(owner: string): Promise<CadRecord[]> {
   });
 }
 
+// Tarrant's City field is a 3-digit jurisdiction code, not a name — see
+// cad-lookup/index.ts's TARRANT_CITY_CODES comment for the full story.
+const TARRANT_CITY_CODES: Record<string, string> = {
+  "001": "Azle",
+  "002": "Bedford",
+  "003": "Benbrook",
+  "004": "Blue Mound",
+  "005": "Colleyville",
+  "006": "Crowley",
+  "007": "Dalworthington Gardens",
+  "008": "Edgecliff Village",
+  "009": "Everman",
+  "010": "Forest Hill",
+  "011": "Grapevine",
+  "013": "Keller",
+  "014": "Kennedale",
+  "015": "Lakeside",
+  "016": "Lake Worth",
+  "017": "Mansfield",
+  "018": "North Richland Hills",
+  "019": "Pantego",
+  "020": "Richland Hills",
+  "021": "Saginaw",
+  "022": "Southlake",
+  "023": "Westover Hills",
+  "024": "Arlington",
+  "025": "Euless",
+  "026": "Fort Worth",
+  "027": "Haltom City",
+  "028": "Hurst",
+  "029": "River Oaks",
+  "030": "White Settlement",
+  "031": "Watauga",
+  "032": "Westworth Village",
+  "033": "Burleson",
+  "034": "Haslet",
+  "036": "Pelican Bay",
+  "037": "Westlake",
+  "038": "Grand Prairie",
+  "039": "Sansom Park",
+  "041": "Reno",
+  "042": "Flower Mound",
+  "043": "Roanoke",
+  "044": "Trophy Club",
+};
+
 async function searchTarrant(owner: string): Promise<CadRecord[]> {
   const where = `UPPER(Owner_Name) LIKE UPPER('%${owner}%')`;
   const url =
     "https://tad.newedgeservices.com/arcgis/rest/services/OD_TAD/OD_ParcelView/MapServer/0/query" +
     `?where=${encodeURIComponent(where)}` +
-    "&outFields=Owner_Name,Situs_Addr,Land_Value,Improvemen,Total_Valu,Appraised_,Account_Nu,Property_C" +
+    "&outFields=Owner_Name,Situs_Addr,City,Land_Value,Improvemen,Total_Valu,Appraised_,Account_Nu,Property_C" +
     "&f=json"; // this endpoint doesn't support resultRecordCount
   const features = await fetchFeatures(url);
-  return features.slice(0, PER_COUNTY_LIMIT).map(({ attributes: a }) => ({
-    ownerName: (a.Owner_Name as string) ?? null,
-    propertyAddress: (a.Situs_Addr as string)?.trim() ?? "",
-    cad: "Tarrant Appraisal District",
-    accountNumber: (a.Account_Nu as string)?.trim() || null,
-    propertyType: (a.Property_C as string)?.trim() || null,
-    landValue: parseMoneyField(a.Land_Value),
-    improvementValue: parseMoneyField(a.Improvemen),
-    totalValue: parseMoneyField(a.Appraised_ ?? a.Total_Valu),
-    taxYear: null,
-  }));
+  return features.slice(0, PER_COUNTY_LIMIT).map(({ attributes: a }) => {
+    const situsAddr = (a.Situs_Addr as string)?.trim() ?? "";
+    const cityName = TARRANT_CITY_CODES[(a.City as string)?.trim()] ?? null;
+    return {
+      ownerName: (a.Owner_Name as string) ?? null,
+      propertyAddress: situsAddr && cityName ? `${situsAddr}, ${cityName}` : situsAddr,
+      cad: "Tarrant Appraisal District",
+      accountNumber: (a.Account_Nu as string)?.trim() || null,
+      propertyType: (a.Property_C as string)?.trim() || null,
+      landValue: parseMoneyField(a.Land_Value),
+      improvementValue: parseMoneyField(a.Improvemen),
+      totalValue: parseMoneyField(a.Appraised_ ?? a.Total_Valu),
+      taxYear: null,
+    };
+  });
 }
 
 async function searchFortBend(owner: string): Promise<CadRecord[]> {
@@ -262,6 +312,35 @@ async function searchBexar(owner: string): Promise<CadRecord[]> {
   }));
 }
 
+// Dallas County — see cad-lookup/index.ts's queryDallas for the source. No value
+// fields exist on this layer at all, so those are honestly null here too.
+async function searchDallas(owner: string): Promise<CadRecord[]> {
+  const where = `UPPER(OWNER_NAME1) LIKE UPPER('%${owner}%')`;
+  const url =
+    "https://services3.arcgis.com/zqe2kwz79KUqUvxC/arcgis/rest/services/DCAD_PARCELS/FeatureServer/0/query" +
+    `?where=${encodeURIComponent(where)}` +
+    "&outFields=OWNER_NAME1,SiteAddress,PROPERTY_CITY,PROPERTY_ZIPCODE,ACCOUNT_NUM,APPRAISAL_YR" +
+    `&resultRecordCount=${PER_COUNTY_LIMIT}&f=json`;
+  const features = await fetchFeatures(url);
+  return features.map(({ attributes: a }) => {
+    const site = (a.SiteAddress as string)?.trim();
+    const city = (a.PROPERTY_CITY as string)?.trim().replace(/\s*\([^)]*\)\s*$/, "");
+    const zip9 = a.PROPERTY_ZIPCODE != null ? String(a.PROPERTY_ZIPCODE) : null;
+    const zip = zip9 && zip9.length >= 5 ? `${zip9.slice(0, 5)}-${zip9.slice(5)}` : zip9;
+    return {
+      ownerName: (a.OWNER_NAME1 as string)?.trim() || null,
+      propertyAddress: site && city ? `${site}, ${city}, TX${zip ? ` ${zip}` : ""}` : site || "",
+      cad: "Dallas Central Appraisal District",
+      accountNumber: (a.ACCOUNT_NUM as string)?.trim() || null,
+      propertyType: null,
+      landValue: null,
+      improvementValue: null,
+      totalValue: null,
+      taxYear: a.APPRAISAL_YR != null ? Number(a.APPRAISAL_YR) : null,
+    };
+  });
+}
+
 const SEARCHERS = [
   searchCollin,
   searchMontgomery,
@@ -272,6 +351,7 @@ const SEARCHERS = [
   searchWilliamson,
   searchGrayson,
   searchBexar,
+  searchDallas,
 ];
 
 Deno.serve(async (req: Request) => {
