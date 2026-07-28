@@ -15,6 +15,7 @@ import { SiteNav, SiteFooter } from "../components/SiteChrome";
 import { AuthProvider, useAuth } from "../lib/auth";
 import { Toaster } from "../components/ui/sonner";
 import { JourneyTracker } from "../components/JourneyTracker";
+import { AskAiWidget } from "../components/AskAiWidget";
 
 function NotFoundComponent() {
   return (
@@ -138,6 +139,7 @@ function RootComponent() {
           <SignedInJourney />
           <SiteFooter />
         </div>
+        <AskAiWidget />
         <Toaster />
       </AuthProvider>
     </QueryClientProvider>
