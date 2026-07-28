@@ -1,6 +1,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useId, useState } from "react";
 import { toast } from "sonner";
+import { Check } from "lucide-react";
 import { AreaChart, Area, XAxis, YAxis, ResponsiveContainer, Tooltip } from "recharts";
 import {
   readIntake,
@@ -199,22 +200,26 @@ function Intake() {
       {step === "validating" && (
         <section className="mt-8 card-elev p-6">
           <h2 className="font-serif text-xl font-semibold">Working on it…</h2>
-          <ul className="mt-4 space-y-2 text-sm">
-            <ProgressLine label="Validating Property Address..." done />
-            <ProgressLine label="Identifying County Appraisal District..." done />
-            <ProgressLine label="Retrieving Official Property Information..." active />
-          </ul>
+          <AnimatedSteps
+            steps={[
+              { label: "Validating property address", status: "done" },
+              { label: "Identifying county appraisal district", status: "done" },
+              { label: "Retrieving official property information", status: "active" },
+            ]}
+          />
         </section>
       )}
 
       {step === "classifying" && (
         <section className="mt-8 card-elev p-6">
           <h2 className="font-serif text-xl font-semibold">AI is reading your document…</h2>
-          <ul className="mt-4 space-y-2 text-sm">
-            <ProgressLine label="OCR & text extraction" done />
-            <ProgressLine label="Classifying document type" active />
-            <ProgressLine label="Extracting owner, values, and deadlines" active />
-          </ul>
+          <AnimatedSteps
+            steps={[
+              { label: "OCR & text extraction", status: "done" },
+              { label: "Classifying document type", status: "active" },
+              { label: "Extracting owner, values, and deadlines", status: "active" },
+            ]}
+          />
           <p className="mt-4 text-xs text-muted-foreground">
             This usually takes a few seconds. Do not close this tab.
           </p>
@@ -415,28 +420,61 @@ function Stepper({ step }: { step: Step }) {
   );
 }
 
-function ProgressLine({
-  label,
-  done,
-  active,
-}: {
-  label: string;
-  done?: boolean;
-  active?: boolean;
-}) {
+type StepStatus = "done" | "active" | "pending";
+
+// A vertical stepper for "AI is working" screens — numbered circles connected by
+// a line, each animating in place as its status changes: the active circle gets
+// a pulsing ring (visibly "in progress"), and done gets a checkmark that pops in
+// (tw-animate-css's zoom-in/fade-in) instead of the old plain-checkmark +
+// strikethrough-text treatment.
+function AnimatedSteps({ steps }: { steps: { label: string; status: StepStatus }[] }) {
   return (
-    <li className="flex items-center gap-2">
-      {done ? (
-        <span className="h-4 w-4 rounded-full bg-success text-success-foreground grid place-items-center text-[10px]">
-          ✓
-        </span>
-      ) : (
-        <span
-          className={`h-4 w-4 rounded-full border-2 ${active ? "border-accent border-t-transparent animate-spin" : "border-border"}`}
-        />
-      )}
-      <span className={done ? "text-muted-foreground line-through" : ""}>{label}</span>
-    </li>
+    <ol className="mt-4">
+      {steps.map((step, i) => (
+        <li key={step.label} className="flex gap-3">
+          <div className="flex flex-col items-center">
+            <span className="relative grid h-7 w-7 shrink-0 place-items-center">
+              {step.status === "active" && (
+                <span className="absolute inset-0 rounded-full bg-accent opacity-60 animate-ping" />
+              )}
+              <span
+                className={`relative grid h-7 w-7 place-items-center rounded-full text-xs font-semibold transition-colors duration-300 ${
+                  step.status === "done"
+                    ? "bg-success text-success-foreground"
+                    : step.status === "active"
+                      ? "bg-accent text-accent-foreground"
+                      : "bg-secondary text-muted-foreground"
+                }`}
+              >
+                {step.status === "done" ? (
+                  <Check className="h-3.5 w-3.5 animate-in zoom-in-50 fade-in duration-300" />
+                ) : (
+                  i + 1
+                )}
+              </span>
+            </span>
+            {i < steps.length - 1 && (
+              <span
+                className={`w-0.5 flex-1 min-h-[1.5rem] transition-colors duration-500 ${
+                  step.status === "done" ? "bg-success" : "bg-border"
+                }`}
+              />
+            )}
+          </div>
+          <div
+            className={`pb-6 text-sm transition-colors duration-300 ${
+              step.status === "pending"
+                ? "text-muted-foreground"
+                : step.status === "active"
+                  ? "font-medium text-foreground"
+                  : "text-muted-foreground"
+            }`}
+          >
+            {step.label}
+          </div>
+        </li>
+      ))}
+    </ol>
   );
 }
 

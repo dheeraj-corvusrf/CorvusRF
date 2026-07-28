@@ -16,6 +16,7 @@ import { AuthProvider, useAuth } from "../lib/auth";
 import { Toaster } from "../components/ui/sonner";
 import { JourneyTracker } from "../components/JourneyTracker";
 import { AskAiWidget } from "../components/AskAiWidget";
+import { AppShell } from "../components/AppShell";
 
 function NotFoundComponent() {
   return (
@@ -133,7 +134,9 @@ function RootComponent() {
           <SiteNav />
         </div>
         <main className="min-h-[70vh]">
-          <Outlet />
+          <AppShell>
+            <Outlet />
+          </AppShell>
         </main>
         <div className="print:hidden">
           <SignedInJourney />
