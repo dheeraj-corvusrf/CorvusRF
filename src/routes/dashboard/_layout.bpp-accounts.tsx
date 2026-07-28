@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
 import { listBppAccounts, addBppAccount, deleteBppAccount, type BppAccountRecord } from "@/lib/bpp-accounts";
+import { Skeleton } from "@/components/ui/skeleton";
 
 export const Route = createFileRoute("/dashboard/_layout/bpp-accounts")({
   component: BppAccounts,
@@ -117,7 +118,17 @@ function BppAccounts() {
 
       <div className="mt-6">
         {loading ? (
-          <p className="text-sm text-muted-foreground">Loading…</p>
+          <div className="grid gap-4">
+            {[0, 1].map((i) => (
+              <div key={i} className="card-elev p-5 flex items-start justify-between gap-4">
+                <div className="grid gap-2">
+                  <Skeleton className="h-5 w-48" />
+                  <Skeleton className="h-4 w-64" />
+                </div>
+                <Skeleton className="h-8 w-20 shrink-0" />
+              </div>
+            ))}
+          </div>
         ) : accounts.length > 0 ? (
           <div className="grid gap-4">
             {accounts.map((a) => (

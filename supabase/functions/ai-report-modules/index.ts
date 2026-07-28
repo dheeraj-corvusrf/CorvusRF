@@ -49,13 +49,15 @@ const checklist = (v: unknown): string[] =>
 
 const MODULE_SPECS: Record<string, ModuleSpec> = {
   strategy: {
-    instruction: "Recommend the single best-fit protest strategy for this record.",
-    schema: `{"recommendation": "<one of: ${STRATEGIES.join(" | ")}>", "rationale": "<1-2 sentences>"}`,
+    instruction:
+      "Recommend the single best-fit protest strategy for this record, with a confidence score.",
+    schema: `{"recommendation": "<one of: ${STRATEGIES.join(" | ")}>", "confidencePct": <integer 0-100, how confident this recommendation is given only a CAD record with no comps/inspection>, "rationale": "<1-2 sentences>"}`,
     parse: (p) => ({
       recommendation:
         typeof p.recommendation === "string" && STRATEGIES.includes(p.recommendation)
           ? p.recommendation
           : "Combined Approach",
+      confidencePct: Math.max(0, Math.min(100, Math.round(Number(p.confidencePct) || 60))),
       rationale: p.rationale ?? "",
     }),
   },
@@ -79,8 +81,13 @@ const MODULE_SPECS: Record<string, ModuleSpec> = {
   zoning: {
     instruction:
       "Assess whether the stated property type and typical CAD classification appear consistent.",
-    schema: `{"assessment": "<1-2 sentences>"}`,
-    parse: (p) => ({ assessment: p.assessment ?? "" }),
+    schema: `{"matches": "<one of: consistent | inconsistent | uncertain>", "assessment": "<1-2 sentences>"}`,
+    parse: (p) => ({
+      matches: (["consistent", "inconsistent", "uncertain"].includes(p.matches)
+        ? p.matches
+        : "uncertain") as "consistent" | "inconsistent" | "uncertain",
+      assessment: p.assessment ?? "",
+    }),
   },
   evidence: {
     instruction: "Produce a prioritized evidence checklist for the protest packet.",

@@ -12,8 +12,11 @@ import { useEffect, type ReactNode } from "react";
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 import { SiteNav, SiteFooter } from "../components/SiteChrome";
-import { AuthProvider } from "../lib/auth";
+import { AuthProvider, useAuth } from "../lib/auth";
 import { Toaster } from "../components/ui/sonner";
+import { JourneyTracker } from "../components/JourneyTracker";
+import { AskAiWidget } from "../components/AskAiWidget";
+import { AppShell } from "../components/AppShell";
 
 function NotFoundComponent() {
   return (
@@ -127,13 +130,34 @@ function RootComponent() {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
-        <SiteNav />
+        <div className="print:hidden">
+          <SiteNav />
+        </div>
         <main className="min-h-[70vh]">
-          <Outlet />
+          <AppShell>
+            <Outlet />
+          </AppShell>
         </main>
-        <SiteFooter />
+        <div className="print:hidden">
+          <SignedInJourney />
+          <SiteFooter />
+        </div>
+        <AskAiWidget />
         <Toaster />
       </AuthProvider>
     </QueryClientProvider>
+  );
+}
+
+// Shown at the bottom of every page, but only once auth has resolved to a real
+// signed-in user — guests (and the brief loading window before we know) see
+// nothing here rather than a flash of a tracker they can't act on.
+function SignedInJourney() {
+  const { user, loading } = useAuth();
+  if (loading || !user) return null;
+  return (
+    <div className="container-page pb-10">
+      <JourneyTracker />
+    </div>
   );
 }

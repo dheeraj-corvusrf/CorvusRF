@@ -208,3 +208,10 @@
 
 @keyframes shimmer { 0%{background-position:-400px 0} 100%{background-position:400px 0} }
 .locked-blur { filter: blur(6px); user-select: none; pointer-events: none; }
+
+/* Without this, browsers strip background colors by default when printing —
+   the colorful chips/badges/chart fills that make the AI report worth exporting
+   would silently print as plain black-on-white otherwise. */
+@media print {
+  * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+}

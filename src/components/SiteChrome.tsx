@@ -6,7 +6,6 @@ import { checkIsAdmin } from "@/lib/admin";
 
 const NAV = [
   { to: "/", label: "Home" },
-  { to: "/property-tax-management", label: "Property Tax Management" },
   { to: "/how-it-works", label: "How It Works" },
   { to: "/property-protest", label: "Property Protest" },
   { to: "/bpp-rendition", label: "BPP Rendition" },

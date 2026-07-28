@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { currency } from "@/lib/intake-store";
 import { useAuth } from "@/lib/auth";
 import { listProperties, markPropertyPaid, type PropertyRecord } from "@/lib/properties";
+import { Skeleton } from "@/components/ui/skeleton";
 
 export const Route = createFileRoute("/dashboard/_layout/deadlines")({
   component: Deadlines,
@@ -54,7 +55,27 @@ function Deadlines() {
     })
     .sort((a, b) => Number(a.isPaid) - Number(b.isPaid) || a.daysLeft - b.daysLeft);
 
-  if (loading) return <p className="text-sm text-muted-foreground">Loading…</p>;
+  if (loading) {
+    return (
+      <div className="grid gap-8">
+        <div>
+          <h1 className="font-serif text-2xl font-semibold">Deadlines</h1>
+          <p className="text-muted-foreground text-sm">Protest deadlines and tax bills, in one place.</p>
+        </div>
+        <div className="grid gap-3">
+          {[0, 1].map((i) => (
+            <div key={i} className="card-elev p-4 flex items-center justify-between gap-2">
+              <div className="grid gap-2">
+                <Skeleton className="h-4 w-48" />
+                <Skeleton className="h-3 w-56" />
+              </div>
+              <Skeleton className="h-6 w-24 shrink-0" />
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="grid gap-8">
