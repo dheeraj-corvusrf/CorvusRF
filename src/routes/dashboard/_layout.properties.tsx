@@ -57,11 +57,14 @@ function Properties() {
     }
   }
 
-  async function handleRequestProtest(propertyId: string) {
+  async function handleRequestProtest(propertyId: string, address: string) {
     if (!user) return;
     setRequestingId(propertyId);
     try {
-      const created = await requestProtest(user.id, propertyId);
+      const created = await requestProtest(user.id, propertyId, {
+        address,
+        userEmail: user.email,
+      });
       setProtests((prev) => [created, ...prev]);
       toast.success("Protest filing requested. CorvusRF staff will follow up.");
     } catch (err) {
@@ -145,7 +148,7 @@ function Properties() {
                     ) : (
                       <button
                         disabled={requestingId === p.id}
-                        onClick={() => handleRequestProtest(p.id)}
+                        onClick={() => handleRequestProtest(p.id, p.address)}
                         className="btn-outline disabled:opacity-60"
                       >
                         {requestingId === p.id ? "Requesting…" : "Request Protest Filing"}
