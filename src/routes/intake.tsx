@@ -16,7 +16,7 @@ import type { CadValueHistoryEntry } from "@/lib/cad-lookup";
 import { cadLookup } from "@/lib/cad-lookup";
 import { AddressAutocomplete } from "@/components/AddressAutocomplete";
 import { useAuth } from "@/lib/auth";
-import { addProperty } from "@/lib/properties";
+import { addProperty, findExistingProperty, type PropertyRecord } from "@/lib/properties";
 import { SampleNoticeDialog } from "@/components/SampleNoticeDialog";
 
 export const Route = createFileRoute("/intake")({
@@ -47,6 +47,7 @@ function Intake() {
   const [noticeName, setNoticeName] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [alreadySaved, setAlreadySaved] = useState<PropertyRecord | null>(null);
 
   useEffect(() => {
     const s = readIntake();
@@ -67,6 +68,7 @@ function Intake() {
   async function runValidation(addr: string) {
     setStep("validating");
     setError(null);
+    setAlreadySaved(null);
     try {
       const res = await cadLookup(addr);
       if (!res.matched) {
@@ -94,6 +96,18 @@ function Intake() {
       });
       setState(next);
       setStep("confirm");
+      // Check whether this exact CAD record is already on the user's account —
+      // shown as a notice on the confirm screen instead of letting them hit
+      // "Confirm Property" again for something already saved.
+      if (user && next.address) {
+        findExistingProperty(user.id, {
+          address: next.address,
+          cad: next.cad,
+          accountNumber: next.accountNumber,
+        })
+          .then(setAlreadySaved)
+          .catch((err) => console.error(err));
+      }
     } catch (err) {
       console.error(err);
       const message =
@@ -338,13 +352,19 @@ function Intake() {
             </div>
           )}
 
+          {alreadySaved && (
+            <div className="mt-4 flex items-center gap-2 rounded-lg border border-accent/30 bg-accent/10 px-4 py-3 text-sm">
+              <Check className="h-4 w-4 shrink-0 text-accent" />
+              <span>This property is already in your account — no need to confirm it again.</span>
+            </div>
+          )}
           {saveError && <p className="mt-4 text-sm text-destructive">{saveError}</p>}
           <div className="mt-6 flex flex-wrap gap-2">
             <button
               disabled={saving}
               onClick={async () => {
                 setSaveError(null);
-                if (user) {
+                if (user && !alreadySaved) {
                   setSaving(true);
                   try {
                     await addProperty(user.id, {
@@ -376,7 +396,7 @@ function Intake() {
               }}
               className="btn-primary btn-primary-hover disabled:opacity-60"
             >
-              {saving ? "Saving…" : "Confirm Property"}
+              {saving ? "Saving…" : alreadySaved ? "View AI Report" : "Confirm Property"}
             </button>
             <button onClick={() => setStep("address")} className="btn-outline">
               Edit Address
