@@ -2,6 +2,9 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { readIntake, classifyAndStoreDocument, type IntakeState } from "@/lib/intake-store";
+import { useAuth } from "@/lib/auth";
+import { listProtests, type ProtestRecord, type ProtestStatus } from "@/lib/protests";
+import { listProperties, type PropertyRecord } from "@/lib/properties";
 
 const STEP_LABELS = [
   "Start",
@@ -17,16 +20,31 @@ const STEP_LABELS = [
   "Savings",
 ] as const;
 
-// Only the first 5 steps map to anything the app actually does today. 6-11 describe
-// a protest-filing workflow (choose a service, file, track, get a decision, see
-// savings) that doesn't exist yet — they render locked, never marked complete.
-const REAL_STEP_COUNT = 5;
 const TOTAL_STEPS = STEP_LABELS.length;
+
+// Steps 6-11 used to render permanently locked ("coming soon") because the
+// filing workflow they describe didn't exist yet. It does now — protests.status
+// moves through this exact pipeline (advanced by CorvusRF staff via the admin
+// panel), so those steps are driven by the signed-in user's real cases instead.
+const STATUS_RANK: Record<ProtestStatus, number> = {
+  requested: 1,
+  filed: 2,
+  under_review: 3,
+  hearing_scheduled: 4,
+  resolved: 5,
+};
 
 type Action = { label: string; to?: string; upload?: boolean };
 type StepMessage = { title: string; actions?: Action[] };
 
-function computeSteps(state: IntakeState): boolean[] {
+// `state` reflects only the CURRENT browser session's intake flow, which resets
+// every time a new property is started (resetIntake() on the homepage) — a
+// returning user beginning their second property would otherwise look like
+// they'd regressed on steps already completed for their first one. `hasSavedProperty`
+// (a real, persisted, account-wide signal — the same one steps 6-11 already use)
+// is OR'd in so completing the pipeline once keeps steps 1-5 checked forever,
+// while a fresh in-progress session still fills in normally for a first-time user.
+function computeIntakeSteps(state: IntakeState, hasSavedProperty: boolean): boolean[] {
   const hasStarted = !!(state.address || state.extraction || state.noticeFileName);
   const hasCounty = !!(state.cad || state.extraction?.county || state.extraction?.cadName);
   const hasProperty = !!(
@@ -36,10 +54,47 @@ function computeSteps(state: IntakeState): boolean[] {
   );
   const hasDocument = !!(state.noticeFileName || state.extraction);
   const hasReview = !!state.extractionConfirmed;
-  return [hasStarted, hasCounty, hasProperty, hasDocument, hasReview];
+  return [hasStarted, hasCounty, hasProperty, hasDocument, hasReview].map(
+    (done) => done || hasSavedProperty,
+  );
 }
 
-function getMessage(currentStep: number): StepMessage | null {
+// Highest-progress protest across all of a user's properties — a user with
+// several cases is only as "stuck" as their furthest-along one for this tracker.
+function maxProtestRank(protests: Array<{ status: ProtestStatus }>): number {
+  return protests.reduce((max, p) => Math.max(max, STATUS_RANK[p.status]), 0);
+}
+
+// The specific protest driving the step/rank shown above — needed so the tracker
+// can say WHICH property it's talking about instead of blending every case a
+// user has into one anonymous bar. Ties (two properties at the same stage) fall
+// back to the most recently requested, since listProtests() is already sorted
+// that way.
+function leadingProtest(protests: ProtestRecord[]): ProtestRecord | null {
+  return protests.reduce<ProtestRecord | null>((best, p) => {
+    if (!best || STATUS_RANK[p.status] > STATUS_RANK[best.status]) return p;
+    return best;
+  }, null);
+}
+
+function computeFilingSteps(rank: number): boolean[] {
+  return [
+    rank >= 1, // Choose Service — a protest has been requested
+    rank >= 1, // Prepare Filing — same signal; nothing more granular than "requested" exists yet
+    rank >= 2, // Submit — filed with the county
+    rank >= 3, // Track — under county review
+    rank >= 4, // Decision — hearing scheduled or a decision reached
+    rank >= 5, // Savings — resolved
+  ];
+}
+
+function getMessage(currentStep: number, allDone: boolean): StepMessage | null {
+  if (allDone) {
+    return {
+      title: "Your case is resolved. Check your dashboard for the outcome and savings.",
+      actions: [{ label: "View Dashboard", to: "/dashboard" }],
+    };
+  }
   switch (currentStep) {
     case 0:
       return {
@@ -69,26 +124,65 @@ function getMessage(currentStep: number): StepMessage | null {
         title: "Review AI's extraction and confirm the details.",
         actions: [{ label: "Review Document", to: "/document-review" }],
       };
+    case 5:
+    case 6:
+      return {
+        title: "Ready to save on your property taxes? Choose a service to get started.",
+        actions: [
+          { label: "Protest My Property", to: "/property-protest" },
+          { label: "File BPP Rendition", to: "/bpp-rendition" },
+        ],
+      };
+    case 7:
+      return { title: "CorvusRF staff is filing your protest with the county." };
+    case 8:
+      return {
+        title: "Your protest has been filed. CorvusRF is tracking it for updates.",
+        actions: [{ label: "View My Cases", to: "/dashboard" }],
+      };
+    case 9:
+      return { title: "Your protest is under county review." };
+    case 10:
+      return { title: "Your hearing is scheduled. Awaiting the county's decision." };
     default:
-      return { title: "You're all caught up for now — filing workflows are coming soon." };
+      return null;
   }
 }
 
 export function JourneyTracker() {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [state, setState] = useState<IntakeState>({ previewsUsed: [] });
+  const [protests, setProtests] = useState<ProtestRecord[]>([]);
+  const [properties, setProperties] = useState<PropertyRecord[]>([]);
   const [uploading, setUploading] = useState(false);
 
   useEffect(() => {
     setState(readIntake());
   }, []);
 
-  const steps = computeSteps(state);
+  useEffect(() => {
+    if (!user) return;
+    listProtests(user.id).then(setProtests).catch((err) => console.error(err));
+    listProperties(user.id).then(setProperties).catch((err) => console.error(err));
+  }, [user]);
+
+  const protestRank = maxProtestRank(protests);
+  const hasSavedProperty = properties.length > 0;
+  const steps = [...computeIntakeSteps(state, hasSavedProperty), ...computeFilingSteps(protestRank)];
   const completedCount = steps.filter(Boolean).length;
   const firstIncomplete = steps.findIndex((done) => !done);
-  const currentStep = firstIncomplete === -1 ? REAL_STEP_COUNT : firstIncomplete;
+  const allDone = firstIncomplete === -1;
+  const currentStep = allDone ? TOTAL_STEPS - 1 : firstIncomplete;
   const progress = Math.round((completedCount / TOTAL_STEPS) * 100);
-  const message = getMessage(currentStep);
+  const message = getMessage(currentStep, allDone);
+
+  // Steps 6+ are driven by the single furthest-along protest across every property
+  // the user has — without naming it, a user with several properties has no way to
+  // tell which one this bar is even about.
+  const leading = leadingProtest(protests);
+  const leadingAddress = leading ? (properties.find((p) => p.id === leading.propertyId)?.address ?? null) : null;
+  const otherPropertiesInProgress = new Set(protests.map((p) => p.propertyId)).size - 1;
 
   async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0];
@@ -113,14 +207,26 @@ export function JourneyTracker() {
         </div>
       </div>
       <h2 className="mt-3 font-serif text-xl font-semibold">
-        Step {currentStep + 1} of {TOTAL_STEPS}: {STEP_LABELS[currentStep]}
+        {allDone ? "All steps complete" : `Step ${currentStep + 1} of ${TOTAL_STEPS}: ${STEP_LABELS[currentStep]}`}
       </h2>
+      {protestRank > 0 && leadingAddress && (
+        <p className="text-sm text-muted-foreground">
+          {leadingAddress}
+          {otherPropertiesInProgress > 0 && (
+            <>
+              {" · "}
+              <Link to="/dashboard/properties" className="underline hover:text-foreground">
+                +{otherPropertiesInProgress} other propert{otherPropertiesInProgress === 1 ? "y" : "ies"} in progress
+              </Link>
+            </>
+          )}
+        </p>
+      )}
 
       <ol className="mt-5 flex items-start gap-2 overflow-x-auto pb-1">
         {STEP_LABELS.map((label, i) => {
-          const isReal = i < REAL_STEP_COUNT;
-          const done = isReal && steps[i];
-          const active = i === currentStep;
+          const done = steps[i];
+          const active = i === currentStep && !allDone;
           return (
             <li key={label} className="flex items-center gap-2 shrink-0">
               <div className="flex flex-col items-center gap-1 w-[72px]">
@@ -131,7 +237,7 @@ export function JourneyTracker() {
                       : active
                         ? "bg-primary text-primary-foreground"
                         : "bg-secondary text-muted-foreground"
-                  } ${!isReal ? "opacity-50" : ""}`}
+                  }`}
                 >
                   {done ? "✓" : i + 1}
                 </span>
@@ -142,7 +248,6 @@ export function JourneyTracker() {
                 >
                   {label}
                 </span>
-                {!isReal && <span className="text-[9px] text-muted-foreground">Coming soon</span>}
               </div>
               {i < TOTAL_STEPS - 1 && <span className="w-4 h-px bg-border mt-4" />}
             </li>

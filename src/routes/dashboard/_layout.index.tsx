@@ -2,6 +2,7 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Plus, Briefcase, Upload, Sparkles, ArrowUpRight, Trash2 } from "lucide-react";
+import { BarChart, Bar, XAxis, YAxis, Cell, LabelList, ResponsiveContainer, PieChart, Pie } from "recharts";
 import { useAuth } from "@/lib/auth";
 import { currency, resetIntake, classifyAndStoreDocument } from "@/lib/intake-store";
 import { listProperties, deleteProperty, type PropertyRecord } from "@/lib/properties";
@@ -220,25 +221,25 @@ function Overview() {
 
       {/* Stats */}
       <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-5">
-        <StatCard label="Properties" value={loaded ? properties.length : "…"} />
-        <StatCard label="BPP Accounts" value={loaded ? bppAccounts.length : "…"} />
-        <StatCard label="Documents" value={loaded ? documents.length : "…"} />
-        <StatCard label="Cases" value={loaded ? protests.length : "…"} />
+        <StatCard label="Properties" value={loaded ? properties.length : "…"} to="/dashboard/properties" />
+        <StatCard label="BPP Accounts" value={loaded ? bppAccounts.length : "…"} to="/dashboard/bpp-accounts" />
+        <StatCard label="Documents" value={loaded ? documents.length : "…"} to="/dashboard/documents" />
+        <StatCard label="Cases" value={loaded ? protests.length : "…"} to="/dashboard/properties" />
         <StatCard label="Est. Savings" value={loaded ? currency(estimatedSavings) : "…"} />
       </div>
+
+      {properties.length > 0 && (
+        <div className="card-elev p-5">
+          <h3 className="font-semibold">Portfolio Value</h3>
+          <PortfolioValueChart properties={properties} />
+        </div>
+      )}
 
       <div className="grid gap-4 lg:grid-cols-2">
         <div className="card-elev p-5">
           <h3 className="font-semibold">Cases & AI Recommendations</h3>
           {protests.length > 0 ? (
-            <div className="mt-3 grid gap-2">
-              {protests.slice(0, 5).map((pr) => (
-                <div key={pr.id} className="flex items-center justify-between gap-2 text-sm">
-                  <span className="truncate">{addressFor(pr.propertyId)}</span>
-                  <span className="badge-soft shrink-0">{STATUS_LABEL[pr.status]}</span>
-                </div>
-              ))}
-            </div>
+            <ProtestStatusChart protests={protests} addressFor={addressFor} />
           ) : (
             <p className="mt-2 text-sm text-muted-foreground">No cases yet. Use an entry point above.</p>
           )}
@@ -305,11 +306,134 @@ function Overview() {
   );
 }
 
-function StatCard({ label, value }: { label: string; value: string | number }) {
-  return (
-    <div className="card-elev p-4">
+function StatCard({
+  label,
+  value,
+  to,
+}: {
+  label: string;
+  value: string | number;
+  to?: "/dashboard/properties" | "/dashboard/bpp-accounts" | "/dashboard/documents";
+}) {
+  const content = (
+    <>
       <div className="text-xs text-muted-foreground">{label}</div>
       <div className="mt-1 font-serif text-2xl font-semibold">{value}</div>
-    </div>
+    </>
+  );
+  if (to) {
+    return (
+      <Link to={to} className="card-elev p-4 block transition-colors hover:bg-secondary/40">
+        {content}
+      </Link>
+    );
+  }
+  return <div className="card-elev p-4">{content}</div>;
+}
+
+const PORTFOLIO_COLORS = ["var(--accent)", "var(--success)", "var(--warning)", "#8b5cf6", "#ec4899", "#14b8a6"];
+
+function PortfolioValueChart({ properties }: { properties: PropertyRecord[] }) {
+  const data = properties
+    .filter((p) => p.totalValue != null)
+    .sort((a, b) => (b.totalValue ?? 0) - (a.totalValue ?? 0))
+    .slice(0, 8)
+    .map((p) => ({
+      name: p.address.length > 28 ? `${p.address.slice(0, 26)}…` : p.address,
+      value: p.totalValue ?? 0,
+    }));
+
+  if (data.length === 0) {
+    return <p className="mt-2 text-sm text-muted-foreground">Value data not available yet.</p>;
+  }
+
+  return (
+    <ResponsiveContainer width="100%" height={Math.max(120, data.length * 40)}>
+      <BarChart data={data} layout="vertical" margin={{ top: 4, right: 72, bottom: 4, left: 4 }}>
+        <XAxis type="number" hide domain={[0, (max: number) => max * 1.2]} />
+        <YAxis
+          type="category"
+          dataKey="name"
+          width={160}
+          tickLine={false}
+          axisLine={false}
+          tick={{ fontSize: 12 }}
+        />
+        <Bar dataKey="value" radius={[0, 6, 6, 0]} barSize={22}>
+          {data.map((_, i) => (
+            <Cell key={i} fill={PORTFOLIO_COLORS[i % PORTFOLIO_COLORS.length]} />
+          ))}
+          <LabelList
+            dataKey="value"
+            position="right"
+            formatter={(v: number) => currency(v)}
+            style={{ fontSize: 12, fontWeight: 600, fill: "var(--foreground)" }}
+          />
+        </Bar>
+      </BarChart>
+    </ResponsiveContainer>
+  );
+}
+
+const STATUS_COLORS: Record<ProtestStatus, string> = {
+  requested: "var(--muted-foreground)",
+  filed: "var(--accent)",
+  under_review: "var(--warning)",
+  hearing_scheduled: "#8b5cf6",
+  resolved: "var(--success)",
+};
+
+function ProtestStatusChart({
+  protests,
+  addressFor,
+}: {
+  protests: ProtestRecord[];
+  addressFor: (propertyId: string) => string;
+}) {
+  const counts = protests.reduce(
+    (acc, p) => {
+      acc[p.status] = (acc[p.status] ?? 0) + 1;
+      return acc;
+    },
+    {} as Record<ProtestStatus, number>,
+  );
+  const data = (Object.keys(STATUS_LABEL) as ProtestStatus[])
+    .filter((s) => counts[s] > 0)
+    .map((s) => ({ name: STATUS_LABEL[s], value: counts[s], status: s }));
+
+  return (
+    <>
+      <div className="mt-3 grid grid-cols-[7rem_1fr] items-center gap-3">
+        <ResponsiveContainer width="100%" height={110}>
+          <PieChart>
+            <Pie data={data} dataKey="value" nameKey="name" innerRadius={30} outerRadius={50} paddingAngle={2}>
+              {data.map((d) => (
+                <Cell key={d.status} fill={STATUS_COLORS[d.status]} />
+              ))}
+            </Pie>
+          </PieChart>
+        </ResponsiveContainer>
+        <div className="grid gap-1.5">
+          {data.map((d) => (
+            <div key={d.status} className="flex items-center gap-2 text-sm">
+              <span
+                className="h-2.5 w-2.5 shrink-0 rounded-full"
+                style={{ background: STATUS_COLORS[d.status] }}
+              />
+              <span className="flex-1">{d.name}</span>
+              <span className="font-medium">{d.value}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="mt-4 grid gap-2 border-t border-border pt-3">
+        {protests.slice(0, 3).map((pr) => (
+          <div key={pr.id} className="flex items-center justify-between gap-2 text-sm">
+            <span className="truncate">{addressFor(pr.propertyId)}</span>
+            <span className="badge-soft shrink-0">{STATUS_LABEL[pr.status]}</span>
+          </div>
+        ))}
+      </div>
+    </>
   );
 }

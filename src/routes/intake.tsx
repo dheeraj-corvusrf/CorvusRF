@@ -1,6 +1,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { toast } from "sonner";
+import { AreaChart, Area, XAxis, YAxis, ResponsiveContainer, Tooltip } from "recharts";
 import {
   readIntake,
   updateIntake,
@@ -10,6 +11,7 @@ import {
   type IntakeState,
   type PropertyKind,
 } from "@/lib/intake-store";
+import type { CadValueHistoryEntry } from "@/lib/cad-lookup";
 import { cadLookup } from "@/lib/cad-lookup";
 import { AddressAutocomplete } from "@/components/AddressAutocomplete";
 import { useAuth } from "@/lib/auth";
@@ -273,6 +275,7 @@ function Intake() {
           {state.valueHistory && state.valueHistory.length > 0 && (
             <div className="mt-6">
               <h3 className="text-sm font-semibold">Value History</h3>
+              <ValueHistoryChart history={state.valueHistory} />
               <div className="mt-2 overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
@@ -442,6 +445,52 @@ function Field({ label, value, bold }: { label: string; value?: string; bold?: b
     <div>
       <dt className="text-xs uppercase tracking-wide text-muted-foreground">{label}</dt>
       <dd className={`mt-1 ${bold ? "text-lg font-semibold" : ""}`}>{value ?? "—"}</dd>
+    </div>
+  );
+}
+
+function ValueHistoryChart({ history }: { history: CadValueHistoryEntry[] }) {
+  const gradientId = useId();
+  const points = history
+    .filter((h) => h.appraisedValue != null)
+    .sort((a, b) => a.year - b.year)
+    .map((h) => ({ year: String(h.year), value: h.appraisedValue as number }));
+
+  // Need at least two real points to draw a trend — a single year is just a dot.
+  if (points.length < 2) return null;
+
+  const first = points[0].value;
+  const last = points[points.length - 1].value;
+  const changePct = first !== 0 ? Math.round(((last - first) / first) * 100) : 0;
+  // Rising assessed value is the thing worth flagging to a taxpayer (usually means
+  // a higher bill), so it's colored as a caution, not a plain neutral trend line.
+  const color = changePct > 0 ? "var(--warning)" : changePct < 0 ? "var(--success)" : "var(--muted-foreground)";
+
+  return (
+    <div className="mt-2">
+      <div className="flex items-baseline gap-2">
+        <span className="text-sm font-semibold" style={{ color }}>
+          {changePct > 0 ? "+" : ""}
+          {changePct}%
+        </span>
+        <span className="text-xs text-muted-foreground">
+          since {points[0].year} ({currency(first)} → {currency(last)})
+        </span>
+      </div>
+      <ResponsiveContainer width="100%" height={120}>
+        <AreaChart data={points} margin={{ top: 8, right: 8, bottom: 0, left: 8 }}>
+          <defs>
+            <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%" stopColor={color} stopOpacity={0.35} />
+              <stop offset="95%" stopColor={color} stopOpacity={0.03} />
+            </linearGradient>
+          </defs>
+          <XAxis dataKey="year" tickLine={false} axisLine={false} tick={{ fontSize: 11 }} />
+          <YAxis hide domain={["dataMin - dataMin * 0.05", "dataMax + dataMax * 0.05"]} />
+          <Tooltip formatter={(v: number) => currency(v)} labelFormatter={(l) => `Year ${l}`} />
+          <Area type="monotone" dataKey="value" stroke={color} strokeWidth={2} fill={`url(#${gradientId})`} />
+        </AreaChart>
+      </ResponsiveContainer>
     </div>
   );
 }
