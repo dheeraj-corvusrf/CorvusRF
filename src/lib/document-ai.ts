@@ -31,6 +31,8 @@ export type Extraction = {
   mailDate: string | null;
   protestDeadline: string | null;
   hearingDate: string | null;
+  hearingTime: string | null;
+  hearingInstructions: string | null;
   paymentDueDate: string | null;
   taxAmountDue: number | null;
   pinOrEpin: string | null;

@@ -21,11 +21,11 @@ export type BatchModuleId =
   | "executive";
 
 export type ModuleResultMap = {
-  strategy: { recommendation: string; rationale: string };
+  strategy: { recommendation: string; confidencePct: number; rationale: string };
   comps: { guidance: string; checklist: string[] };
   site: { guidance: string; checklist: string[] };
   improvement: { guidance: string; checklist: string[] };
-  zoning: { assessment: string };
+  zoning: { matches: "consistent" | "inconsistent" | "uncertain"; assessment: string };
   evidence: { checklist: string[] };
   savings: { reductionPct: number; effectiveTaxRatePct: number; rationale: string };
   executive: { recommendation: string; basis: string; nextStep: string };

@@ -69,6 +69,28 @@ export async function listProperties(userId: string): Promise<PropertyRecord[]> 
   return (data as PropertyRow[]).map(fromRow);
 }
 
+// Avoids inserting a duplicate row for a property the user already has on file.
+// Matched by CAD account number when we have one (the real unique key for a CAD
+// record — the same address can be typed slightly differently), falling back to
+// the address itself when we don't (e.g. an admin-added property with no CAD
+// match). Returns the existing row as-is rather than updating it, since
+// properties intentionally have no update policy — re-deriving fresher data
+// means deleting and re-adding, not silently overwriting what's on file.
+export async function findExistingProperty(
+  userId: string,
+  property: { address: string; cad?: string; accountNumber?: string },
+): Promise<PropertyRecord | null> {
+  let query = supabase.from("properties").select(SELECT_COLUMNS).eq("user_id", userId);
+  query =
+    property.accountNumber && property.cad
+      ? query.eq("cad", property.cad).eq("account_number", property.accountNumber)
+      : query.ilike("address", property.address.trim());
+  const { data, error } = await query.limit(1);
+  if (error) throw error;
+  const row = (data as PropertyRow[])[0];
+  return row ? fromRow(row) : null;
+}
+
 export async function addProperty(
   userId: string,
   property: {
@@ -86,6 +108,9 @@ export async function addProperty(
     taxAmountDue?: number;
   },
 ): Promise<PropertyRecord> {
+  const existing = await findExistingProperty(userId, property);
+  if (existing) return existing;
+
   const { data, error } = await supabase
     .from("properties")
     .insert({

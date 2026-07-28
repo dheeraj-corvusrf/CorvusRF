@@ -398,7 +398,7 @@ function UserProperties({ userId }: { userId: string }) {
     setAdding(true);
     try {
       const created = await addProperty(userId, { address: newAddress.trim() });
-      setProperties((prev) => [created, ...prev]);
+      setProperties((prev) => [created, ...prev.filter((p) => p.id !== created.id)]);
       setNewAddress("");
       toast.success("Property added.");
     } catch (err) {

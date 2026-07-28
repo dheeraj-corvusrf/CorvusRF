@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
 import { listProperties, type PropertyRecord } from "@/lib/properties";
 import { listDocuments, getDocumentUrl, type DocumentRecord } from "@/lib/documents";
+import { Skeleton } from "@/components/ui/skeleton";
 
 export const Route = createFileRoute("/dashboard/_layout/documents")({
   component: Documents,
@@ -47,7 +48,17 @@ function Documents() {
 
       <div className="mt-6">
         {loading ? (
-          <p className="text-sm text-muted-foreground">Loading…</p>
+          <div className="grid gap-3">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="card-elev p-4 flex items-center justify-between gap-2">
+                <div className="grid gap-2">
+                  <Skeleton className="h-4 w-48" />
+                  <Skeleton className="h-3 w-64" />
+                </div>
+                <Skeleton className="h-8 w-24 shrink-0" />
+              </div>
+            ))}
+          </div>
         ) : documents.length > 0 ? (
           <div className="grid gap-3">
             {documents.map((doc) => (

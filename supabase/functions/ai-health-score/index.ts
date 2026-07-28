@@ -33,7 +33,7 @@ comparable sales, specific square footage, or other facts not given below — if
 don't have enough information for a factor, say so instead of fabricating a number.
 
 Return ONLY a JSON object: {"score": <0-100 integer>, "summary": "<one sentence>",
-"factors": ["<short factor>", ...]}`;
+"factors": ["<short factor label, 3-6 words, NOT a full sentence>", ...]}`;
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });

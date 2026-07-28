@@ -15,7 +15,7 @@ type Suggestion = {
 };
 
 // Texas bounding box. bounded=1 makes this a hard restriction (not just a ranking
-// preference) since this app only serves Texas commercial properties.
+// preference) since this app only serves Texas properties.
 const TEXAS_VIEWBOX = "-106.7,36.5,-93.5,25.8";
 
 // Nominatim's usage policy caps automated use at 1 request/second and asks that
@@ -94,10 +94,20 @@ async function fetchSuggestions(query: string, signal: AbortSignal): Promise<Sug
   const res = await fetch(`https://nominatim.openstreetmap.org/search?${params}`, { signal });
   if (!res.ok) throw new Error(`Nominatim request failed: ${res.status}`);
   const data = (await res.json()) as NominatimResult[];
+  const seenLabels = new Set<string>();
   return data
     .filter((d) => d.address?.state === "Texas")
     .map((d) => ({ id: String(d.place_id), label: formatAddress(d) }))
-    .filter((s): s is Suggestion => Boolean(s.label));
+    .filter((s): s is Suggestion => Boolean(s.label))
+    .filter((s) => {
+      // Nominatim frequently returns multiple distinct records (different place_id)
+      // for the same physical address once formatAddress trims OSM detail down to a
+      // short postal string — dedupe on the displayed label, not the source id.
+      const key = s.label.toLowerCase();
+      if (seenLabels.has(key)) return false;
+      seenLabels.add(key);
+      return true;
+    });
 }
 
 // Wraps a plain <input> with free, no-key OpenStreetMap (Nominatim) address suggestions.

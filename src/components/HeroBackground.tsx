@@ -58,7 +58,7 @@ function Moon({ className }: { className: string }) {
 // src/assets/illustrations), plus a hand-coded car and trees (green, per request).
 // Illustrations sit in the side margins beside the centered content column, hidden
 // below `lg` where there isn't room for them, and share a common "ground line"
-// (bottom-28) positioned higher up than the section's true bottom edge so they're
+// (bottom-2) positioned higher up than the section's true bottom edge so they're
 // visible without scrolling.
 // `blurred` renders the same scene softened into ambient texture for content-heavy
 // marketing pages (pricing, how-it-works, etc.) rather than the crisp, literal
@@ -113,13 +113,13 @@ export function HeroBackground({ blurred = false }: { blurred?: boolean } = {}) 
         />
       </svg>
 
-      {/* Left group: house, car — raised well above the section's bottom edge so
-          it's visible without scrolling on typical viewport heights. The house's
-          own two built-in trees (real illustration artwork) are enough here — the
+      {/* Left group: house, car — sit close to the section's own bottom edge so
+          there's no dead flat-green gap beneath them. The house's own two
+          built-in trees (real illustration artwork) are enough here — the
           extra hand-coded round tree that used to sit beside it was removed. */}
-      <HouseIllustration className="hidden lg:block absolute bottom-28 left-[2%] h-48 w-auto xl:h-56" />
+      <HouseIllustration className="hidden lg:block absolute bottom-2 left-[2%] h-48 w-auto xl:h-56" />
       {/* Car, parked a bit further off from the house */}
-      <svg className="hidden lg:block absolute bottom-28 left-[17%] h-10 w-20 xl:h-12 xl:w-24" viewBox="0 0 100 50" fill="none">
+      <svg className="hidden lg:block absolute bottom-2 left-[17%] h-10 w-20 xl:h-12 xl:w-24" viewBox="0 0 100 50" fill="none">
         <rect x="5" y="24" width="90" height="18" rx="7" fill="var(--primary)" opacity="0.75" />
         <path d="M25 24 L34 9 L66 9 L75 24 Z" fill="var(--primary)" opacity="0.75" />
         <rect x="34" y="12" width="32" height="12" fill="var(--hero-sky-bottom)" opacity="0.8" />
@@ -128,13 +128,13 @@ export function HeroBackground({ blurred = false }: { blurred?: boolean } = {}) 
       </svg>
 
       {/* Right group: walking couple, tree, dog walker */}
-      <CoupleIllustration className="hidden lg:block absolute bottom-28 right-[6%] h-24 w-auto xl:h-28" />
-      <svg className="hidden lg:block absolute bottom-28 right-[1%] h-[5.5rem] w-11 xl:h-24 xl:w-12" viewBox="0 0 40 90" fill="none">
+      <CoupleIllustration className="hidden lg:block absolute bottom-2 right-[6%] h-24 w-auto xl:h-28" />
+      <svg className="hidden lg:block absolute bottom-2 right-[1%] h-[5.5rem] w-11 xl:h-24 xl:w-12" viewBox="0 0 40 90" fill="none">
         <rect x="17" y="45" width="6" height="45" fill="var(--primary)" opacity="0.6" />
         <circle cx="20" cy="30" r="24" fill="var(--hero-tree)" opacity="0.85" />
       </svg>
       {/* Dog walker */}
-      <DogWalkerIllustration className="hidden xl:block absolute bottom-28 right-[19%] h-32 w-auto xl:h-36" />
+      <DogWalkerIllustration className="hidden xl:block absolute bottom-2 right-[19%] h-32 w-auto xl:h-36" />
     </div>
   );
 }

@@ -57,11 +57,14 @@ function Properties() {
     }
   }
 
-  async function handleRequestProtest(propertyId: string) {
+  async function handleRequestProtest(propertyId: string, address: string) {
     if (!user) return;
     setRequestingId(propertyId);
     try {
-      const created = await requestProtest(user.id, propertyId);
+      const created = await requestProtest(user.id, propertyId, {
+        address,
+        userEmail: user.email,
+      });
       setProtests((prev) => [created, ...prev]);
       toast.success("Protest filing requested. CorvusRF staff will follow up.");
     } catch (err) {
@@ -70,6 +73,14 @@ function Properties() {
       setRequestingId(null);
     }
   }
+
+  // Soonest deadline first — the property that needs attention should always be
+  // the first thing you see, not buried in whatever order they were added.
+  const sortedProperties = [...properties].sort((a, b) => {
+    const rankA = a.protestDeadline ? new Date(a.protestDeadline).getTime() : Infinity;
+    const rankB = b.protestDeadline ? new Date(b.protestDeadline).getTime() : Infinity;
+    return rankA - rankB;
+  });
 
   function openAiReport(p: PropertyRecord) {
     updateIntake({
@@ -90,7 +101,7 @@ function Properties() {
   return (
     <div>
       <div className="flex flex-wrap items-end justify-between gap-4">
-        <h1 className="font-serif text-2xl font-semibold">My Commercial Properties</h1>
+        <h1 className="font-serif text-2xl font-semibold">My Properties</h1>
         <Link to="/intake" onClick={() => resetIntake()} className="btn-primary btn-primary-hover">
           Add another property
         </Link>
@@ -105,13 +116,16 @@ function Properties() {
           </div>
         ) : properties.length > 0 ? (
           <div className="grid gap-4">
-            {properties.map((p) => {
+            {sortedProperties.map((p) => {
               const existingProtest = protests.find((pr) => pr.propertyId === p.id);
               return (
                 <div key={p.id} className="card-elev p-6">
                   <div className="flex items-start justify-between gap-4 flex-wrap">
                     <div>
-                      <div className="text-xs text-muted-foreground">{p.cad}</div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-muted-foreground">{p.cad}</span>
+                        <DeadlineBadge protestDeadline={p.protestDeadline} />
+                      </div>
                       <h3 className="font-serif text-xl font-semibold">{p.address}</h3>
                       <p className="text-sm text-muted-foreground">
                         {p.propertyType} • Acct {p.accountNumber} • Tax year {p.taxYear}
@@ -134,7 +148,7 @@ function Properties() {
                     ) : (
                       <button
                         disabled={requestingId === p.id}
-                        onClick={() => handleRequestProtest(p.id)}
+                        onClick={() => handleRequestProtest(p.id, p.address)}
                         className="btn-outline disabled:opacity-60"
                       >
                         {requestingId === p.id ? "Requesting…" : "Request Protest Filing"}
@@ -167,6 +181,30 @@ function Properties() {
         )}
       </div>
     </div>
+  );
+}
+
+// Surfaces deadline urgency right on the property card — previously the only way
+// to see this was a separate trip to the Deadlines tab, so a property that
+// actually needed action didn't look any different from one that didn't.
+function DeadlineBadge({ protestDeadline }: { protestDeadline: string | null }) {
+  if (!protestDeadline) return null;
+  const daysLeft = Math.ceil(
+    (new Date(protestDeadline).getTime() - Date.now()) / (1000 * 60 * 60 * 24),
+  );
+  const label =
+    daysLeft < 0
+      ? "Deadline passed"
+      : daysLeft === 0
+        ? "Deadline today"
+        : `Deadline in ${daysLeft} day${daysLeft === 1 ? "" : "s"}`;
+  const urgent = daysLeft <= 7;
+  return (
+    <span
+      className={`badge-soft ${urgent ? "text-destructive" : "text-muted-foreground"}`}
+    >
+      {label}
+    </span>
   );
 }
 
