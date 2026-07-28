@@ -1,4 +1,5 @@
 import { supabase } from "./supabase";
+import { invokeEdgeFunction } from "./edge-functions";
 
 export type MyProfile = {
   email: string;
@@ -44,4 +45,12 @@ export async function updateMyProfile(
   if (patch.companyName !== undefined) update.company_name = patch.companyName;
   const { error } = await supabase.from("profiles").update(update).eq("id", userId);
   if (error) throw error;
+}
+
+// Permanently deletes the signed-in user's own account — and everything under it
+// (properties, protests, documents, BPP accounts), via cascading foreign keys on
+// the auth.users row. Irreversible; the caller is responsible for confirming with
+// the user before calling this.
+export async function deleteMyAccount(): Promise<void> {
+  await invokeEdgeFunction<{ ok: true }>("delete-my-account", {});
 }
