@@ -2,12 +2,14 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { CheckCircle2, AlertTriangle, HelpCircle } from "lucide-react";
 import { RadialBarChart, RadialBar, PolarAngleAxis, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Cell, LabelList } from "recharts";
-import { readIntake, updateIntake, currency, type IntakeState } from "@/lib/intake-store";
+import { readIntake, currency, type IntakeState } from "@/lib/intake-store";
 import { MODULES, type Module } from "@/lib/modules";
 import { useAuth } from "@/lib/auth";
 import { getMyBilling } from "@/lib/billing";
 import { getHealthScore, type HealthScoreResult } from "@/lib/ai-health-score";
 import { getModuleAnalysis, type BatchModuleId, type ModuleResultMap } from "@/lib/ai-report-modules";
+import { getComps, type CompsResult } from "@/lib/cad-comps";
+import { CompsMap } from "@/components/CompsMap";
 
 type ModuleAsyncState = {
   data: unknown;
@@ -27,7 +29,10 @@ export const Route = createFileRoute("/ai-report")({
   component: Report,
 });
 
-const MAX_PREVIEWS = 3;
+// Modules 1-3 are free for everyone, signed in or not. Modules 4-10 require a
+// paid subscription — there is no sign-in-only tier and no per-user "pick any
+// 3" quota; which modules are free is fixed by module number, not user choice.
+const FREE_MODULE_COUNT = 3;
 
 function Report() {
   const nav = useNavigate();
@@ -42,6 +47,13 @@ function Report() {
   // loadModule() below — rather than all up front, so tokens are only spent on
   // modules the user actually opens.
   const [moduleData, setModuleData] = useState<Record<string, ModuleAsyncState>>({});
+  // Separate from moduleData since it's not an AI call and has its own real/empty
+  // result shape (CompsResult, not the free-text ModuleResultMap) — only fetched
+  // when the Comps module (module 3) is opened.
+  const [compsMap, setCompsMap] = useState<{ data: CompsResult | null; loading: boolean }>({
+    data: null,
+    loading: false,
+  });
 
   useEffect(() => {
     const s = readIntake();
@@ -82,6 +94,14 @@ function Report() {
       );
   }
 
+  function loadCompsMap() {
+    if (compsMap.data || compsMap.loading) return;
+    setCompsMap({ data: null, loading: true });
+    getComps({ cad: state.cad, accountNumber: state.accountNumber })
+      .then((data) => setCompsMap({ data, loading: false }))
+      .catch(() => setCompsMap({ data: null, loading: false }));
+  }
+
   useEffect(() => {
     if (!user) return;
     getMyBilling(user.id)
@@ -96,7 +116,6 @@ function Report() {
       .catch(() => setHasFullAccess(false));
   }, [user]);
 
-  const previewsUsed = state.previewsUsed ?? [];
   const savingsData = moduleData.savings?.data as ModuleResultMap["savings"] | undefined;
   // Prefers the AI-estimated reduction/rate once the user has unlocked the Savings
   // module; falls back to a fixed 12% reduction / 2.5% effective rate until then (or
@@ -111,19 +130,13 @@ function Report() {
   }, [state.totalValue, savingsData]);
 
   function openModule(m: Module) {
-    if (hasFullAccess || previewsUsed.includes(m.id)) {
+    if (hasFullAccess || m.n <= FREE_MODULE_COUNT) {
       setOpenId(m.id);
       if (!m.requiresUserData) loadModule(m.id);
+      if (m.id === "comps") loadCompsMap();
       return;
     }
-    if (previewsUsed.length >= MAX_PREVIEWS) {
-      setShowWall(true);
-      return;
-    }
-    const next = updateIntake({ previewsUsed: [...previewsUsed, m.id] });
-    setState(next);
-    setOpenId(m.id);
-    if (!m.requiresUserData) loadModule(m.id);
+    setShowWall(true);
   }
 
   const openModel = MODULES.find((m) => m.id === openId) ?? null;
@@ -170,16 +183,14 @@ function Report() {
               : `Estimated tax savings this year: ${currency(estimated.savings)}`}
           </p>
         </div>
-        <div className="text-right text-sm">
+        <div className="print:hidden text-right text-sm">
           {hasFullAccess ? (
             <div className="text-primary-foreground/70 text-xs">AI Report subscription active</div>
           ) : (
             <>
-              <div>
-                Preview {Math.min(previewsUsed.length, MAX_PREVIEWS)} of {MAX_PREVIEWS}
-              </div>
+              <div>{FREE_MODULE_COUNT} of {MODULES.length} modules free</div>
               <div className="text-primary-foreground/70 text-xs">
-                Complimentary AI insight previews
+                Subscribe to unlock the rest
               </div>
             </>
           )}
@@ -187,12 +198,17 @@ function Report() {
       </section>
 
       {/* Modules */}
-      <section className="mt-8">
-        <h2 className="font-serif text-2xl font-semibold">10 Premium AI Modules</h2>
+      <section className="mt-8 print:hidden">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="font-serif text-2xl font-semibold">10 Premium AI Modules</h2>
+          <button onClick={() => window.print()} className="btn-outline text-sm py-2">
+            Export Report
+          </button>
+        </div>
         <p className="text-muted-foreground text-sm">
           {hasFullAccess
             ? "All modules unlocked with your AI Report subscription."
-            : "Tap any module to unlock a preview. Subscribe for the full report."}
+            : `Modules 1-${FREE_MODULE_COUNT} are free for everyone. Subscribe to unlock modules ${FREE_MODULE_COUNT + 1}-${MODULES.length}.`}
         </p>
         <div className="mt-5 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {MODULES.map((m) => (
@@ -200,22 +216,59 @@ function Report() {
               key={m.id}
               m={m}
               analyzing={analyzing}
-              unlocked={hasFullAccess || previewsUsed.includes(m.id)}
+              unlocked={hasFullAccess || m.n <= FREE_MODULE_COUNT}
               onOpen={() => openModule(m)}
             />
           ))}
         </div>
       </section>
 
+      {/* Print-only linear report — reuses the exact same module-rendering logic as
+          the modal above (ModulePreviewBody), stacking every module the user has
+          already unlocked and viewed into one printable document. Deliberately
+          does NOT trigger new AI calls at export time (no re-fetch here) — export
+          captures "your report so far," the same content already shown on screen,
+          rather than firing up to 9 fresh AI calls the moment someone clicks print. */}
+      <section className="hidden print:block mt-8">
+        <h2 className="font-serif text-2xl font-semibold">AI Property Tax Report</h2>
+        <p className="text-sm text-muted-foreground">
+          {state.address} · {state.cad} · Generated {new Date().toLocaleDateString()}
+        </p>
+        {(() => {
+          const printable = MODULES.filter(
+            (m) => moduleData[m.id]?.data != null || (m.id === "comps" && compsMap.data),
+          );
+          if (printable.length === 0) {
+            return (
+              <p className="mt-4 text-sm text-muted-foreground">
+                Open a module above, then use Export Report again to include it here.
+              </p>
+            );
+          }
+          return printable.map((m) => (
+            <div key={m.id} className="mt-6" style={{ breakInside: "avoid" }}>
+              <h3 className="font-serif text-lg font-semibold">
+                {m.n}. {m.title}
+              </h3>
+              <p className="text-sm text-muted-foreground">{m.question}</p>
+              <ModulePreviewBody
+                m={m}
+                estimated={estimated}
+                state={state}
+                moduleState={moduleData[m.id]}
+                compsMap={compsMap}
+                onRetry={() => {}}
+              />
+            </div>
+          ));
+        })()}
+      </section>
+
       {/* Preview modal */}
       {openModel && (
         <Modal onClose={() => setOpenId(null)}>
           <div className="flex items-center justify-between">
-            <span className="badge-soft">
-              {hasFullAccess
-                ? "Unlocked"
-                : `Preview ${previewsUsed.indexOf(openModel.id) + 1} of ${MAX_PREVIEWS}`}
-            </span>
+            <span className="badge-soft">{hasFullAccess ? "Unlocked" : "Free Preview"}</span>
             <button
               onClick={() => setOpenId(null)}
               className="text-sm text-muted-foreground hover:text-foreground"
@@ -230,6 +283,7 @@ function Report() {
             estimated={estimated}
             state={state}
             moduleState={moduleData[openModel.id]}
+            compsMap={compsMap}
             onRetry={() => loadModule(openModel.id)}
           />
           <div className="mt-6 flex gap-2 justify-end">
@@ -252,20 +306,17 @@ function Report() {
             Unlock Your Complete AI Property Analysis
           </h3>
           <p className="text-muted-foreground mt-2">
-            You have viewed your three complimentary AI insight previews. Subscribe to unlock all
-            ten modules and the complete property analysis.
+            Modules 1-{FREE_MODULE_COUNT} are free to preview. Subscribe to unlock modules{" "}
+            {FREE_MODULE_COUNT + 1}-{MODULES.length} and the complete property analysis.
           </p>
           <div className="mt-6 grid gap-2 sm:grid-cols-2">
-            <Link to="/sign-in" className="btn-primary btn-primary-hover">
-              Create Account and Continue
-            </Link>
             <Link to="/pricing" className="btn-accent">
               Subscribe & Unlock Full Report
             </Link>
             <Link to="/pricing" className="btn-outline">
               Compare Plans
             </Link>
-            <button onClick={() => setShowWall(false)} className="btn-outline">
+            <button onClick={() => setShowWall(false)} className="btn-outline sm:col-span-2">
               Return to Property Summary
             </button>
           </div>
@@ -300,12 +351,12 @@ function ModuleCard({
       <div className={`mt-3 text-sm ${!unlocked ? "locked-blur" : ""}`}>{m.teaser}</div>
       <div className="mt-4 flex items-center justify-between gap-2">
         {unlocked ? (
-          <span className="text-xs font-medium text-success">Preview unlocked</span>
+          <span className="text-xs font-medium text-success">Free preview</span>
         ) : (
-          <span className="text-xs text-muted-foreground">Locked</span>
+          <span className="text-xs text-muted-foreground">Requires subscription</span>
         )}
         <button onClick={onOpen} className="btn-outline text-sm py-2">
-          {unlocked ? "View preview" : "Unlock preview"}
+          {unlocked ? "View preview" : "Subscribe to unlock"}
         </button>
       </div>
     </div>
@@ -330,12 +381,14 @@ function ModulePreviewBody({
   estimated,
   state,
   moduleState,
+  compsMap,
   onRetry,
 }: {
   m: Module;
   estimated: { reduction: number; savings: number };
   state: IntakeState;
   moduleState: ModuleAsyncState | undefined;
+  compsMap: { data: CompsResult | null; loading: boolean };
   onRetry: () => void;
 }) {
   if (m.requiresUserData) {
@@ -381,6 +434,48 @@ function ModulePreviewBody({
     );
   }
 
+  // The comps map is fetched independently of the AI guidance text (a different
+  // Edge Function, its own loading/error state) — rendered here, before the
+  // generic loading/error gate below, so a rate-limited or slow AI call never
+  // hides a map that already loaded successfully.
+  if (m.id === "comps") {
+    const d = moduleState?.data as ModuleResultMap["comps"] | undefined;
+    const map = compsMap.data;
+    return (
+      <div className="mt-4">
+        {compsMap.loading && (
+          <div className="h-[280px] animate-pulse rounded-lg border border-border bg-secondary/40" />
+        )}
+        {map?.subject && map.comps.length > 0 && (
+          <>
+            <div className="text-sm font-medium">
+              {map.comps.length} nearby properties in the same subdivision
+            </div>
+            <CompsMap subject={map.subject} comps={map.comps} />
+          </>
+        )}
+        {loading ? (
+          <p className="mt-3 text-sm text-muted-foreground">AI is generating this analysis…</p>
+        ) : error ? (
+          <div className="mt-3">
+            <ErrorWithRetry message={error} onRetry={onRetry} />
+          </div>
+        ) : d ? (
+          <>
+            <p className="mt-3 text-sm text-muted-foreground">{d.guidance}</p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {d.checklist.map((c, i) => (
+                <Chip key={i} icon>
+                  {c}
+                </Chip>
+              ))}
+            </div>
+          </>
+        ) : null}
+      </div>
+    );
+  }
+
   if (loading) {
     return (
       <p className="mt-4 text-sm text-muted-foreground">
@@ -421,21 +516,6 @@ function ModulePreviewBody({
           <div>
             <div className="font-serif text-xl font-semibold">{d.recommendation}</div>
             <p className="mt-1 text-sm text-muted-foreground">{d.rationale}</p>
-          </div>
-        </div>
-      );
-    }
-    case "comps": {
-      const d = moduleState.data as ModuleResultMap["comps"];
-      return (
-        <div className="mt-4">
-          <p className="text-sm text-muted-foreground">{d.guidance}</p>
-          <div className="mt-3 flex flex-wrap gap-2">
-            {d.checklist.map((c, i) => (
-              <Chip key={i} icon>
-                {c}
-              </Chip>
-            ))}
           </div>
         </div>
       );
@@ -673,7 +753,7 @@ function Field({ label, value, bold }: { label: string; value?: string; bold?: b
 function Modal({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
   return (
     <div
-      className="fixed inset-0 z-50 grid place-items-center p-4 bg-primary/60 backdrop-blur-sm"
+      className="fixed inset-0 z-50 grid place-items-center p-4 bg-primary/60 backdrop-blur-sm print:hidden"
       onClick={onClose}
     >
       <div className="card-elev p-6 w-full max-w-lg" onClick={(e) => e.stopPropagation()}>

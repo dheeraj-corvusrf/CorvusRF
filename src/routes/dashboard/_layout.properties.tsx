@@ -71,6 +71,14 @@ function Properties() {
     }
   }
 
+  // Soonest deadline first — the property that needs attention should always be
+  // the first thing you see, not buried in whatever order they were added.
+  const sortedProperties = [...properties].sort((a, b) => {
+    const rankA = a.protestDeadline ? new Date(a.protestDeadline).getTime() : Infinity;
+    const rankB = b.protestDeadline ? new Date(b.protestDeadline).getTime() : Infinity;
+    return rankA - rankB;
+  });
+
   function openAiReport(p: PropertyRecord) {
     updateIntake({
       address: p.address,
@@ -105,13 +113,16 @@ function Properties() {
           </div>
         ) : properties.length > 0 ? (
           <div className="grid gap-4">
-            {properties.map((p) => {
+            {sortedProperties.map((p) => {
               const existingProtest = protests.find((pr) => pr.propertyId === p.id);
               return (
                 <div key={p.id} className="card-elev p-6">
                   <div className="flex items-start justify-between gap-4 flex-wrap">
                     <div>
-                      <div className="text-xs text-muted-foreground">{p.cad}</div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-muted-foreground">{p.cad}</span>
+                        <DeadlineBadge protestDeadline={p.protestDeadline} />
+                      </div>
                       <h3 className="font-serif text-xl font-semibold">{p.address}</h3>
                       <p className="text-sm text-muted-foreground">
                         {p.propertyType} • Acct {p.accountNumber} • Tax year {p.taxYear}
@@ -167,6 +178,30 @@ function Properties() {
         )}
       </div>
     </div>
+  );
+}
+
+// Surfaces deadline urgency right on the property card — previously the only way
+// to see this was a separate trip to the Deadlines tab, so a property that
+// actually needed action didn't look any different from one that didn't.
+function DeadlineBadge({ protestDeadline }: { protestDeadline: string | null }) {
+  if (!protestDeadline) return null;
+  const daysLeft = Math.ceil(
+    (new Date(protestDeadline).getTime() - Date.now()) / (1000 * 60 * 60 * 24),
+  );
+  const label =
+    daysLeft < 0
+      ? "Deadline passed"
+      : daysLeft === 0
+        ? "Deadline today"
+        : `Deadline in ${daysLeft} day${daysLeft === 1 ? "" : "s"}`;
+  const urgent = daysLeft <= 7;
+  return (
+    <span
+      className={`badge-soft ${urgent ? "text-destructive" : "text-muted-foreground"}`}
+    >
+      {label}
+    </span>
   );
 }
 
