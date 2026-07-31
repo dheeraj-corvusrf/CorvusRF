@@ -1,7 +1,7 @@
-import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { toast } from "sonner";
-import { Upload, Wallet } from "lucide-react";
+import { Upload } from "lucide-react";
 import {
   updateIntake,
   resetIntake,
@@ -138,14 +138,6 @@ function Home() {
             />
             {uploading ? "Reading document…" : "Upload Appraisal Notice"}
           </label>
-          <Link
-            to="/intake"
-            onClick={() => resetIntake()}
-            className="btn-outline inline-flex items-center gap-2"
-          >
-            <Wallet className="h-4 w-4" />
-            Check My Property Taxes
-          </Link>
         </div>
 
         {uploading ? (
