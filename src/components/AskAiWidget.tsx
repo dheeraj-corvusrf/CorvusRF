@@ -1,18 +1,26 @@
 import { useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { Sparkles, X, Send } from "lucide-react";
-import { toast } from "sonner";
-import { askRouter, type RouteIntentResult } from "@/lib/ask-router";
+import { askRouter } from "@/lib/ask-router";
+import { askAboutDocument } from "@/lib/document-ai";
+import { buildUserContext } from "@/lib/ai-context";
+import { useAuth } from "@/lib/auth";
 
-// Floating, site-wide entry point for the same route-intent assistant already
-// used inline on the homepage and dashboard — one question in, one short answer
-// and a suggested page out. No conversation memory and no access to the user's
-// own data; see route-intent's fixed DESTINATIONS list for what it can point to.
+type AskResult = { answer: string | null; destination: string | null };
+
+// Floating, site-wide entry point that actually answers the question (via the
+// same Gemini-backed answer engine used in document-review's "Ask AI" modal),
+// with a secondary "Continue to X" link from route-intent underneath. The two
+// calls run in parallel and degrade independently — a signed-in user's own
+// properties/protests are included as context so the answer can reference
+// their real deadlines/statuses, not just generic guidance. Still single-turn:
+// no conversation memory.
 export function AskAiWidget() {
+  const { user } = useAuth();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [asking, setAsking] = useState(false);
-  const [result, setResult] = useState<RouteIntentResult | null>(null);
+  const [result, setResult] = useState<AskResult | null>(null);
 
   function reset() {
     setQuery("");
@@ -27,14 +35,20 @@ export function AskAiWidget() {
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (!query.trim() || asking) return;
+    const q = query.trim();
+    if (!q || asking) return;
     setAsking(true);
     setResult(null);
     try {
-      const r = await askRouter(query.trim());
-      setResult(r);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not process that. Please try again.");
+      const context = user ? await buildUserContext(user.id).catch(() => undefined) : undefined;
+      const [answerRes, routeRes] = await Promise.allSettled([
+        askAboutDocument({ question: q, context }),
+        askRouter(q),
+      ]);
+      setResult({
+        answer: answerRes.status === "fulfilled" ? answerRes.value.answer : null,
+        destination: routeRes.status === "fulfilled" ? routeRes.value.destination : null,
+      });
     } finally {
       setAsking(false);
     }
@@ -81,14 +95,18 @@ export function AskAiWidget() {
           {asking && <p className="mt-3 text-xs text-muted-foreground">AI is thinking…</p>}
           {result && !asking && (
             <div className="mt-3 rounded-md bg-secondary/50 p-3">
-              <p className="text-sm">{result.message}</p>
-              <Link
-                to={result.destination}
-                onClick={close}
-                className="btn-primary btn-primary-hover mt-2 inline-flex text-xs py-1.5"
-              >
-                Continue
-              </Link>
+              <p className="text-sm whitespace-pre-wrap">
+                {result.answer ?? "Sorry, I couldn't process that. Please try again."}
+              </p>
+              {result.destination && (
+                <Link
+                  to={result.destination}
+                  onClick={close}
+                  className="btn-primary btn-primary-hover mt-2 inline-flex text-xs py-1.5"
+                >
+                  Continue to this page
+                </Link>
+              )}
             </div>
           )}
         </div>

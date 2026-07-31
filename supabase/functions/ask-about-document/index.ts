@@ -36,7 +36,7 @@ Deno.serve(async (req: Request) => {
           role: "user",
           parts: [
             {
-              text: `Document context (extracted JSON):\n${context ?? "(none)"}\n\nQuestion: ${question}`,
+              text: `Context:\n${context ?? "(none)"}\n\nQuestion: ${question}`,
             },
           ],
         },

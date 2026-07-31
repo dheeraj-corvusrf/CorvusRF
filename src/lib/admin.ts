@@ -105,6 +105,13 @@ export type AdminProtestRecord = {
   requestedAt: string;
   updatedAt: string;
   propertyAddress: string | null;
+  propertyCad: string | null;
+  protestDeadline: string | null;
+  totalValue: number | null;
+  landValue: number | null;
+  improvementValue: number | null;
+  taxYear: number | null;
+  accountNumber: string | null;
 };
 
 type AdminProtestRow = {
@@ -115,7 +122,16 @@ type AdminProtestRow = {
   notes: string | null;
   requested_at: string;
   updated_at: string;
-  properties: { address: string } | null;
+  properties: {
+    address: string;
+    cad: string | null;
+    protest_deadline: string | null;
+    total_value: number | null;
+    land_value: number | null;
+    improvement_value: number | null;
+    tax_year: number | null;
+    account_number: string | null;
+  } | null;
 };
 
 // Real, staff-actioned queue: every row here came from a user clicking "Request
@@ -124,7 +140,9 @@ type AdminProtestRow = {
 export async function listAllProtests(): Promise<AdminProtestRecord[]> {
   const { data, error } = await supabase
     .from("protests")
-    .select("id, property_id, user_id, status, notes, requested_at, updated_at, properties(address)")
+    .select(
+      "id, property_id, user_id, status, notes, requested_at, updated_at, properties(address, cad, protest_deadline, total_value, land_value, improvement_value, tax_year, account_number)",
+    )
     .order("requested_at", { ascending: false });
   if (error) throw error;
   return (data as unknown as AdminProtestRow[]).map((row) => ({
@@ -136,6 +154,13 @@ export async function listAllProtests(): Promise<AdminProtestRecord[]> {
     requestedAt: row.requested_at,
     updatedAt: row.updated_at,
     propertyAddress: row.properties?.address ?? null,
+    propertyCad: row.properties?.cad ?? null,
+    protestDeadline: row.properties?.protest_deadline ?? null,
+    totalValue: row.properties?.total_value ?? null,
+    landValue: row.properties?.land_value ?? null,
+    improvementValue: row.properties?.improvement_value ?? null,
+    taxYear: row.properties?.tax_year ?? null,
+    accountNumber: row.properties?.account_number ?? null,
   }));
 }
 
@@ -145,4 +170,54 @@ export async function updateProtestStatus(protestId: string, status: ProtestStat
     .update({ status, updated_at: new Date().toISOString() })
     .eq("id", protestId);
   if (error) throw error;
+}
+
+export async function updateProtestNotes(protestId: string, notes: string): Promise<void> {
+  const { error } = await supabase
+    .from("protests")
+    .update({ notes, updated_at: new Date().toISOString() })
+    .eq("id", protestId);
+  if (error) throw error;
+}
+
+export type AdminDocumentRecord = {
+  id: string;
+  fileName: string;
+  documentType: string | null;
+  uploadedAt: string;
+};
+
+// Relies on the "Admins can view all documents" RLS policy (schema.sql) — metadata
+// only (name/type/date), used as an evidence signal for the AI case summary below.
+// Viewing/downloading the actual file isn't supported here: the storage bucket's
+// own policies only permit the owning user, not admins.
+export async function listDocumentsForProperty(propertyId: string): Promise<AdminDocumentRecord[]> {
+  const { data, error } = await supabase
+    .from("documents")
+    .select("id, file_name, document_type, uploaded_at")
+    .eq("property_id", propertyId)
+    .order("uploaded_at", { ascending: false });
+  if (error) throw error;
+  return (data as { id: string; file_name: string; document_type: string | null; uploaded_at: string }[]).map(
+    (row) => ({
+      id: row.id,
+      fileName: row.file_name,
+      documentType: row.document_type,
+      uploadedAt: row.uploaded_at,
+    }),
+  );
+}
+
+export type CaseSummaryResult = {
+  summary: string;
+  nextAction: string;
+  evidenceGaps: string[];
+};
+
+export async function getCaseSummary(payload: {
+  propertyContext: string;
+  protestContext: string;
+  documentsContext: string;
+}): Promise<CaseSummaryResult> {
+  return invokeEdgeFunction<CaseSummaryResult>("admin-case-summary", payload);
 }

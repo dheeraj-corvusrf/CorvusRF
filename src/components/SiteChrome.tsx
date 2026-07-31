@@ -22,6 +22,9 @@ export function SiteNav() {
   const { user } = useAuth();
   const signedIn = !!user;
   const [isAdmin, setIsAdmin] = useState(false);
+  const navItems = signedIn
+    ? [NAV[0], { to: "/dashboard", label: "Dashboard" } as const, ...NAV.slice(1)]
+    : NAV;
 
   useEffect(() => {
     if (!user) {
@@ -53,7 +56,7 @@ export function SiteNav() {
         </Link>
 
         <nav className="hidden lg:flex items-center gap-1">
-          {NAV.map((item) => (
+          {navItems.map((item) => (
             <Link
               key={item.to}
               to={item.to}
@@ -131,7 +134,7 @@ export function SiteNav() {
       {open && (
         <div className="lg:hidden border-t border-border/70 bg-background">
           <div className="container-page grid gap-1 py-3">
-            {NAV.map((item) => (
+            {navItems.map((item) => (
               <Link
                 key={item.to}
                 to={item.to}
