@@ -156,7 +156,7 @@ function SignedInJourney() {
   const { user, loading } = useAuth();
   if (loading || !user) return null;
   return (
-    <div className="container-page pb-10">
+    <div className="container-page pt-10 pb-10">
       <JourneyTracker />
     </div>
   );

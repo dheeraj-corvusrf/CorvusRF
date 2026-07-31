@@ -12,6 +12,7 @@ import { AddressAutocomplete } from "@/components/AddressAutocomplete";
 import { SampleNoticeDialog } from "@/components/SampleNoticeDialog";
 import { HeroBackground } from "@/components/HeroBackground";
 import { MicButton } from "@/components/MicButton";
+import { AnimatedSteps } from "@/components/AnimatedSteps";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -135,7 +136,7 @@ function Home() {
               disabled={uploading}
               onChange={onFile}
             />
-            Upload Appraisal Notice
+            {uploading ? "Reading document…" : "Upload Appraisal Notice"}
           </label>
           <Link
             to="/intake"
@@ -147,9 +148,22 @@ function Home() {
           </Link>
         </div>
 
-        <div className="mt-3 flex justify-center">
-          <SampleNoticeDialog />
-        </div>
+        {uploading ? (
+          <div className="mt-6 mx-auto max-w-md card-elev p-5 text-left">
+            <h3 className="font-serif text-base font-semibold">AI is reading your document…</h3>
+            <AnimatedSteps
+              steps={[
+                { label: "OCR & text extraction", status: "done" },
+                { label: "Classifying document type", status: "active" },
+                { label: "Extracting owner, values, and deadlines", status: "active" },
+              ]}
+            />
+          </div>
+        ) : (
+          <div className="mt-3 flex justify-center">
+            <SampleNoticeDialog />
+          </div>
+        )}
       </div>
       </div>
     </section>

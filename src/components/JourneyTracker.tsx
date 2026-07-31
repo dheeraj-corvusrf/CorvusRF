@@ -170,46 +170,55 @@ export function JourneyTracker() {
   // far, since there's no per-property case to show progress for.
   if (!hasSavedProperty) {
     return (
-      <JourneyCard
-        steps={[...intakeSteps, false, false, false, false, false, false]}
-        uploading={uploading}
-        onFile={onFile}
-      />
+      <section className="card-elev p-6">
+        <span className="badge-soft">Your Journey</span>
+        <JourneyBlock
+          steps={[...intakeSteps, false, false, false, false, false, false]}
+          uploading={uploading}
+          onFile={onFile}
+          first
+        />
+      </section>
     );
   }
 
-  // One full tracker per property — each driven by that specific property's own
-  // protest (if any), rather than blending every case the user has into a single
-  // bar. A property with no protest yet simply sits at "Choose Service".
+  // One full tracker per property, all inside a single box — each block is
+  // driven by that specific property's own protest (if any), rather than
+  // blending every case the user has into one bar. A property with no protest
+  // yet simply sits at "Choose Service".
   return (
-    <div className="grid gap-4">
-      {properties.map((p) => {
+    <section className="card-elev p-6">
+      <span className="badge-soft">Your Journey</span>
+      {properties.map((p, i) => {
         const protest = protests.find((pr) => pr.propertyId === p.id);
         const rank = protest ? STATUS_RANK[protest.status] : 0;
         return (
-          <JourneyCard
+          <JourneyBlock
             key={p.id}
             title={p.address}
             steps={[...intakeSteps, ...computeFilingSteps(rank)]}
             uploading={uploading}
             onFile={onFile}
+            first={i === 0}
           />
         );
       })}
-    </div>
+    </section>
   );
 }
 
-function JourneyCard({
+function JourneyBlock({
   title,
   steps,
   uploading,
   onFile,
+  first,
 }: {
   title?: string;
   steps: boolean[];
   uploading: boolean;
   onFile: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  first: boolean;
 }) {
   const completedCount = steps.filter(Boolean).length;
   const firstIncomplete = steps.findIndex((done) => !done);
@@ -219,18 +228,19 @@ function JourneyCard({
   const message = getMessage(currentStep, allDone);
 
   return (
-    <section className="card-elev p-6">
-      <div className="flex items-center justify-between flex-wrap gap-2">
-        <span className="badge-soft">Your Journey</span>
-        <div className="text-right">
-          <div className="text-xs text-muted-foreground">Overall progress</div>
+    <div className={first ? "mt-3" : "mt-8 border-t border-border pt-8"}>
+      <div className="flex items-start justify-between flex-wrap gap-2">
+        <div>
+          <h2 className="font-serif text-xl font-semibold">
+            {allDone ? "All steps complete" : `Step ${currentStep + 1} of ${TOTAL_STEPS}: ${STEP_LABELS[currentStep]}`}
+          </h2>
+          {title && <p className="text-sm text-muted-foreground">{title}</p>}
+        </div>
+        <div className="text-right shrink-0">
+          <div className="text-xs text-muted-foreground">Progress</div>
           <div className="text-lg font-semibold">{progress}%</div>
         </div>
       </div>
-      <h2 className="mt-3 font-serif text-xl font-semibold">
-        {allDone ? "All steps complete" : `Step ${currentStep + 1} of ${TOTAL_STEPS}: ${STEP_LABELS[currentStep]}`}
-      </h2>
-      {title && <p className="text-sm text-muted-foreground">{title}</p>}
 
       <ol className="mt-5 flex items-start gap-2 overflow-x-auto pb-1">
         {STEP_LABELS.map((label, i) => {
@@ -294,6 +304,6 @@ function JourneyCard({
           )}
         </div>
       )}
-    </section>
+    </div>
   );
 }
