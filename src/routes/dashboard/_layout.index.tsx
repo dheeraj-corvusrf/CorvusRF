@@ -1,7 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Plus, Briefcase, Upload, Sparkles, ArrowUpRight, Trash2 } from "lucide-react";
+import { Plus, Briefcase, Upload, Sparkles, ArrowUpRight, Trash2, AlertTriangle } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Cell, LabelList, ResponsiveContainer, PieChart, Pie } from "recharts";
 import { useAuth } from "@/lib/auth";
 import { currency, resetIntake, classifyAndStoreDocument } from "@/lib/intake-store";
@@ -10,6 +10,7 @@ import { listBppAccounts, type BppAccountRecord } from "@/lib/bpp-accounts";
 import { listDocuments, type DocumentRecord } from "@/lib/documents";
 import { listProtests, type ProtestRecord, type ProtestStatus } from "@/lib/protests";
 import { askRouter } from "@/lib/ask-router";
+import { getDeadlineNudge } from "@/lib/deadline-nudge";
 
 export const Route = createFileRoute("/dashboard/_layout/")({
   component: Overview,
@@ -37,6 +38,8 @@ function Overview() {
   const [askQuery, setAskQuery] = useState("");
   const [asking, setAsking] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [nudge, setNudge] = useState<string | null>(null);
+  const nudgedPropertyId = useRef<string | null>(null);
 
   useEffect(() => {
     if (!user) return;
@@ -87,6 +90,35 @@ function Overview() {
       label: "Tax bill due",
     }));
   const upcoming = [...deadlines, ...bills].sort((a, b) => a.when.getTime() - b.when.getTime()).slice(0, 4);
+
+  // Properties with a deadline inside the next 14 days (or already passed — a missed
+  // deadline is the most urgent case, not a reason to stop nudging) that don't have a
+  // protest requested yet. Drives the AI reminder banner below.
+  const urgentProperties = properties
+    .filter((p) => !!p.protestDeadline && !protests.some((pr) => pr.propertyId === p.id))
+    .map((p) => ({
+      property: p,
+      daysLeft: Math.ceil(
+        (new Date(p.protestDeadline as string).getTime() - Date.now()) / (1000 * 60 * 60 * 24),
+      ),
+    }))
+    .filter((u) => u.daysLeft <= 14)
+    .sort((a, b) => a.daysLeft - b.daysLeft);
+
+  useEffect(() => {
+    if (urgentProperties.length === 0) return;
+    const soonest = urgentProperties[0];
+    if (nudgedPropertyId.current === soonest.property.id) return;
+    nudgedPropertyId.current = soonest.property.id;
+    getDeadlineNudge({
+      address: soonest.property.address,
+      daysLeft: soonest.daysLeft,
+      totalValue: soonest.property.totalValue ?? undefined,
+    })
+      .then((r) => setNudge(r.message))
+      .catch((err) => console.error("Deadline nudge failed:", err));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [urgentProperties.length > 0 ? urgentProperties[0].property.id : null]);
 
   const activity: ActivityItem[] = [
     ...properties.map((p) => ({
@@ -168,6 +200,23 @@ function Overview() {
         </h1>
         <p className="text-muted-foreground">Pick any entry point below — AI figures out the right workflow.</p>
       </div>
+
+      {nudge && urgentProperties.length > 0 && (
+        <div className="card-elev p-4 border-destructive/30 flex items-start gap-3">
+          <AlertTriangle className="h-5 w-5 shrink-0 text-destructive mt-0.5" />
+          <div className="min-w-0">
+            <p className="text-sm font-medium">{nudge}</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {urgentProperties[0].property.address}
+              {urgentProperties.length > 1 &&
+                ` — +${urgentProperties.length - 1} other propert${urgentProperties.length - 1 === 1 ? "y" : "ies"} also need attention`}
+            </p>
+            <Link to="/dashboard/properties" className="btn-outline text-sm mt-3 inline-flex">
+              Review &amp; Request Protest
+            </Link>
+          </div>
+        </div>
+      )}
 
       {/* Entry points */}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
