@@ -1,4 +1,5 @@
 import { supabase } from "./supabase";
+import { computeAndStoreHealthScore } from "./property-scores";
 
 export type PropertyRecord = {
   id: string;
@@ -131,7 +132,9 @@ export async function addProperty(
     .select()
     .single();
   if (error) throw error;
-  return fromRow(data as PropertyRow);
+  const created = fromRow(data as PropertyRow);
+  computeAndStoreHealthScore(created);
+  return created;
 }
 
 export async function deleteProperty(id: string): Promise<void> {

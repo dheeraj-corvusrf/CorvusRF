@@ -315,6 +315,37 @@ create policy "Users can delete their own documents"
     bucket_id = 'documents' and (storage.foldername(name))[1] = auth.uid()::text
   );
 
+-- AI-computed "protest opportunity" score, generated once in the background right
+-- after a property is added (see src/lib/property-scores.ts) so the dashboard can
+-- show it without the user ever opening the on-demand AI Report page. Write-once,
+-- like properties itself — no update/delete policy.
+create table if not exists public.property_ai_scores (
+  id uuid primary key default gen_random_uuid(),
+  property_id uuid not null references public.properties (id) on delete cascade,
+  user_id uuid not null references auth.users (id) on delete cascade,
+  score integer not null,
+  summary text not null,
+  factors text[] not null default '{}',
+  computed_at timestamptz not null default now()
+);
+
+alter table public.property_ai_scores enable row level security;
+
+drop policy if exists "Users can view their own property AI scores" on public.property_ai_scores;
+create policy "Users can view their own property AI scores"
+  on public.property_ai_scores for select
+  using (auth.uid() = user_id);
+
+drop policy if exists "Users can insert their own property AI scores" on public.property_ai_scores;
+create policy "Users can insert their own property AI scores"
+  on public.property_ai_scores for insert
+  with check (auth.uid() = user_id);
+
+drop policy if exists "Admins can view all property AI scores" on public.property_ai_scores;
+create policy "Admins can view all property AI scores"
+  on public.property_ai_scores for select
+  using (public.is_admin());
+
 -- ── ONE-TIME MANUAL STEP — do NOT run this as part of the routine schema paste ──
 -- After you have an account (sign up normally through the app first), run this once,
 -- by itself, substituting your real email, to make that account an admin:

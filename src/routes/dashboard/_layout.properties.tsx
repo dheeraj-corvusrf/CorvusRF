@@ -5,6 +5,7 @@ import { currency, resetIntake, updateIntake } from "@/lib/intake-store";
 import { useAuth } from "@/lib/auth";
 import { listProperties, deleteProperty, type PropertyRecord } from "@/lib/properties";
 import { listProtests, requestProtest, type ProtestRecord, type ProtestStatus } from "@/lib/protests";
+import { listHealthScores, type PropertyAiScore } from "@/lib/property-scores";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export const Route = createFileRoute("/dashboard/_layout/properties")({
@@ -28,6 +29,7 @@ function Properties() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [protests, setProtests] = useState<ProtestRecord[]>([]);
   const [requestingId, setRequestingId] = useState<string | null>(null);
+  const [healthScores, setHealthScores] = useState<Record<string, PropertyAiScore>>({});
 
   useEffect(() => {
     if (!user) return;
@@ -39,6 +41,9 @@ function Properties() {
       .finally(() => setPropertiesLoading(false));
     listProtests(user.id)
       .then(setProtests)
+      .catch((err) => console.error(err));
+    listHealthScores(user.id)
+      .then(setHealthScores)
       .catch((err) => console.error(err));
   }, [user]);
 
@@ -130,6 +135,7 @@ function Properties() {
                       <p className="text-sm text-muted-foreground">
                         {p.propertyType} • Acct {p.accountNumber} • Tax year {p.taxYear}
                       </p>
+                      <AiScoreBadge score={healthScores[p.id]} />
                     </div>
                     <div className="text-right">
                       <div className="text-xs text-muted-foreground">Assessed value</div>
@@ -205,6 +211,18 @@ function DeadlineBadge({ protestDeadline }: { protestDeadline: string | null }) 
     >
       {label}
     </span>
+  );
+}
+
+// Only appears once the background AI health-score call (fired from addProperty())
+// has landed — no loading state or placeholder, since older properties added before
+// this feature shipped will simply never have a score and that's fine.
+function AiScoreBadge({ score }: { score: PropertyAiScore | undefined }) {
+  if (!score) return null;
+  return (
+    <p className="mt-1 text-sm text-accent">
+      AI Score: {score.score}/100 — {score.summary}
+    </p>
   );
 }
 
