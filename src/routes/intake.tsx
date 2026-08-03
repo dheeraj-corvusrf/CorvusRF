@@ -3,6 +3,7 @@ import { useEffect, useId, useState } from "react";
 import { toast } from "sonner";
 import { Check } from "lucide-react";
 import { AnimatedSteps } from "@/components/AnimatedSteps";
+import { CircularSearchLoader } from "@/components/CircularSearchLoader";
 import { AreaChart, Area, XAxis, YAxis, ResponsiveContainer, Tooltip } from "recharts";
 import {
   readIntake,
@@ -18,7 +19,10 @@ import { cadLookup } from "@/lib/cad-lookup";
 import { AddressAutocomplete } from "@/components/AddressAutocomplete";
 import { useAuth } from "@/lib/auth";
 import { addProperty, findExistingProperty, type PropertyRecord } from "@/lib/properties";
+import { getComps } from "@/lib/cad-comps";
+import { getModuleAnalysis } from "@/lib/ai-report-modules";
 import { SampleNoticeDialog } from "@/components/SampleNoticeDialog";
+import { HouseIllustration } from "@/assets/illustrations/house";
 
 export const Route = createFileRoute("/intake")({
   head: () => ({
@@ -35,7 +39,7 @@ export const Route = createFileRoute("/intake")({
   component: Intake,
 });
 
-type Step = "address" | "validating" | "notice" | "confirm" | "notfound" | "classifying";
+type Step = "address" | "validating" | "notice" | "savings" | "confirm" | "notfound" | "classifying";
 
 function Intake() {
   const nav = useNavigate();
@@ -49,6 +53,18 @@ function Intake() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [alreadySaved, setAlreadySaved] = useState<PropertyRecord | null>(null);
+  // "comps" is grounded in real comparable-property data (see runValidation).
+  // "ai" is the fallback for counties/subdivisions without a qualifying real
+  // comp — Gemini reasons over the actual CAD record fields (value, type,
+  // land/improvement split) rather than a flat guessed percentage, and is
+  // labeled as an AI estimate (not comps-backed) wherever it's shown. null
+  // means neither produced a usable number, so the savings teaser step is
+  // skipped entirely.
+  const [savings, setSavings] = useState<
+    | { basis: "comps"; amount: number; compsCount: number; compsMedian: number }
+    | { basis: "ai"; amount: number; reductionPct: number; effectiveTaxRatePct: number; rationale: string }
+    | null
+  >(null);
 
   useEffect(() => {
     const s = readIntake();
@@ -96,7 +112,82 @@ function Intake() {
         deeds: res.record.deeds ?? undefined,
       });
       setState(next);
-      setStep("confirm");
+
+      // Only show the savings teaser when real comparable-property data (via
+      // TrueProdigy, currently Denton/Montgomery/Tarrant/Travis — see
+      // getComps) actually supports a specific number: the subject's value
+      // compared against the median of real, genuinely-comparable same-
+      // subdivision comps. "Genuinely comparable" matters — getComps() only
+      // matches by subdivision code (asCode), which can return properties on
+      // wildly different parcel sizes/uses (e.g. a 1.6-acre commercial parcel
+      // and a 0.2-acre single-family lot share a subdivision code but aren't
+      // comparable at all). Comps whose value isn't within the same rough
+      // order of magnitude as the subject (0.5x-2x) are excluded before the
+      // median is computed, so an outlier property doesn't get a wildly
+      // wrong estimate from comps that were never a real match. No comps,
+      // too few comparable ones after filtering, or the subject already at/
+      // below the median all skip straight to the full details/confirm step
+      // rather than showing a guessed figure.
+      let nextSavings: typeof savings = null;
+      if (next.cad && next.accountNumber && next.totalValue != null) {
+        try {
+          const compsResult = await getComps({ cad: next.cad, accountNumber: next.accountNumber });
+          const subjectValue = next.totalValue;
+          const values = compsResult.comps
+            .map((c) => c.marketValue)
+            .filter((v): v is number => v != null)
+            .filter((v) => v >= subjectValue * 0.5 && v <= subjectValue * 2)
+            .sort((a, b) => a - b);
+          if (values.length >= 3) {
+            const median = values[Math.floor(values.length / 2)];
+            const overvaluation = subjectValue - median;
+            if (overvaluation > 0) {
+              nextSavings = {
+                basis: "comps",
+                amount: Math.round(overvaluation * 0.025),
+                compsCount: values.length,
+                compsMedian: median,
+              };
+            }
+          }
+        } catch (err) {
+          console.error("Comps lookup for savings estimate failed:", err);
+        }
+      }
+      // No qualifying real comp (wrong county, or nothing passed the scale
+      // filter) — fall back to the same AI module the full report uses for
+      // its savings estimate. Still grounded in this property's own real CAD
+      // record (value, type, land/improvement split), just reasoned by
+      // Gemini instead of arithmetic over verified comparable sales — and
+      // labeled as such wherever it's shown, never presented as comps-backed.
+      if (!nextSavings && next.totalValue != null) {
+        try {
+          const result = await getModuleAnalysis("savings", {
+            address: next.address,
+            cad: next.cad,
+            propertyType: next.propertyType,
+            landValue: next.landValue,
+            improvementValue: next.improvementValue,
+            totalValue: next.totalValue,
+            taxYear: next.taxYear,
+          });
+          if (result.reductionPct > 0) {
+            nextSavings = {
+              basis: "ai",
+              amount: Math.round(
+                next.totalValue * (result.reductionPct / 100) * (result.effectiveTaxRatePct / 100),
+              ),
+              reductionPct: result.reductionPct,
+              effectiveTaxRatePct: result.effectiveTaxRatePct,
+              rationale: result.rationale,
+            };
+          }
+        } catch (err) {
+          console.error("AI savings estimate failed:", err);
+        }
+      }
+      setSavings(nextSavings);
+      setStep(nextSavings ? "savings" : "confirm");
       // Check whether this exact CAD record is already on the user's account —
       // shown as a notice on the confirm screen instead of letting them hit
       // "Confirm Property" again for something already saved.
@@ -213,15 +304,10 @@ function Intake() {
       )}
 
       {step === "validating" && (
-        <section className="mt-8 card-elev p-6">
-          <h2 className="font-serif text-xl font-semibold">Working on it…</h2>
-          <AnimatedSteps
-            steps={[
-              { label: "Validating property address", status: "done" },
-              { label: "Identifying county appraisal district", status: "done" },
-              { label: "Retrieving official property information", status: "active" },
-            ]}
-          />
+        <section className="mt-8 card-elev p-10 text-center">
+          <CircularSearchLoader className="h-48 w-48 mx-auto" />
+          <h2 className="mt-6 font-serif text-2xl font-semibold">Searching for your property…</h2>
+          {address && <p className="mt-2 text-muted-foreground">{address}</p>}
         </section>
       )}
 
@@ -256,6 +342,55 @@ function Intake() {
             <button onClick={() => setStep("address")} className="btn-primary btn-primary-hover">
               Search Again
             </button>
+          </div>
+        </section>
+      )}
+
+      {step === "savings" && state.address && savings && (
+        <section className="mt-8 card-elev overflow-hidden">
+          <div className="bg-accent/10 px-6 pt-10 pb-8 text-center">
+            <p className="text-sm font-medium text-muted-foreground">Potential Protest Savings*</p>
+            <p className="mt-1 font-serif text-5xl font-bold text-accent">{currency(savings.amount)}</p>
+            <p className="mt-2 text-sm text-muted-foreground">{state.address}</p>
+            {state.accountNumber && (
+              <p className="text-xs font-medium text-muted-foreground">PARCEL: {state.accountNumber}</p>
+            )}
+            <HouseIllustration className="mx-auto mt-6 h-32 w-auto" />
+          </div>
+          <div className="p-6">
+            {savings.basis === "comps" && (
+              <div className="mb-5 grid gap-3 sm:grid-cols-2 text-sm">
+                <Field label="Comparable Properties Used" value={savings.compsCount.toString()} />
+                <Field label="Comps Median Value" value={currency(savings.compsMedian)} />
+                <Field label="Your Assessed Value" value={currency(state.totalValue)} bold />
+                <Field
+                  label="Value Above Median"
+                  value={currency((state.totalValue ?? 0) - savings.compsMedian)}
+                  bold
+                />
+              </div>
+            )}
+            {savings.basis === "ai" && (
+              <div className="mb-5 grid gap-3 sm:grid-cols-2 text-sm">
+                <span className="badge-soft sm:col-span-2 w-fit">AI Estimate — no direct comps available</span>
+                <Field label="Estimated Reduction" value={`${savings.reductionPct}%`} />
+                <Field label="Effective Tax Rate Used" value={`${savings.effectiveTaxRatePct}%`} />
+                <Field label="Your Assessed Value" value={currency(state.totalValue)} bold />
+                <div className="sm:col-span-2">
+                  <Field label="AI Rationale" value={savings.rationale} />
+                </div>
+              </div>
+            )}
+            <div className="flex flex-wrap gap-2">
+              <button onClick={() => setStep("confirm")} className="btn-primary btn-primary-hover">
+                Continue
+              </button>
+            </div>
+            <p className="mt-4 text-xs text-muted-foreground">
+              {savings.basis === "comps"
+                ? `*Estimated from ${savings.compsCount} real comparable properties in your subdivision, at a ~2.5% effective tax rate. Your actual result depends on the hearing outcome and county-specific factors.`
+                : "*AI estimate based on your property's own assessed value and record — no directly comparable properties were available for this address. Your actual result depends on the hearing outcome and county-specific factors."}
+            </p>
           </div>
         </section>
       )}
@@ -417,6 +552,7 @@ function Stepper({ step }: { step: Step }) {
   const items = [
     ["Address", ["address"]],
     ["Validate", ["validating", "notfound"]],
+    ["Savings", ["savings"]],
     ["Confirm", ["confirm"]],
   ] as const;
   return (

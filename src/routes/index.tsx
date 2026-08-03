@@ -1,7 +1,7 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { toast } from "sonner";
-import { Upload } from "lucide-react";
+import { Upload, Home as HomeIcon, Sparkles, TrendingDown, Scale, Briefcase, Receipt, PiggyBank, ArrowRight } from "lucide-react";
 import {
   updateIntake,
   resetIntake,
@@ -13,6 +13,8 @@ import { SampleNoticeDialog } from "@/components/SampleNoticeDialog";
 import { HeroBackground } from "@/components/HeroBackground";
 import { MicButton } from "@/components/MicButton";
 import { AnimatedSteps } from "@/components/AnimatedSteps";
+import { ScrollReveal } from "@/components/ScrollReveal";
+import { HouseIllustration } from "@/assets/illustrations/house";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -65,6 +67,7 @@ function Home() {
   }
 
   return (
+    <>
     <section className="relative overflow-hidden">
       <HeroBackground />
       <div className="container-page pt-8 pb-0 md:pt-12 md:pb-2">
@@ -159,5 +162,141 @@ function Home() {
       </div>
       </div>
     </section>
+
+    {/* From Notice to Savings in 3 Steps — a condensed summary of the full
+        6-step breakdown on /how-it-works, not a restatement of it. */}
+    <section className="container-page py-14 md:py-20">
+      <div className="mx-auto max-w-2xl text-center">
+        <span className="badge-soft">How It Works</span>
+        <h2 className="mt-3 font-serif text-3xl md:text-4xl font-semibold">
+          From Notice to Savings in 3 Steps
+        </h2>
+      </div>
+      <div className="mt-12 grid gap-8 md:grid-cols-3">
+        {PROCESS_STEPS.map((step, i) => (
+          <ScrollReveal key={step.title} delay={i * 150} className="text-center">
+            <span className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-accent/15 text-accent">
+              <step.icon className="h-6 w-6" />
+            </span>
+            <h3 className="mt-4 font-serif text-lg font-semibold">{step.title}</h3>
+            <p className="mt-1 text-sm text-muted-foreground">{step.description}</p>
+          </ScrollReveal>
+        ))}
+      </div>
+      <div className="mt-10 text-center">
+        <Link
+          to="/how-it-works"
+          className="inline-flex items-center gap-1 text-sm font-medium text-accent hover:underline"
+        >
+          See the full process <ArrowRight className="h-3.5 w-3.5" />
+        </Link>
+      </div>
+    </section>
+
+    {/* How CorvusRF Helps You Save — real, existing services only (no stats,
+        no testimonials — see plan notes on why those are out of scope). */}
+    <section className="bg-secondary/30 py-14 md:py-20">
+      <div className="container-page">
+        <div className="mx-auto max-w-2xl text-center">
+          <span className="badge-soft">What You Get</span>
+          <h2 className="mt-3 font-serif text-3xl md:text-4xl font-semibold">
+            How CorvusRF Helps You Save
+          </h2>
+        </div>
+        <div className="mt-12 grid items-center gap-6 md:grid-cols-3">
+          <div className="order-2 grid gap-6 md:order-1">
+            {SAVE_FEATURES.slice(0, 2).map((f, i) => (
+              <FeatureCard key={f.title} feature={f} delay={i * 150} />
+            ))}
+          </div>
+          <div className="order-1 md:order-2 relative mx-auto grid place-items-center py-8">
+            <span className="radiate-ring absolute h-40 w-40 rounded-full border-2 border-accent/30" />
+            <span
+              className="radiate-ring absolute h-40 w-40 rounded-full border-2 border-accent/30"
+              style={{ animationDelay: "1s" }}
+            />
+            <span
+              className="radiate-ring absolute h-40 w-40 rounded-full border-2 border-accent/30"
+              style={{ animationDelay: "2s" }}
+            />
+            <HouseIllustration className="relative h-40 w-auto" />
+          </div>
+          <div className="order-3 grid gap-6">
+            {SAVE_FEATURES.slice(2, 4).map((f, i) => (
+              <FeatureCard key={f.title} feature={f} delay={(i + 2) * 150} />
+            ))}
+          </div>
+        </div>
+      </div>
+    </section>
+    </>
+  );
+}
+
+const PROCESS_STEPS = [
+  {
+    title: "Tell us about your property",
+    description: "Enter your address or upload a notice — AI matches your county's official record.",
+    icon: HomeIcon,
+  },
+  {
+    title: "AI reviews your case",
+    description:
+      "Ten AI modules analyze value, comps, and evidence, while CorvusRF staff handle filing and the county.",
+    icon: Sparkles,
+  },
+  {
+    title: "Track your savings",
+    description: "One dashboard for deadlines, payments, refunds, and savings — always up to date.",
+    icon: TrendingDown,
+  },
+] as const;
+
+const SAVE_FEATURES = [
+  {
+    title: "Property Tax Protest",
+    description: "AI-backed evidence and CorvusRF staff filing to challenge an overvalued assessment.",
+    icon: Scale,
+    to: "/property-protest",
+  },
+  {
+    title: "BPP Rendition",
+    description: "Business personal property accounts tracked and rendered correctly, every year.",
+    icon: Briefcase,
+    to: "/bpp-rendition",
+  },
+  {
+    title: "Tax Payment Tracking",
+    description: "Know what's due, when, and what's already been paid — for every property you own.",
+    icon: Receipt,
+    to: "/tax-payment",
+  },
+  {
+    title: "Property Tax Management",
+    description: "One place for deadlines, documents, and savings across your whole portfolio.",
+    icon: PiggyBank,
+    to: "/property-tax-management",
+  },
+] as const;
+
+function FeatureCard({
+  feature,
+  delay,
+}: {
+  feature: (typeof SAVE_FEATURES)[number];
+  delay: number;
+}) {
+  return (
+    <ScrollReveal delay={delay}>
+      <Link to={feature.to} className="card-elev flex gap-4 p-5 hover:bg-secondary/40">
+        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-accent/15 text-accent">
+          <feature.icon className="h-5 w-5" />
+        </span>
+        <div>
+          <h3 className="font-serif text-base font-semibold">{feature.title}</h3>
+          <p className="mt-1 text-sm text-muted-foreground">{feature.description}</p>
+        </div>
+      </Link>
+    </ScrollReveal>
   );
 }

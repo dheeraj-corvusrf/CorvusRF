@@ -95,7 +95,30 @@ const MODULE_SPECS: Record<string, ModuleSpec> = {
     parse: (p) => ({ checklist: checklist(p.checklist) }),
   },
   savings: {
-    instruction: "Estimate a plausible value-reduction percent and the typical effective tax rate.",
+    instruction: `Estimate a plausible value-reduction percent and the typical effective tax rate.
+
+Ground this in real, published Texas outcomes, not a generic guess:
+- The Texas Comptroller's own biennial ratio studies (Tax Code 5.10) find that while most large
+  appraisal districts meet uniform-assessment standards for single-family property, few if any
+  consistently meet them for commercial property — commercial/income parcels often have MORE
+  unequal-appraisal opportunity than a simple residential comparison would suggest, not less.
+- Industry-reported data: 60-90% of protests achieve SOME reduction (higher at informal hearing),
+  and over 80% of protests result in a reduction per the Comptroller. Successful reductions
+  typically fall in the ~5-16% range of assessed value (toward the higher end with strong
+  unequal-appraisal evidence, toward the lower end for routine cases).
+
+That 80%+ baseline success rate matters for how you pick reductionPct: a routine property with
+nothing specific standing out should still typically land in the ~3-8% range (reflecting ordinary
+equal-and-uniform adjustment potential most properties have), NOT 0%. Reserve reductionPct: 0
+for cases where the record itself gives a specific, statable reason the property looks fairly
+valued already (e.g. value has stayed flat or dropped across recent tax years, or nothing about
+the land/improvement split looks unusual for the stated property type) — 0 should be a conclusion
+you can justify from the record, never a default for "nothing stood out."
+
+Go above ~16% only when something specific in the record clearly supports it (say what,
+specifically, in the rationale) — don't inflate the estimate just because a higher number wasn't
+explicitly ruled out. The goal is a realistic mid-range number for a typical case, not either
+extreme.`,
     schema: `{"reductionPct": <integer 0-30>, "effectiveTaxRatePct": <number>, "rationale": "<1 sentence>"}`,
     parse: (p) => ({
       reductionPct: Math.max(0, Math.min(30, Math.round(Number(p.reductionPct) || 0))),
