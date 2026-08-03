@@ -164,6 +164,11 @@
   font-weight: 600;
   transition: transform .15s ease, background-color .15s ease, box-shadow .15s ease;
   box-shadow: var(--shadow-elev);
+  /* Baseline press/lift feedback lives on the base class (not the opt-in
+     -hover modifiers below) so every button gets it regardless of whether a
+     call site also opted into the extra color-darken modifier. */
+  &:hover { transform: translateY(-1px); box-shadow: 0 14px 34px -14px oklch(0.18 0.06 250 / 0.32); }
+  &:active { transform: translateY(0) scale(0.97); }
 }
 @utility btn-primary-hover { &:hover { background-color: oklch(0.54 0.19 255); } }
 
@@ -176,6 +181,13 @@
   border-radius: 0.6rem;
   font-weight: 700;
   box-shadow: var(--shadow-elev);
+  transition: transform .15s ease, background-color .15s ease, box-shadow .15s ease;
+  &:hover {
+    background-color: oklch(0.54 0.19 255);
+    transform: translateY(-1px);
+    box-shadow: 0 14px 34px -14px oklch(0.18 0.06 250 / 0.32);
+  }
+  &:active { transform: translateY(0) scale(0.97); }
 }
 
 @utility btn-outline {
@@ -187,6 +199,17 @@
   padding: 0.7rem 1.15rem;
   border-radius: 0.6rem;
   font-weight: 600;
+  /* Transform-only — no color/background hover here, since a few call sites
+     (e.g. the destructive delete button) already set their own hover:bg-*
+     via inline Tailwind classes and a base color rule would fight them. */
+  transition: transform .15s ease, box-shadow .15s ease;
+  &:hover { transform: translateY(-1px); }
+  &:active { transform: translateY(0) scale(0.97); }
+}
+
+@keyframes card-enter {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 @utility card-elev {
@@ -195,6 +218,19 @@
   border: 1px solid var(--color-border);
   border-radius: 1rem;
   box-shadow: var(--shadow-card);
+  /* No forced hover effect here — plenty of card-elev usages are static info
+     cards, and a lift/tint would falsely imply they're clickable. This just
+     makes whichever hover:* Tailwind classes a call site already applies
+     (the genuinely clickable cards) animate smoothly instead of snapping. */
+  transition: background-color .2s ease, box-shadow .2s ease, transform .2s ease;
+  /* Runs once whenever a card is actually inserted into the DOM (initial page
+     load, a new list item mounting, a modal opening) — not on every re-render,
+     since CSS animations don't restart unless the element itself is freshly
+     mounted. Respects reduced-motion since entrance animation is decorative,
+     not functional. */
+  @media (prefers-reduced-motion: no-preference) {
+    animation: card-enter .4s ease-out both;
+  }
 }
 
 @utility badge-soft {
@@ -204,10 +240,33 @@
   background: oklch(0.93 0.04 255);
   color: oklch(0.32 0.12 255);
   font-size: 0.75rem; font-weight: 600;
+  transition: background-color .2s ease, color .2s ease;
 }
 
 @keyframes shimmer { 0%{background-position:-400px 0} 100%{background-position:400px 0} }
 .locked-blur { filter: blur(6px); user-select: none; pointer-events: none; }
+
+/* Ambient motion for the homepage hero scene (clouds drifting, sun glow
+   breathing, trees swaying) — each element carries its own animation-duration/
+   -delay inline (see HeroBackground.tsx) so multiple clouds/trees don't move
+   in lockstep. All gated behind reduced-motion since it's purely decorative. */
+@keyframes cloud-drift {
+  0%, 100% { transform: translateX(0); }
+  50% { transform: translateX(16px); }
+}
+@keyframes sun-glow-pulse {
+  0%, 100% { opacity: 0.5; transform: scale(1); }
+  50% { opacity: 0.68; transform: scale(1.1); }
+}
+@keyframes tree-sway {
+  0%, 100% { transform: rotate(-2deg); }
+  50% { transform: rotate(2deg); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .hero-cloud-drift { animation: cloud-drift 9s ease-in-out infinite; }
+  .hero-sun-glow { animation: sun-glow-pulse 4s ease-in-out infinite; }
+  .hero-tree-sway { animation: tree-sway 5s ease-in-out infinite; transform-origin: 50% 100%; }
+}
 
 /* Without this, browsers strip background colors by default when printing —
    the colorful chips/badges/chart fills that make the AI report worth exporting

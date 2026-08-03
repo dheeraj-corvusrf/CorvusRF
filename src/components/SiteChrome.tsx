@@ -60,7 +60,7 @@ export function SiteNav() {
             <Link
               key={item.to}
               to={item.to}
-              className="rounded-md px-3 py-2 text-sm font-medium text-foreground/80 hover:bg-secondary hover:text-foreground"
+              className="rounded-md px-3 py-2 text-sm font-medium text-foreground/80 transition-colors hover:bg-secondary hover:text-foreground"
               activeProps={{ className: "bg-secondary text-foreground" }}
               activeOptions={{ exact: item.to === "/" }}
             >
@@ -74,7 +74,7 @@ export function SiteNav() {
             <div className="relative" ref={profileRef}>
               <button
                 onClick={() => setProfileOpen((v) => !v)}
-                className="flex h-9 w-9 items-center justify-center rounded-full bg-primary text-primary-foreground text-sm font-semibold"
+                className="flex h-9 w-9 items-center justify-center rounded-full bg-primary text-primary-foreground text-sm font-semibold transition-transform hover:scale-105 active:scale-95"
                 aria-label="Profile menu"
               >
                 {(user?.email?.[0] ?? "U").toUpperCase()}
@@ -84,14 +84,14 @@ export function SiteNav() {
                   <Link
                     to="/dashboard"
                     onClick={() => setProfileOpen(false)}
-                    className="block rounded-md px-3 py-2 hover:bg-secondary"
+                    className="block rounded-md px-3 py-2 transition-colors hover:bg-secondary"
                   >
                     Dashboard
                   </Link>
                   <Link
                     to="/pricing"
                     onClick={() => setProfileOpen(false)}
-                    className="block rounded-md px-3 py-2 hover:bg-secondary"
+                    className="block rounded-md px-3 py-2 transition-colors hover:bg-secondary"
                   >
                     Subscription
                   </Link>
@@ -99,7 +99,7 @@ export function SiteNav() {
                     <Link
                       to="/admin"
                       onClick={() => setProfileOpen(false)}
-                      className="block rounded-md px-3 py-2 hover:bg-secondary"
+                      className="block rounded-md px-3 py-2 transition-colors hover:bg-secondary"
                     >
                       Admin
                     </Link>
@@ -110,7 +110,7 @@ export function SiteNav() {
                       setProfileOpen(false);
                       nav({ to: "/" });
                     }}
-                    className="block w-full rounded-md px-3 py-2 text-left hover:bg-secondary"
+                    className="block w-full rounded-md px-3 py-2 text-left transition-colors hover:bg-secondary"
                   >
                     Sign out
                   </button>
@@ -139,7 +139,7 @@ export function SiteNav() {
                 key={item.to}
                 to={item.to}
                 onClick={() => setOpen(false)}
-                className="rounded-md px-3 py-3 text-sm font-medium hover:bg-secondary"
+                className="rounded-md px-3 py-3 text-sm font-medium transition-colors hover:bg-secondary"
               >
                 {item.label}
               </Link>
