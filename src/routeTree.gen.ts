@@ -16,11 +16,13 @@ import { Route as AiReportRouteImport } from './routes/ai-report'
 import { Route as BppRenditionRouteImport } from './routes/bpp-rendition'
 import { Route as ContactRouteImport } from './routes/contact'
 import { Route as DocumentReviewRouteImport } from './routes/document-review'
+import { Route as ForgotPasswordRouteImport } from './routes/forgot-password'
 import { Route as HowItWorksRouteImport } from './routes/how-it-works'
 import { Route as IntakeRouteImport } from './routes/intake'
 import { Route as PricingRouteImport } from './routes/pricing'
 import { Route as PropertyProtestRouteImport } from './routes/property-protest'
 import { Route as PropertyTaxManagementRouteImport } from './routes/property-tax-management'
+import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as SignInRouteImport } from './routes/sign-in'
 import { Route as TaxPaymentRouteImport } from './routes/tax-payment'
 import { Route as DashboardLayoutRouteImport } from './routes/dashboard/_layout'
@@ -67,6 +69,11 @@ const DocumentReviewRoute = DocumentReviewRouteImport.update({
   path: '/document-review',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ForgotPasswordRoute = ForgotPasswordRouteImport.update({
+  id: '/forgot-password',
+  path: '/forgot-password',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const HowItWorksRoute = HowItWorksRouteImport.update({
   id: '/how-it-works',
   path: '/how-it-works',
@@ -90,6 +97,11 @@ const PropertyProtestRoute = PropertyProtestRouteImport.update({
 const PropertyTaxManagementRoute = PropertyTaxManagementRouteImport.update({
   id: '/property-tax-management',
   path: '/property-tax-management',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ResetPasswordRoute = ResetPasswordRouteImport.update({
+  id: '/reset-password',
+  path: '/reset-password',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SignInRoute = SignInRouteImport.update({
@@ -155,11 +167,13 @@ export interface FileRoutesByFullPath {
   '/bpp-rendition': typeof BppRenditionRoute
   '/contact': typeof ContactRoute
   '/document-review': typeof DocumentReviewRoute
+  '/forgot-password': typeof ForgotPasswordRoute
   '/how-it-works': typeof HowItWorksRoute
   '/intake': typeof IntakeRoute
   '/pricing': typeof PricingRoute
   '/property-protest': typeof PropertyProtestRoute
   '/property-tax-management': typeof PropertyTaxManagementRoute
+  '/reset-password': typeof ResetPasswordRoute
   '/sign-in': typeof SignInRoute
   '/tax-payment': typeof TaxPaymentRoute
   '/dashboard': typeof DashboardLayoutRouteWithChildren
@@ -179,11 +193,13 @@ export interface FileRoutesByTo {
   '/bpp-rendition': typeof BppRenditionRoute
   '/contact': typeof ContactRoute
   '/document-review': typeof DocumentReviewRoute
+  '/forgot-password': typeof ForgotPasswordRoute
   '/how-it-works': typeof HowItWorksRoute
   '/intake': typeof IntakeRoute
   '/pricing': typeof PricingRoute
   '/property-protest': typeof PropertyProtestRoute
   '/property-tax-management': typeof PropertyTaxManagementRoute
+  '/reset-password': typeof ResetPasswordRoute
   '/sign-in': typeof SignInRoute
   '/tax-payment': typeof TaxPaymentRoute
   '/dashboard/billing': typeof DashboardLayoutBillingRoute
@@ -203,11 +219,13 @@ export interface FileRoutesById {
   '/bpp-rendition': typeof BppRenditionRoute
   '/contact': typeof ContactRoute
   '/document-review': typeof DocumentReviewRoute
+  '/forgot-password': typeof ForgotPasswordRoute
   '/how-it-works': typeof HowItWorksRoute
   '/intake': typeof IntakeRoute
   '/pricing': typeof PricingRoute
   '/property-protest': typeof PropertyProtestRoute
   '/property-tax-management': typeof PropertyTaxManagementRoute
+  '/reset-password': typeof ResetPasswordRoute
   '/sign-in': typeof SignInRoute
   '/tax-payment': typeof TaxPaymentRoute
   '/dashboard/_layout': typeof DashboardLayoutRouteWithChildren
@@ -229,11 +247,13 @@ export interface FileRouteTypes {
     | '/bpp-rendition'
     | '/contact'
     | '/document-review'
+    | '/forgot-password'
     | '/how-it-works'
     | '/intake'
     | '/pricing'
     | '/property-protest'
     | '/property-tax-management'
+    | '/reset-password'
     | '/sign-in'
     | '/tax-payment'
     | '/dashboard'
@@ -253,11 +273,13 @@ export interface FileRouteTypes {
     | '/bpp-rendition'
     | '/contact'
     | '/document-review'
+    | '/forgot-password'
     | '/how-it-works'
     | '/intake'
     | '/pricing'
     | '/property-protest'
     | '/property-tax-management'
+    | '/reset-password'
     | '/sign-in'
     | '/tax-payment'
     | '/dashboard/billing'
@@ -276,11 +298,13 @@ export interface FileRouteTypes {
     | '/bpp-rendition'
     | '/contact'
     | '/document-review'
+    | '/forgot-password'
     | '/how-it-works'
     | '/intake'
     | '/pricing'
     | '/property-protest'
     | '/property-tax-management'
+    | '/reset-password'
     | '/sign-in'
     | '/tax-payment'
     | '/dashboard/_layout'
@@ -301,11 +325,13 @@ export interface RootRouteChildren {
   BppRenditionRoute: typeof BppRenditionRoute
   ContactRoute: typeof ContactRoute
   DocumentReviewRoute: typeof DocumentReviewRoute
+  ForgotPasswordRoute: typeof ForgotPasswordRoute
   HowItWorksRoute: typeof HowItWorksRoute
   IntakeRoute: typeof IntakeRoute
   PricingRoute: typeof PricingRoute
   PropertyProtestRoute: typeof PropertyProtestRoute
   PropertyTaxManagementRoute: typeof PropertyTaxManagementRoute
+  ResetPasswordRoute: typeof ResetPasswordRoute
   SignInRoute: typeof SignInRoute
   TaxPaymentRoute: typeof TaxPaymentRoute
   DashboardLayoutRoute: typeof DashboardLayoutRouteWithChildren
@@ -362,6 +388,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DocumentReviewRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/forgot-password': {
+      id: '/forgot-password'
+      path: '/forgot-password'
+      fullPath: '/forgot-password'
+      preLoaderRoute: typeof ForgotPasswordRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/how-it-works': {
       id: '/how-it-works'
       path: '/how-it-works'
@@ -395,6 +428,13 @@ declare module '@tanstack/react-router' {
       path: '/property-tax-management'
       fullPath: '/property-tax-management'
       preLoaderRoute: typeof PropertyTaxManagementRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/reset-password': {
+      id: '/reset-password'
+      path: '/reset-password'
+      fullPath: '/reset-password'
+      preLoaderRoute: typeof ResetPasswordRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/sign-in': {
@@ -502,11 +542,13 @@ const rootRouteChildren: RootRouteChildren = {
   BppRenditionRoute: BppRenditionRoute,
   ContactRoute: ContactRoute,
   DocumentReviewRoute: DocumentReviewRoute,
+  ForgotPasswordRoute: ForgotPasswordRoute,
   HowItWorksRoute: HowItWorksRoute,
   IntakeRoute: IntakeRoute,
   PricingRoute: PricingRoute,
   PropertyProtestRoute: PropertyProtestRoute,
   PropertyTaxManagementRoute: PropertyTaxManagementRoute,
+  ResetPasswordRoute: ResetPasswordRoute,
   SignInRoute: SignInRoute,
   TaxPaymentRoute: TaxPaymentRoute,
   DashboardLayoutRoute: DashboardLayoutRouteWithChildren,
