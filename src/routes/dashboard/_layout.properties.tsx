@@ -4,9 +4,10 @@ import { toast } from "sonner";
 import { currency, resetIntake, updateIntake } from "@/lib/intake-store";
 import { useAuth } from "@/lib/auth";
 import { listProperties, deleteProperty, type PropertyRecord } from "@/lib/properties";
-import { listProtests, requestProtest, type ProtestRecord, type ProtestStatus } from "@/lib/protests";
+import { listProtests, type ProtestRecord, type ProtestStatus } from "@/lib/protests";
 import { listHealthScores, type PropertyAiScore } from "@/lib/property-scores";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ProtestAuthorizationFlow } from "@/components/ProtestAuthorizationFlow";
 
 export const Route = createFileRoute("/dashboard/_layout/properties")({
   component: Properties,
@@ -28,8 +29,8 @@ function Properties() {
   const [listError, setListError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [protests, setProtests] = useState<ProtestRecord[]>([]);
-  const [requestingId, setRequestingId] = useState<string | null>(null);
   const [healthScores, setHealthScores] = useState<Record<string, PropertyAiScore>>({});
+  const [authorizingProperty, setAuthorizingProperty] = useState<PropertyRecord | null>(null);
 
   useEffect(() => {
     if (!user) return;
@@ -59,23 +60,6 @@ function Properties() {
       toast.error(err instanceof Error ? err.message : "Could not remove this property.");
     } finally {
       setDeletingId(null);
-    }
-  }
-
-  async function handleRequestProtest(propertyId: string, address: string) {
-    if (!user) return;
-    setRequestingId(propertyId);
-    try {
-      const created = await requestProtest(user.id, propertyId, {
-        address,
-        userEmail: user.email,
-      });
-      setProtests((prev) => [created, ...prev]);
-      toast.success("Protest filing requested. CorvusRF staff will follow up.");
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not request a protest.");
-    } finally {
-      setRequestingId(null);
     }
   }
 
@@ -157,11 +141,10 @@ function Properties() {
                       <span className="badge-soft">Protest {STATUS_LABEL[existingProtest.status]}</span>
                     ) : (
                       <button
-                        disabled={requestingId === p.id}
-                        onClick={() => handleRequestProtest(p.id, p.address)}
-                        className="btn-outline disabled:opacity-60"
+                        onClick={() => setAuthorizingProperty(p)}
+                        className="btn-outline"
                       >
-                        {requestingId === p.id ? "Requesting…" : "Request Protest Filing"}
+                        Request Protest Filing
                       </button>
                     )}
                     <button
@@ -190,6 +173,19 @@ function Properties() {
           </div>
         )}
       </div>
+
+      {authorizingProperty && user && (
+        <ProtestAuthorizationFlow
+          userId={user.id}
+          property={authorizingProperty}
+          userEmail={user.email}
+          open={!!authorizingProperty}
+          onOpenChange={(open) => {
+            if (!open) setAuthorizingProperty(null);
+          }}
+          onDone={(created) => setProtests((prev) => [created, ...prev])}
+        />
+      )}
     </div>
   );
 }

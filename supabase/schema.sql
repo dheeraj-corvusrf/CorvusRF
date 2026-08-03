@@ -346,6 +346,47 @@ create policy "Admins can view all property AI scores"
   on public.property_ai_scores for select
   using (public.is_admin());
 
+-- Records a user's signed authorization to let CorvusRF act as their tax agent for
+-- a given protest (the "CorvusRF Managed" workspace path) — owner/entity details plus
+-- a captured signature (drawn PNG data URL or typed text), collected via
+-- ProtestAuthorizationFlow.tsx from the dashboard's "Request Protest Filing" action.
+create table if not exists public.protest_authorizations (
+  id uuid primary key default gen_random_uuid(),
+  protest_id uuid references public.protests (id) on delete cascade,
+  property_id uuid not null references public.properties (id) on delete cascade,
+  user_id uuid not null references auth.users (id) on delete cascade,
+  first_name text not null,
+  last_name text not null,
+  email text not null,
+  phone text not null,
+  is_entity boolean not null default false,
+  entity_name text,
+  entity_relationship text,
+  entity_type text,
+  purchased_recently boolean,
+  signature_type text not null check (signature_type in ('draw', 'type')),
+  signature_data text not null,
+  signed_at timestamptz not null default now(),
+  created_at timestamptz not null default now()
+);
+
+alter table public.protest_authorizations enable row level security;
+
+drop policy if exists "Users can view their own protest authorizations" on public.protest_authorizations;
+create policy "Users can view their own protest authorizations"
+  on public.protest_authorizations for select
+  using (auth.uid() = user_id);
+
+drop policy if exists "Users can insert their own protest authorizations" on public.protest_authorizations;
+create policy "Users can insert their own protest authorizations"
+  on public.protest_authorizations for insert
+  with check (auth.uid() = user_id);
+
+drop policy if exists "Admins can view all protest authorizations" on public.protest_authorizations;
+create policy "Admins can view all protest authorizations"
+  on public.protest_authorizations for select
+  using (public.is_admin());
+
 -- ── ONE-TIME MANUAL STEP — do NOT run this as part of the routine schema paste ──
 -- After you have an account (sign up normally through the app first), run this once,
 -- by itself, substituting your real email, to make that account an admin:
