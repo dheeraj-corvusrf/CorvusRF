@@ -11,6 +11,7 @@ import { listDocuments, type DocumentRecord } from "@/lib/documents";
 import { listProtests, type ProtestRecord, type ProtestStatus } from "@/lib/protests";
 import { askRouter } from "@/lib/ask-router";
 import { getDeadlineNudge } from "@/lib/deadline-nudge";
+import { AnimatedNumber } from "@/components/AnimatedNumber";
 
 export const Route = createFileRoute("/dashboard/_layout/")({
   component: Overview,
@@ -270,11 +271,11 @@ function Overview() {
 
       {/* Stats */}
       <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-5">
-        <StatCard label="Properties" value={loaded ? properties.length : "…"} to="/dashboard/properties" />
-        <StatCard label="BPP Accounts" value={loaded ? bppAccounts.length : "…"} to="/dashboard/bpp-accounts" />
-        <StatCard label="Documents" value={loaded ? documents.length : "…"} to="/dashboard/documents" />
-        <StatCard label="Cases" value={loaded ? protests.length : "…"} to="/dashboard/properties" />
-        <StatCard label="Est. Savings" value={loaded ? currency(estimatedSavings) : "…"} />
+        <StatCard label="Properties" value={loaded ? properties.length : null} to="/dashboard/properties" />
+        <StatCard label="BPP Accounts" value={loaded ? bppAccounts.length : null} to="/dashboard/bpp-accounts" />
+        <StatCard label="Documents" value={loaded ? documents.length : null} to="/dashboard/documents" />
+        <StatCard label="Cases" value={loaded ? protests.length : null} to="/dashboard/properties" />
+        <StatCard label="Est. Savings" value={loaded ? estimatedSavings : null} format={currency} />
       </div>
 
       {properties.length > 0 && (
@@ -359,15 +360,19 @@ function StatCard({
   label,
   value,
   to,
+  format,
 }: {
   label: string;
-  value: string | number;
+  value: number | null;
   to?: "/dashboard/properties" | "/dashboard/bpp-accounts" | "/dashboard/documents";
+  format?: (n: number) => string;
 }) {
   const content = (
     <>
       <div className="text-xs text-muted-foreground">{label}</div>
-      <div className="mt-1 font-serif text-2xl font-semibold">{value}</div>
+      <div className="mt-1 font-serif text-2xl font-semibold">
+        {value === null ? "…" : <AnimatedNumber value={value} format={format} />}
+      </div>
     </>
   );
   if (to) {

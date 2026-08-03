@@ -8,13 +8,21 @@ import { DogWalkerIllustration } from "@/assets/illustrations/dog-walker";
 // tokens) rather than baked into --hero-cloud's color, so the overlapping shapes
 // composite as one solid cloud instead of showing visible seams where two
 // semi-transparent fills stack on top of each other.
-function Cloud({ className }: { className: string }) {
+function Cloud({
+  className,
+  duration = "9s",
+  delay = "0s",
+}: {
+  className: string;
+  duration?: string;
+  delay?: string;
+}) {
   return (
     <svg
-      className={className}
+      className={`${className} hero-cloud-drift`}
       viewBox="0 0 100 60"
       fill="var(--hero-cloud)"
-      style={{ opacity: "var(--hero-cloud-opacity)" }}
+      style={{ opacity: "var(--hero-cloud-opacity)", animationDuration: duration, animationDelay: delay }}
     >
       <rect x="14" y="34" width="68" height="20" rx="10" />
       <ellipse cx="30" cy="38" rx="26" ry="16" />
@@ -29,7 +37,10 @@ function Cloud({ className }: { className: string }) {
 function Sun({ className }: { className: string }) {
   return (
     <div className={className}>
-      <div className="absolute inset-0 rounded-full blur-xl" style={{ background: "var(--hero-sun)", opacity: 0.5 }} />
+      <div
+        className="absolute inset-0 rounded-full blur-xl hero-sun-glow"
+        style={{ background: "var(--hero-sun)", opacity: 0.5 }}
+      />
       <div className="absolute inset-[18%] rounded-full" style={{ background: "var(--hero-sun)" }} />
     </div>
   );
@@ -40,7 +51,10 @@ function Sun({ className }: { className: string }) {
 function Moon({ className }: { className: string }) {
   return (
     <div className={className}>
-      <div className="absolute inset-0 rounded-full blur-lg" style={{ background: "var(--hero-moon)", opacity: 0.35 }} />
+      <div
+        className="absolute inset-0 rounded-full blur-lg hero-sun-glow"
+        style={{ background: "var(--hero-moon)", opacity: 0.35 }}
+      />
       <div className="absolute inset-[18%] rounded-full overflow-hidden">
         <div className="absolute inset-0 rounded-full" style={{ background: "var(--hero-moon)" }} />
         <div
@@ -88,13 +102,19 @@ export function HeroBackground({ blurred = false }: { blurred?: boolean } = {}) 
         <Moon className="absolute inset-0" />
       </div>
 
-      {/* Clouds in the sky */}
-      <Cloud className="absolute top-8 left-[6%] h-10 w-24 md:h-12 md:w-28" />
-      <Cloud className="absolute top-20 left-[20%] h-7 w-16 md:h-8 md:w-20" />
-      <Cloud className="absolute top-12 right-[32%] h-9 w-20 md:h-10 md:w-24" />
+      {/* Clouds in the sky — each with its own duration/delay so they drift out
+          of sync with each other instead of moving in lockstep. */}
+      <Cloud className="absolute top-8 left-[6%] h-10 w-24 md:h-12 md:w-28" duration="10s" delay="0s" />
+      <Cloud className="absolute top-20 left-[20%] h-7 w-16 md:h-8 md:w-20" duration="8s" delay="1.2s" />
+      <Cloud className="absolute top-12 right-[32%] h-9 w-20 md:h-10 md:w-24" duration="11s" delay="0.6s" />
+      <Cloud className="absolute top-4 left-[42%] h-6 w-14 md:h-7 md:w-16" duration="8.5s" delay="1.5s" />
+      <Cloud className="absolute top-24 right-[6%] h-7 w-16 md:h-8 md:w-18" duration="9.5s" delay="0.8s" />
       {/* Extra clouds right above the house */}
-      <Cloud className="hidden lg:block absolute top-28 left-[2%] h-9 w-20" />
-      <Cloud className="hidden lg:block absolute top-40 left-[12%] h-6 w-14" />
+      <Cloud className="hidden lg:block absolute top-28 left-[2%] h-9 w-20" duration="9s" delay="2s" />
+      <Cloud className="hidden lg:block absolute top-40 left-[12%] h-6 w-14" duration="7.5s" delay="0.3s" />
+      {/* Extra clouds on the right, above the couple/dog-walker group */}
+      <Cloud className="hidden lg:block absolute top-6 right-[42%] h-6 w-14" duration="10.5s" delay="2.4s" />
+      <Cloud className="hidden lg:block absolute top-48 right-[10%] h-7 w-16" duration="7s" delay="0.4s" />
 
       {/* Curved field band, ~35% of the hero height */}
       <svg
@@ -129,7 +149,11 @@ export function HeroBackground({ blurred = false }: { blurred?: boolean } = {}) 
 
       {/* Right group: walking couple, tree, dog walker */}
       <CoupleIllustration className="hidden lg:block absolute bottom-2 right-[6%] h-24 w-auto xl:h-28" />
-      <svg className="hidden lg:block absolute bottom-2 right-[1%] h-[5.5rem] w-11 xl:h-24 xl:w-12" viewBox="0 0 40 90" fill="none">
+      <svg
+        className="hidden lg:block absolute bottom-2 right-[1%] h-[5.5rem] w-11 xl:h-24 xl:w-12 hero-tree-sway"
+        viewBox="0 0 40 90"
+        fill="none"
+      >
         <rect x="17" y="45" width="6" height="45" fill="var(--primary)" opacity="0.6" />
         <circle cx="20" cy="30" r="24" fill="var(--hero-tree)" opacity="0.85" />
       </svg>

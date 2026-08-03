@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { supabase, isSupabaseConfigured } from "@/lib/supabase";
 import { searchPropertiesByOwner } from "@/lib/cad-owner-search";
@@ -236,6 +236,14 @@ function SignIn() {
             className="rounded-md border border-input bg-background px-3 py-2"
           />
         </label>
+        {mode === "signin" && (
+          <Link
+            to="/forgot-password"
+            className="-mt-2 justify-self-end text-sm text-muted-foreground hover:text-foreground"
+          >
+            Forgot password?
+          </Link>
+        )}
         {mode === "signup" && (
           <label className="grid gap-1 text-sm">
             <span className="font-medium">Confirm Password</span>

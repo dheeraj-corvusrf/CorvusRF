@@ -121,10 +121,14 @@ function Properties() {
           </div>
         ) : properties.length > 0 ? (
           <div className="grid gap-4">
-            {sortedProperties.map((p) => {
+            {sortedProperties.map((p, i) => {
               const existingProtest = protests.find((pr) => pr.propertyId === p.id);
               return (
-                <div key={p.id} className="card-elev p-6">
+                <div
+                  key={p.id}
+                  className="card-elev p-6"
+                  style={{ animationDelay: `${Math.min(i, 8) * 60}ms` }}
+                >
                   <div className="flex items-start justify-between gap-4 flex-wrap">
                     <div>
                       <div className="flex items-center gap-2">
