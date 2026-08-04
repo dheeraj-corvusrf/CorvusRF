@@ -501,20 +501,25 @@ function Stepper({ step }: { step: Step }) {
     ["Confirm", ["confirm"]],
   ] as const;
   return (
-    <ol className="flex items-center gap-2 text-xs font-medium">
+    <ol className="flex items-center gap-1.5 text-xs font-medium sm:gap-2">
       {items.map(([label, keys], i) => {
         const active = (keys as readonly string[]).includes(step);
         return (
-          <li key={label} className="flex items-center gap-2">
+          <li key={label} className="flex items-center gap-1.5 sm:gap-2">
             <span
-              className={`h-6 w-6 rounded-full grid place-items-center ${
+              className={`h-6 w-6 shrink-0 rounded-full grid place-items-center ${
                 active ? "bg-primary text-primary-foreground" : "bg-secondary text-muted-foreground"
               }`}
             >
               {i + 1}
             </span>
-            <span className={active ? "text-foreground" : "text-muted-foreground"}>{label}</span>
-            {i < items.length - 1 && <span className="w-8 h-px bg-border" />}
+            {/* Full labels once there's room (sm+); numbers-only on narrow
+                phones so 4 steps fit without pushing the page into
+                horizontal scroll. */}
+            <span className={`hidden sm:inline ${active ? "text-foreground" : "text-muted-foreground"}`}>
+              {label}
+            </span>
+            {i < items.length - 1 && <span className="w-4 h-px shrink-0 bg-border sm:w-8" />}
           </li>
         );
       })}

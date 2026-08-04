@@ -198,7 +198,7 @@ function Overview() {
   const firstName = user?.user_metadata?.first_name as string | undefined;
 
   return (
-    <div className="grid gap-6">
+    <div className="grid grid-cols-1 min-w-0 gap-6">
       <div>
         <span className="badge-soft">
           <span className="h-1.5 w-1.5 rounded-full bg-accent" /> AI is watching your properties
@@ -286,14 +286,14 @@ function Overview() {
       </div>
 
       {properties.length > 0 && (
-        <div className="card-elev p-5">
+        <div className="card-elev p-5 min-w-0">
           <h3 className="font-semibold">Portfolio Value</h3>
           <PortfolioValueChart properties={properties} />
         </div>
       )}
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <div className="card-elev p-5">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <div className="card-elev p-5 min-w-0">
           <h3 className="font-semibold">Cases & AI Recommendations</h3>
           {protests.length > 0 ? (
             <ProtestStatusChart protests={protests} addressFor={addressFor} />
@@ -302,7 +302,7 @@ function Overview() {
           )}
         </div>
 
-        <div className="card-elev p-5">
+        <div className="card-elev p-5 min-w-0">
           <div className="flex items-center justify-between">
             <h3 className="font-semibold">Deadlines</h3>
             <Link to="/dashboard/deadlines" className="text-xs text-accent hover:underline">
@@ -310,10 +310,10 @@ function Overview() {
             </Link>
           </div>
           {upcoming.length > 0 ? (
-            <div className="mt-3 grid gap-2">
+            <div className="mt-3 grid min-w-0 gap-2">
               {upcoming.map((u, i) => (
-                <div key={i} className="flex items-center justify-between gap-2 text-sm">
-                  <span className="truncate">
+                <div key={i} className="flex items-center justify-between gap-2 text-sm min-w-0">
+                  <span className="truncate min-w-0">
                     {u.label} — {u.property.address}
                   </span>
                   <span className="shrink-0 text-xs text-muted-foreground">
@@ -330,14 +330,14 @@ function Overview() {
         </div>
       </div>
 
-      <div className="card-elev p-5">
+      <div className="card-elev p-5 min-w-0">
         <h3 className="font-semibold">Recent Activity</h3>
         {activity.length > 0 ? (
-          <div className="mt-3 grid gap-2">
+          <div className="mt-3 grid min-w-0 gap-2">
             {activity.map((a, i) => (
-              <div key={i} className="flex items-center justify-between gap-2 text-sm">
-                <span className="text-muted-foreground">{a.label}</span>
-                <span className="truncate">{a.detail}</span>
+              <div key={i} className="flex items-center justify-between gap-2 text-sm min-w-0">
+                <span className="shrink-0 text-muted-foreground">{a.label}</span>
+                <span className="truncate min-w-0">{a.detail}</span>
                 <span className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
                   {new Date(a.ts).toLocaleDateString()}
                   {a.propertyId && (
@@ -487,10 +487,10 @@ function ProtestStatusChart({
           ))}
         </div>
       </div>
-      <div className="mt-4 grid gap-2 border-t border-border pt-3">
+      <div className="mt-4 grid min-w-0 gap-2 border-t border-border pt-3">
         {protests.slice(0, 3).map((pr) => (
-          <div key={pr.id} className="flex items-center justify-between gap-2 text-sm">
-            <span className="truncate">{addressFor(pr.propertyId)}</span>
+          <div key={pr.id} className="flex items-center justify-between gap-2 text-sm min-w-0">
+            <span className="truncate min-w-0">{addressFor(pr.propertyId)}</span>
             <span className="badge-soft shrink-0">{STATUS_LABEL[pr.status]}</span>
           </div>
         ))}

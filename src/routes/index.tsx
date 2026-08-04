@@ -68,18 +68,18 @@ function Home() {
 
   return (
     <>
-    <section className="relative overflow-hidden">
+    <section className="relative overflow-hidden min-h-[calc(100dvh-4rem)] flex flex-col justify-center">
       <HeroBackground />
       <div className="container-page pt-8 pb-0 md:pt-12 md:pb-2">
       <div className="mx-auto max-w-3xl text-center">
         <span className="badge-soft">
           <span className="h-1.5 w-1.5 rounded-full bg-accent" /> AI Powered Property Tax Assistant
         </span>
-        <h1 className="mt-5 font-serif text-4xl md:text-6xl font-semibold leading-[1.1]">
+        <h1 className="mt-5 font-serif text-3xl sm:text-4xl md:text-6xl font-semibold leading-[1.15] md:leading-[1.1]">
           AI-Powered Property Tax
-          <br />
+          <br className="hidden md:block" />{" "}
           <span className="text-accent">&amp; Protest Management</span>
-          <br />
+          <br className="hidden md:block" />{" "}
           From Notice to Savings.
         </h1>
         <p className="mt-5 text-lg text-muted-foreground">
@@ -127,9 +127,10 @@ function Home() {
 
         <div className="mt-4 flex flex-wrap justify-center gap-3">
           <label
-            className={`btn-outline inline-flex items-center gap-2 cursor-pointer ${
+            className={`btn-outline inline-flex items-center gap-2 cursor-pointer bg-card shadow-elev ${
               uploading ? "opacity-60 pointer-events-none" : ""
             }`}
+            style={{ backgroundColor: "var(--color-card)" }}
           >
             <Upload className="h-4 w-4" />
             <input
@@ -156,7 +157,7 @@ function Home() {
           </div>
         ) : (
           <div className="mt-3 flex justify-center">
-            <SampleNoticeDialog />
+            <SampleNoticeDialog triggerClassName="rounded-full bg-card px-3 py-1.5 shadow-elev text-foreground hover:text-accent" />
           </div>
         )}
       </div>
