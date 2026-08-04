@@ -7,7 +7,7 @@ import { useAuth } from "@/lib/auth";
 import { currency, resetIntake, classifyAndStoreDocument } from "@/lib/intake-store";
 import { listProperties, deleteProperty, type PropertyRecord } from "@/lib/properties";
 import { useSavingsBackfill } from "@/hooks/use-savings-backfill";
-import { getEffectiveTaxRate, getTypicalReductionPct } from "@/lib/texas-tax-rates";
+import { getEffectiveTaxRate, getBaseReductionPct, classifyPropertyCategory } from "@/lib/texas-tax-rates";
 import { listBppAccounts, type BppAccountRecord } from "@/lib/bpp-accounts";
 import { listDocuments, type DocumentRecord } from "@/lib/documents";
 import { listProtests, type ProtestRecord, type ProtestStatus } from "@/lib/protests";
@@ -68,17 +68,18 @@ function Overview() {
     properties.find((p) => p.id === propertyId)?.address ?? "Property removed";
 
   // Prefers the real per-property estimate computed during intake (comps- or
-  // AI-grounded — see src/lib/savings-estimate.ts) whenever it's on file. Only
-  // falls back to getTypicalReductionPct(propertyType) at the real county tax
-  // rate for properties useSavingsBackfill hasn't caught up to yet — deliberately
-  // not calling estimateSavings() synchronously here, since that's what the
+  // formula-grounded — see src/lib/savings-estimate.ts) whenever it's on file.
+  // Only falls back to the same deterministic formula's base reduction rate for
+  // properties useSavingsBackfill hasn't caught up to yet — deliberately not
+  // calling estimateSavings() synchronously here, since that's what the
   // backfill hook above already does in the background and persists.
   const estimatedSavings = useMemo(
     () =>
       properties.reduce((sum, p) => {
         if (p.estimatedSavings != null) return sum + p.estimatedSavings;
         if (!p.totalValue) return sum;
-        return sum + Math.round(p.totalValue * getTypicalReductionPct(p.propertyType) * getEffectiveTaxRate(p.cad));
+        const category = classifyPropertyCategory(p.propertyType);
+        return sum + Math.round(p.totalValue * getBaseReductionPct(p.cad, category) * getEffectiveTaxRate(p.cad));
       }, 0),
     [properties],
   );

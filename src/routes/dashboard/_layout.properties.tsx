@@ -232,14 +232,17 @@ function AiScoreBadge({ score }: { score: PropertyAiScore | undefined }) {
 
 // Shows the real per-property savings estimate computed during intake (see
 // intake.tsx's runValidation) — the only number persisted here, never a
-// fabricated one. Properties added before this field existed, or where neither
-// the comps nor AI method produced a usable estimate, simply show nothing.
+// fabricated one. Properties added before this field existed, or where the
+// comps/formula method produced nothing usable, simply show nothing.
 function SavingsLine({
   estimatedSavings,
   savingsBasis,
 }: {
   estimatedSavings: number | null;
-  savingsBasis: "comps" | "ai" | "baseline" | null;
+  // "ai" and "baseline" are legacy values from before the estimate was made
+  // fully deterministic — still shown correctly on old rows, nothing writes
+  // them anymore.
+  savingsBasis: "comps" | "formula" | "ai" | "baseline" | null;
 }) {
   if (!estimatedSavings || estimatedSavings <= 0) return null;
   return (
@@ -247,11 +250,8 @@ function SavingsLine({
       <div className="text-xs text-muted-foreground">Potential savings</div>
       <div className="text-lg font-semibold text-accent">
         {currency(estimatedSavings)}
-        {savingsBasis === "ai" && (
-          <span className="ml-1 align-middle text-[10px] font-normal text-muted-foreground">(AI est.)</span>
-        )}
-        {savingsBasis === "baseline" && (
-          <span className="ml-1 align-middle text-[10px] font-normal text-muted-foreground">(general est.)</span>
+        {(savingsBasis === "formula" || savingsBasis === "ai" || savingsBasis === "baseline") && (
+          <span className="ml-1 align-middle text-[10px] font-normal text-muted-foreground">(estimate)</span>
         )}
       </div>
     </div>

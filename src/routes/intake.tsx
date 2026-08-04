@@ -104,20 +104,35 @@ function Intake() {
       });
       setState(next);
 
-      // See estimateSavings() for the comps -> AI -> baseline cascade. Only
-      // null (no assessed value at all) skips the savings step straight to
-      // confirm — every other case, including the baseline tier, shows a
-      // number rather than leaving the user with nothing.
-      const nextSavings = await estimateSavings({
-        cad: next.cad,
-        accountNumber: next.accountNumber,
-        address: next.address,
-        propertyType: next.propertyType,
-        landValue: next.landValue,
-        improvementValue: next.improvementValue,
-        totalValue: next.totalValue,
-        taxYear: next.taxYear,
-      });
+      // See estimateSavings() for the comps -> formula cascade — both tiers are
+      // fully deterministic (no AI call), so the same property always produces
+      // the same number. Only null (no assessed value at all) skips the
+      // savings step straight to confirm.
+      //
+      // Still cached against this exact property (cad+accountNumber, or
+      // address when no account number exists) so refreshing the page or
+      // re-validating the same address mid-intake reuses the prior result
+      // instead of re-running the comps lookup for nothing — a performance
+      // nicety now, not a correctness requirement, since the estimate would
+      // come out identical either way.
+      const savingsKey = next.cad && next.accountNumber ? `${next.cad}::${next.accountNumber}` : next.address;
+      let nextSavings: SavingsEstimate;
+      if (savingsKey && next.cachedSavingsKey === savingsKey && next.cachedSavings !== undefined) {
+        nextSavings = next.cachedSavings;
+      } else {
+        nextSavings = await estimateSavings({
+          cad: next.cad,
+          accountNumber: next.accountNumber,
+          address: next.address,
+          propertyType: next.propertyType,
+          landValue: next.landValue,
+          improvementValue: next.improvementValue,
+          totalValue: next.totalValue,
+          taxYear: next.taxYear,
+          valueHistory: next.valueHistory,
+        });
+        updateIntake({ cachedSavings: nextSavings, cachedSavingsKey: savingsKey });
+      }
       setSavings(nextSavings);
       setStep(nextSavings ? "savings" : "confirm");
       // Check whether this exact CAD record is already on the user's account —
@@ -303,23 +318,17 @@ function Intake() {
                 <Field label="Effective Tax Rate Used" value={`${savings.effectiveTaxRatePct}%`} />
               </div>
             )}
-            {savings.basis === "ai" && (
+            {savings.basis === "formula" && (
               <div className="mb-5 grid gap-3 sm:grid-cols-2 text-sm">
-                <span className="badge-soft sm:col-span-2 w-fit">AI Estimate — no direct comps available</span>
-                <Field label="Estimated Reduction" value={`${savings.reductionPct}%`} />
+                <span className="badge-soft sm:col-span-2 w-fit">
+                  Modeled from real Texas protest data — no direct comps available
+                </span>
+                <Field label="Typical Reduction for This Property" value={`${savings.reductionPct}%`} />
                 <Field label="Effective Tax Rate Used" value={`${savings.effectiveTaxRatePct}%`} />
                 <Field label="Your Assessed Value" value={currency(state.totalValue)} bold />
                 <div className="sm:col-span-2">
-                  <Field label="AI Rationale" value={savings.rationale} />
+                  <Field label="Basis" value={savings.rationale} />
                 </div>
-              </div>
-            )}
-            {savings.basis === "baseline" && (
-              <div className="mb-5 grid gap-3 sm:grid-cols-2 text-sm">
-                <span className="badge-soft sm:col-span-2 w-fit">General estimate — typical Texas outcome</span>
-                <Field label="Typical Reduction Assumed" value={`${savings.reductionPct}%`} />
-                <Field label="Effective Tax Rate Used" value={`${savings.effectiveTaxRatePct}%`} />
-                <Field label="Your Assessed Value" value={currency(state.totalValue)} bold />
               </div>
             )}
             <div className="flex flex-wrap gap-2">
@@ -330,9 +339,7 @@ function Intake() {
             <p className="mt-4 text-xs text-muted-foreground">
               {savings.basis === "comps"
                 ? `*Estimated from ${savings.compsCount} real comparable properties in your subdivision, at your county's ~${savings.effectiveTaxRatePct}% effective tax rate. Your actual result depends on the hearing outcome and county-specific factors.`
-                : savings.basis === "ai"
-                  ? "*AI estimate based on your property's own assessed value and record — no directly comparable properties were available for this address. Your actual result depends on the hearing outcome and county-specific factors."
-                  : "*General estimate based on typical Texas property tax protest outcomes, not a specific analysis of this property — we didn't have enough data on this address to produce a tailored figure. Your actual result depends on the hearing outcome and county-specific factors."}
+                : "*Modeled from real, published Texas protest-outcome data for this property's county and category — no directly comparable properties were available for this address, so this isn't a specific analysis of your property. Your actual result depends on the hearing outcome and county-specific factors."}
             </p>
           </div>
         </section>
