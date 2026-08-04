@@ -46,8 +46,8 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <div className="w-full px-6 py-10 sm:px-10 lg:px-16">
-      <div className="grid gap-6 lg:grid-cols-[220px_1fr]">
-        <nav className="flex gap-1 overflow-x-auto pb-2 lg:flex-col lg:overflow-visible lg:pb-0">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[220px_1fr]">
+        <nav className="flex min-w-0 gap-1 overflow-x-auto pb-2 lg:flex-col lg:overflow-visible lg:pb-0">
           {NAV.map((item) => {
             const Icon = item.icon;
             return (
