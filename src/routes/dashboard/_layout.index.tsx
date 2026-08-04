@@ -6,6 +6,8 @@ import { BarChart, Bar, XAxis, YAxis, Cell, LabelList, ResponsiveContainer, PieC
 import { useAuth } from "@/lib/auth";
 import { currency, resetIntake, classifyAndStoreDocument } from "@/lib/intake-store";
 import { listProperties, deleteProperty, type PropertyRecord } from "@/lib/properties";
+import { useSavingsBackfill } from "@/hooks/use-savings-backfill";
+import { getEffectiveTaxRate, getTypicalReductionPct } from "@/lib/texas-tax-rates";
 import { listBppAccounts, type BppAccountRecord } from "@/lib/bpp-accounts";
 import { listDocuments, type DocumentRecord } from "@/lib/documents";
 import { listProtests, type ProtestRecord, type ProtestStatus } from "@/lib/protests";
@@ -60,18 +62,23 @@ function Overview() {
       .finally(() => setLoaded(true));
   }, [user]);
 
+  useSavingsBackfill(properties, setProperties);
+
   const addressFor = (propertyId: string) =>
     properties.find((p) => p.id === propertyId)?.address ?? "Property removed";
 
-  // Same fixed 12% reduction / 2.5% effective-rate assumption used as the pre-AI
-  // fallback estimate elsewhere (ai-report.tsx, pricing) — deliberately not calling
-  // the AI modules here, since that would defeat the point of making those lazy
-  // (loadModule-on-unlock) to save tokens.
+  // Prefers the real per-property estimate computed during intake (comps- or
+  // AI-grounded — see src/lib/savings-estimate.ts) whenever it's on file. Only
+  // falls back to getTypicalReductionPct(propertyType) at the real county tax
+  // rate for properties useSavingsBackfill hasn't caught up to yet — deliberately
+  // not calling estimateSavings() synchronously here, since that's what the
+  // backfill hook above already does in the background and persists.
   const estimatedSavings = useMemo(
     () =>
       properties.reduce((sum, p) => {
+        if (p.estimatedSavings != null) return sum + p.estimatedSavings;
         if (!p.totalValue) return sum;
-        return sum + Math.round(p.totalValue * 0.12 * 0.025);
+        return sum + Math.round(p.totalValue * getTypicalReductionPct(p.propertyType) * getEffectiveTaxRate(p.cad));
       }, 0),
     [properties],
   );

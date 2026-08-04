@@ -79,8 +79,10 @@ create table if not exists public.properties (
 
 alter table public.properties enable row level security;
 
--- Users may only see, add, and remove their own properties — no update policy since
--- properties are re-derived from a fresh CAD lookup rather than hand-edited.
+-- Users may see, add, remove, and update their own properties. Most fields are
+-- re-derived from a fresh CAD lookup rather than hand-edited, but a few (paid_at,
+-- estimated_savings/savings_basis) are legitimately written back onto an existing
+-- row after creation — see "Users can update their own properties" below.
 drop policy if exists "Users can view their own properties" on public.properties;
 create policy "Users can view their own properties"
   on public.properties for select
@@ -95,6 +97,15 @@ drop policy if exists "Users can delete their own properties" on public.properti
 create policy "Users can delete their own properties"
   on public.properties for delete
   using (auth.uid() = user_id);
+
+-- Was missing entirely until this was added, which meant markPropertyPaid()'s
+-- update() call was silently rejected by RLS the whole time (no error surfaced —
+-- .update() against a row RLS hides from you just updates zero rows).
+drop policy if exists "Users can update their own properties" on public.properties;
+create policy "Users can update their own properties"
+  on public.properties for update
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
 
 -- Admin panel support: a manual is_admin flag and a manual plan field (no real
 -- billing — matches the 3 tiers in src/routes/pricing.tsx).
@@ -181,6 +192,19 @@ alter table public.properties add column if not exists protest_deadline date;
 alter table public.properties add column if not exists payment_due_date date;
 alter table public.properties add column if not exists tax_amount_due numeric;
 alter table public.properties add column if not exists paid_at timestamptz;
+
+-- Real per-property savings estimate (see src/lib/savings-estimate.ts) — "comps"
+-- (real comparable-sales data), "ai" (Gemini reasoning over the CAD record, used
+-- when no qualifying comp exists), or "baseline" (the app-wide 12%/2.5% fallback
+-- assumption, used only when neither of the above produced a positive number, so
+-- the dashboard never shows a blank savings state for a property with a known
+-- value). Persisted so the dashboard shows the same number the user saw during
+-- intake instead of losing it once the property is saved; backfilled for
+-- properties added before this column existed via the properties dashboard page.
+alter table public.properties add column if not exists estimated_savings numeric;
+alter table public.properties add column if not exists savings_basis text;
+alter table public.properties drop constraint if exists properties_savings_basis_check;
+alter table public.properties add constraint properties_savings_basis_check check (savings_basis in ('comps', 'ai', 'baseline'));
 
 -- Business Personal Property tax accounts — a distinct entity from real property
 -- (public.properties): a business can render BPP for a location without owning the

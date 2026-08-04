@@ -27,7 +27,7 @@ export type ModuleResultMap = {
   improvement: { guidance: string; checklist: string[] };
   zoning: { matches: "consistent" | "inconsistent" | "uncertain"; assessment: string };
   evidence: { checklist: string[] };
-  savings: { reductionPct: number; effectiveTaxRatePct: number; rationale: string };
+  savings: { reductionPct: number; rationale: string };
   executive: { recommendation: string; basis: string; nextStep: string };
 };
 

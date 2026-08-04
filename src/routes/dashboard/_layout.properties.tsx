@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { currency, resetIntake, updateIntake } from "@/lib/intake-store";
 import { useAuth } from "@/lib/auth";
 import { listProperties, deleteProperty, type PropertyRecord } from "@/lib/properties";
+import { useSavingsBackfill } from "@/hooks/use-savings-backfill";
 import { listProtests, type ProtestRecord, type ProtestStatus } from "@/lib/protests";
 import { listHealthScores, type PropertyAiScore } from "@/lib/property-scores";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -47,6 +48,8 @@ function Properties() {
       .then(setHealthScores)
       .catch((err) => console.error(err));
   }, [user]);
+
+  useSavingsBackfill(properties, setProperties);
 
   async function handleDelete(id: string) {
     if (!window.confirm("Remove this property from your dashboard?")) return;
@@ -128,6 +131,7 @@ function Properties() {
                     <div className="text-right">
                       <div className="text-xs text-muted-foreground">Assessed value</div>
                       <div className="text-2xl font-semibold">{currency(p.totalValue ?? undefined)}</div>
+                      <SavingsLine estimatedSavings={p.estimatedSavings} savingsBasis={p.savingsBasis} />
                     </div>
                   </div>
                   <div className="mt-4 flex gap-2 flex-wrap items-center">
@@ -223,6 +227,34 @@ function AiScoreBadge({ score }: { score: PropertyAiScore | undefined }) {
     <p className="mt-1 text-sm text-accent">
       AI Score: {score.score}/100 — {score.summary}
     </p>
+  );
+}
+
+// Shows the real per-property savings estimate computed during intake (see
+// intake.tsx's runValidation) — the only number persisted here, never a
+// fabricated one. Properties added before this field existed, or where neither
+// the comps nor AI method produced a usable estimate, simply show nothing.
+function SavingsLine({
+  estimatedSavings,
+  savingsBasis,
+}: {
+  estimatedSavings: number | null;
+  savingsBasis: "comps" | "ai" | "baseline" | null;
+}) {
+  if (!estimatedSavings || estimatedSavings <= 0) return null;
+  return (
+    <div className="mt-1">
+      <div className="text-xs text-muted-foreground">Potential savings</div>
+      <div className="text-lg font-semibold text-accent">
+        {currency(estimatedSavings)}
+        {savingsBasis === "ai" && (
+          <span className="ml-1 align-middle text-[10px] font-normal text-muted-foreground">(AI est.)</span>
+        )}
+        {savingsBasis === "baseline" && (
+          <span className="ml-1 align-middle text-[10px] font-normal text-muted-foreground">(general est.)</span>
+        )}
+      </div>
+    </div>
   );
 }
 
