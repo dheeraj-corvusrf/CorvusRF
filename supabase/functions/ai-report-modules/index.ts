@@ -95,34 +95,46 @@ const MODULE_SPECS: Record<string, ModuleSpec> = {
     parse: (p) => ({ checklist: checklist(p.checklist) }),
   },
   savings: {
-    instruction: `Estimate a plausible value-reduction percent and the typical effective tax rate.
+    instruction: `Estimate a plausible property-value reduction percent this specific record could
+support in a Texas equal-and-uniform protest (Tax Code Section 41.43(b)(3): a protest succeeds if
+the property's appraised value exceeds the median appraised value of a reasonable number of
+comparable properties, appropriately adjusted). Do NOT estimate a tax rate or a dollar amount —
+CorvusRF applies the real county-specific effective tax rate itself outside this call; your only
+job is the reduction percentage and a one-sentence rationale grounded in this record.
 
-Ground this in real, published Texas outcomes, not a generic guess:
-- The Texas Comptroller's own biennial ratio studies (Tax Code 5.10) find that while most large
-  appraisal districts meet uniform-assessment standards for single-family property, few if any
-  consistently meet them for commercial property — commercial/income parcels often have MORE
-  unequal-appraisal opportunity than a simple residential comparison would suggest, not less.
-- Industry-reported data: 60-90% of protests achieve SOME reduction (higher at informal hearing),
-  and over 80% of protests result in a reduction per the Comptroller. Successful reductions
-  typically fall in the ~5-16% range of assessed value (toward the higher end with strong
-  unequal-appraisal evidence, toward the lower end for routine cases).
+Ground the percentage in real, published 2025 Texas outcomes, not a generic guess — and residential
+and commercial outcomes differ sharply, so use the record's stated property type to pick the right
+anchor rather than one number for everything:
+- RESIDENTIAL (single-family, condo, townhome, duplex, etc.): a 2025 analysis of actual protest
+  outcomes across 17 Texas counties found homeowners who protested averaged a 7.9% assessed-value
+  reduction, with 84% winning some reduction (the 4-county Austin area specifically: 7.6% average
+  reduction, 77% win rate). Typical residential case: land close to that ~7-8% average.
+- COMMERCIAL / income property (office, retail, warehouse, industrial, apartment/multi-family,
+  hotel, etc.): real 2025 Denton CAD appeal RESULTS — what was actually granted, not theoretical
+  opportunity — show commercial protests realized only a 1.9% average reduction overall that year
+  (apartments 2.0%, offices 1.9%, retail 0.9%, warehouses 3.1%, parcels over $5M 1.7%). This is
+  despite commercial districts often having MORE theoretical equal-and-uniform opportunity per the
+  Comptroller's own ratio studies (Tax Code 5.10) — appraisal districts and ARBs granted less in
+  practice than the residential figure. Typical commercial case: land close to that real ~2-3%
+  range, NOT the residential ~7-8% figure — applying the residential average to a commercial
+  parcel is the single most common way this estimate ends up too high.
+- If the property type is genuinely ambiguous from the record, use ~5% (the midpoint) rather than
+  defaulting to the higher residential number without evidence.
 
-That 80%+ baseline success rate matters for how you pick reductionPct: a routine property with
-nothing specific standing out should still typically land in the ~3-8% range (reflecting ordinary
-equal-and-uniform adjustment potential most properties have), NOT 0%. Reserve reductionPct: 0
-for cases where the record itself gives a specific, statable reason the property looks fairly
-valued already (e.g. value has stayed flat or dropped across recent tax years, or nothing about
-the land/improvement split looks unusual for the stated property type) — 0 should be a conclusion
-you can justify from the record, never a default for "nothing stood out."
+The ~84% residential / real commercial win rates matter for how far from 0 you land: a routine
+property with nothing specific standing out should still typically land close to its category's
+real average above, NOT 0%. Reserve reductionPct: 0 for cases where the record itself gives a
+specific, statable reason the property looks fairly valued already (e.g. value has stayed flat or
+dropped across recent tax years) — 0 should be a conclusion you can justify from the record, never
+a default for "nothing stood out."
 
-Go above ~16% only when something specific in the record clearly supports it (say what,
-specifically, in the rationale) — don't inflate the estimate just because a higher number wasn't
-explicitly ruled out. The goal is a realistic mid-range number for a typical case, not either
-extreme.`,
-    schema: `{"reductionPct": <integer 0-30>, "effectiveTaxRatePct": <number>, "rationale": "<1 sentence>"}`,
+Go materially above your category's typical range only when something specific in the record
+clearly supports it (say what, specifically, in the rationale) — don't inflate the estimate just
+because a higher number wasn't explicitly ruled out. The goal is a realistic number for THIS
+record's actual category, not either extreme.`,
+    schema: `{"reductionPct": <integer 0-30>, "rationale": "<1 sentence>"}`,
     parse: (p) => ({
       reductionPct: Math.max(0, Math.min(30, Math.round(Number(p.reductionPct) || 0))),
-      effectiveTaxRatePct: Math.max(0, Math.min(5, Number(p.effectiveTaxRatePct) || 2.5)),
       rationale: p.rationale ?? "",
     }),
   },

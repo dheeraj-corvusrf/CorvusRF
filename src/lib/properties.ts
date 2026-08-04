@@ -16,6 +16,8 @@ export type PropertyRecord = {
   paymentDueDate: string | null;
   taxAmountDue: number | null;
   paidAt: string | null;
+  estimatedSavings: number | null;
+  savingsBasis: "comps" | "ai" | "baseline" | null;
   createdAt: string;
 };
 
@@ -34,6 +36,8 @@ type PropertyRow = {
   payment_due_date: string | null;
   tax_amount_due: number | null;
   paid_at: string | null;
+  estimated_savings: number | null;
+  savings_basis: "comps" | "ai" | "baseline" | null;
   created_at: string;
 };
 
@@ -53,12 +57,14 @@ function fromRow(row: PropertyRow): PropertyRecord {
     paymentDueDate: row.payment_due_date,
     taxAmountDue: row.tax_amount_due,
     paidAt: row.paid_at,
+    estimatedSavings: row.estimated_savings,
+    savingsBasis: row.savings_basis,
     createdAt: row.created_at,
   };
 }
 
 const SELECT_COLUMNS =
-  "id, address, cad, account_number, owner_name, property_type, land_value, improvement_value, total_value, tax_year, protest_deadline, payment_due_date, tax_amount_due, paid_at, created_at";
+  "id, address, cad, account_number, owner_name, property_type, land_value, improvement_value, total_value, tax_year, protest_deadline, payment_due_date, tax_amount_due, paid_at, estimated_savings, savings_basis, created_at";
 
 export async function listProperties(userId: string): Promise<PropertyRecord[]> {
   const { data, error } = await supabase
@@ -107,6 +113,8 @@ export async function addProperty(
     protestDeadline?: string;
     paymentDueDate?: string;
     taxAmountDue?: number;
+    estimatedSavings?: number;
+    savingsBasis?: "comps" | "ai" | "baseline";
   },
 ): Promise<PropertyRecord> {
   const existing = await findExistingProperty(userId, property);
@@ -128,6 +136,8 @@ export async function addProperty(
       protest_deadline: property.protestDeadline ?? null,
       payment_due_date: property.paymentDueDate ?? null,
       tax_amount_due: property.taxAmountDue ?? null,
+      estimated_savings: property.estimatedSavings ?? null,
+      savings_basis: property.savingsBasis ?? null,
     })
     .select()
     .single();
@@ -135,6 +145,24 @@ export async function addProperty(
   const created = fromRow(data as PropertyRow);
   computeAndStoreHealthScore(created);
   return created;
+}
+
+// Backfills a savings estimate onto a property that was saved before it had one
+// (added pre-feature, or the estimate attempt at intake time errored/came back
+// empty) — see the Properties dashboard page, which calls this once per property
+// missing an estimate rather than leaving it permanently blank.
+export async function updatePropertySavings(
+  id: string,
+  savings: { estimatedSavings: number; savingsBasis: "comps" | "ai" | "baseline" },
+): Promise<PropertyRecord> {
+  const { data, error } = await supabase
+    .from("properties")
+    .update({ estimated_savings: savings.estimatedSavings, savings_basis: savings.savingsBasis })
+    .eq("id", id)
+    .select(SELECT_COLUMNS)
+    .single();
+  if (error) throw error;
+  return fromRow(data as PropertyRow);
 }
 
 export async function deleteProperty(id: string): Promise<void> {

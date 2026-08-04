@@ -19,8 +19,7 @@ import { cadLookup } from "@/lib/cad-lookup";
 import { AddressAutocomplete } from "@/components/AddressAutocomplete";
 import { useAuth } from "@/lib/auth";
 import { addProperty, findExistingProperty, type PropertyRecord } from "@/lib/properties";
-import { getComps } from "@/lib/cad-comps";
-import { getModuleAnalysis } from "@/lib/ai-report-modules";
+import { estimateSavings, type SavingsEstimate } from "@/lib/savings-estimate";
 import { SampleNoticeDialog } from "@/components/SampleNoticeDialog";
 import { HouseIllustration } from "@/assets/illustrations/house";
 
@@ -53,18 +52,10 @@ function Intake() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [alreadySaved, setAlreadySaved] = useState<PropertyRecord | null>(null);
-  // "comps" is grounded in real comparable-property data (see runValidation).
-  // "ai" is the fallback for counties/subdivisions without a qualifying real
-  // comp — Gemini reasons over the actual CAD record fields (value, type,
-  // land/improvement split) rather than a flat guessed percentage, and is
-  // labeled as an AI estimate (not comps-backed) wherever it's shown. null
-  // means neither produced a usable number, so the savings teaser step is
-  // skipped entirely.
-  const [savings, setSavings] = useState<
-    | { basis: "comps"; amount: number; compsCount: number; compsMedian: number }
-    | { basis: "ai"; amount: number; reductionPct: number; effectiveTaxRatePct: number; rationale: string }
-    | null
-  >(null);
+  // See estimateSavings() for the comps -> AI -> baseline cascade. null only
+  // means we don't even have an assessed value to estimate from yet (the
+  // savings step is skipped straight to confirm in that case).
+  const [savings, setSavings] = useState<SavingsEstimate>(null);
 
   useEffect(() => {
     const s = readIntake();
@@ -113,79 +104,20 @@ function Intake() {
       });
       setState(next);
 
-      // Only show the savings teaser when real comparable-property data (via
-      // TrueProdigy, currently Denton/Montgomery/Tarrant/Travis — see
-      // getComps) actually supports a specific number: the subject's value
-      // compared against the median of real, genuinely-comparable same-
-      // subdivision comps. "Genuinely comparable" matters — getComps() only
-      // matches by subdivision code (asCode), which can return properties on
-      // wildly different parcel sizes/uses (e.g. a 1.6-acre commercial parcel
-      // and a 0.2-acre single-family lot share a subdivision code but aren't
-      // comparable at all). Comps whose value isn't within the same rough
-      // order of magnitude as the subject (0.5x-2x) are excluded before the
-      // median is computed, so an outlier property doesn't get a wildly
-      // wrong estimate from comps that were never a real match. No comps,
-      // too few comparable ones after filtering, or the subject already at/
-      // below the median all skip straight to the full details/confirm step
-      // rather than showing a guessed figure.
-      let nextSavings: typeof savings = null;
-      if (next.cad && next.accountNumber && next.totalValue != null) {
-        try {
-          const compsResult = await getComps({ cad: next.cad, accountNumber: next.accountNumber });
-          const subjectValue = next.totalValue;
-          const values = compsResult.comps
-            .map((c) => c.marketValue)
-            .filter((v): v is number => v != null)
-            .filter((v) => v >= subjectValue * 0.5 && v <= subjectValue * 2)
-            .sort((a, b) => a - b);
-          if (values.length >= 3) {
-            const median = values[Math.floor(values.length / 2)];
-            const overvaluation = subjectValue - median;
-            if (overvaluation > 0) {
-              nextSavings = {
-                basis: "comps",
-                amount: Math.round(overvaluation * 0.025),
-                compsCount: values.length,
-                compsMedian: median,
-              };
-            }
-          }
-        } catch (err) {
-          console.error("Comps lookup for savings estimate failed:", err);
-        }
-      }
-      // No qualifying real comp (wrong county, or nothing passed the scale
-      // filter) — fall back to the same AI module the full report uses for
-      // its savings estimate. Still grounded in this property's own real CAD
-      // record (value, type, land/improvement split), just reasoned by
-      // Gemini instead of arithmetic over verified comparable sales — and
-      // labeled as such wherever it's shown, never presented as comps-backed.
-      if (!nextSavings && next.totalValue != null) {
-        try {
-          const result = await getModuleAnalysis("savings", {
-            address: next.address,
-            cad: next.cad,
-            propertyType: next.propertyType,
-            landValue: next.landValue,
-            improvementValue: next.improvementValue,
-            totalValue: next.totalValue,
-            taxYear: next.taxYear,
-          });
-          if (result.reductionPct > 0) {
-            nextSavings = {
-              basis: "ai",
-              amount: Math.round(
-                next.totalValue * (result.reductionPct / 100) * (result.effectiveTaxRatePct / 100),
-              ),
-              reductionPct: result.reductionPct,
-              effectiveTaxRatePct: result.effectiveTaxRatePct,
-              rationale: result.rationale,
-            };
-          }
-        } catch (err) {
-          console.error("AI savings estimate failed:", err);
-        }
-      }
+      // See estimateSavings() for the comps -> AI -> baseline cascade. Only
+      // null (no assessed value at all) skips the savings step straight to
+      // confirm — every other case, including the baseline tier, shows a
+      // number rather than leaving the user with nothing.
+      const nextSavings = await estimateSavings({
+        cad: next.cad,
+        accountNumber: next.accountNumber,
+        address: next.address,
+        propertyType: next.propertyType,
+        landValue: next.landValue,
+        improvementValue: next.improvementValue,
+        totalValue: next.totalValue,
+        taxYear: next.taxYear,
+      });
       setSavings(nextSavings);
       setStep(nextSavings ? "savings" : "confirm");
       // Check whether this exact CAD record is already on the user's account —
@@ -368,6 +300,7 @@ function Intake() {
                   value={currency((state.totalValue ?? 0) - savings.compsMedian)}
                   bold
                 />
+                <Field label="Effective Tax Rate Used" value={`${savings.effectiveTaxRatePct}%`} />
               </div>
             )}
             {savings.basis === "ai" && (
@@ -381,6 +314,14 @@ function Intake() {
                 </div>
               </div>
             )}
+            {savings.basis === "baseline" && (
+              <div className="mb-5 grid gap-3 sm:grid-cols-2 text-sm">
+                <span className="badge-soft sm:col-span-2 w-fit">General estimate — typical Texas outcome</span>
+                <Field label="Typical Reduction Assumed" value={`${savings.reductionPct}%`} />
+                <Field label="Effective Tax Rate Used" value={`${savings.effectiveTaxRatePct}%`} />
+                <Field label="Your Assessed Value" value={currency(state.totalValue)} bold />
+              </div>
+            )}
             <div className="flex flex-wrap gap-2">
               <button onClick={() => setStep("confirm")} className="btn-primary btn-primary-hover">
                 Continue
@@ -388,8 +329,10 @@ function Intake() {
             </div>
             <p className="mt-4 text-xs text-muted-foreground">
               {savings.basis === "comps"
-                ? `*Estimated from ${savings.compsCount} real comparable properties in your subdivision, at a ~2.5% effective tax rate. Your actual result depends on the hearing outcome and county-specific factors.`
-                : "*AI estimate based on your property's own assessed value and record — no directly comparable properties were available for this address. Your actual result depends on the hearing outcome and county-specific factors."}
+                ? `*Estimated from ${savings.compsCount} real comparable properties in your subdivision, at your county's ~${savings.effectiveTaxRatePct}% effective tax rate. Your actual result depends on the hearing outcome and county-specific factors.`
+                : savings.basis === "ai"
+                  ? "*AI estimate based on your property's own assessed value and record — no directly comparable properties were available for this address. Your actual result depends on the hearing outcome and county-specific factors."
+                  : "*General estimate based on typical Texas property tax protest outcomes, not a specific analysis of this property — we didn't have enough data on this address to produce a tailored figure. Your actual result depends on the hearing outcome and county-specific factors."}
             </p>
           </div>
         </section>
@@ -513,6 +456,8 @@ function Intake() {
                       improvementValue: state.improvementValue,
                       totalValue: state.totalValue,
                       taxYear: state.taxYear,
+                      estimatedSavings: savings?.amount,
+                      savingsBasis: savings?.basis,
                     });
                   } catch (err) {
                     setSaving(false);

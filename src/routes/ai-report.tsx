@@ -9,6 +9,7 @@ import { getMyBilling } from "@/lib/billing";
 import { getHealthScore, type HealthScoreResult } from "@/lib/ai-health-score";
 import { getModuleAnalysis, type BatchModuleId, type ModuleResultMap } from "@/lib/ai-report-modules";
 import { getComps, type CompsResult } from "@/lib/cad-comps";
+import { getEffectiveTaxRate, getTypicalReductionPct } from "@/lib/texas-tax-rates";
 import { CompsMap } from "@/components/CompsMap";
 
 type ModuleAsyncState = {
@@ -117,17 +118,22 @@ function Report() {
   }, [user]);
 
   const savingsData = moduleData.savings?.data as ModuleResultMap["savings"] | undefined;
-  // Prefers the AI-estimated reduction/rate once the user has unlocked the Savings
-  // module; falls back to a fixed 12% reduction / 2.5% effective rate until then (or
-  // if that call fails), so the summary banner always shows a number.
+  // Prefers the AI-judged reduction percent once the user has unlocked the Savings
+  // module; falls back to getTypicalReductionPct(propertyType) (the real observed
+  // 2025 reduction for this property's category — residential and commercial
+  // differ sharply, see texas-tax-rates.ts) until then, or if that call fails, so
+  // the summary banner always shows a number. The tax rate is never AI-guessed in
+  // either case — always the real county rate (or statewide average).
   const estimated = useMemo(() => {
     if (!state.totalValue) return { reduction: 0, savings: 0 };
-    const reductionPct = savingsData ? savingsData.reductionPct / 100 : 0.12;
-    const ratePct = savingsData ? savingsData.effectiveTaxRatePct / 100 : 0.025;
+    const reductionPct = savingsData
+      ? savingsData.reductionPct / 100
+      : getTypicalReductionPct(state.propertyType);
+    const ratePct = getEffectiveTaxRate(state.cad);
     const reduction = Math.round(state.totalValue * reductionPct);
     const savings = Math.round(reduction * ratePct);
     return { reduction, savings };
-  }, [state.totalValue, savingsData]);
+  }, [state.totalValue, state.cad, state.propertyType, savingsData]);
 
   function openModule(m: Module) {
     if (hasFullAccess || m.n <= FREE_MODULE_COUNT) {
@@ -407,9 +413,9 @@ function ModulePreviewBody({
   const error = moduleState?.error;
 
   // Savings always has a number to show — `estimated` (computed by the caller)
-  // already falls back to a fixed 12%/2.5% assumption until this module is
-  // unlocked (or if the call fails), so this renders its own loading/error copy
-  // inline rather than going blank.
+  // already falls back to getTypicalReductionPct(propertyType) at the real
+  // county tax rate until this module is unlocked (or if the call fails), so this renders
+  // its own loading/error copy inline rather than going blank.
   if (m.id === "savings") {
     const savings = moduleState?.data as ModuleResultMap["savings"] | undefined;
     const current = state.totalValue ?? 0;
