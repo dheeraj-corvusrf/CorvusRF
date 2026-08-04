@@ -9,7 +9,7 @@ import { getMyBilling } from "@/lib/billing";
 import { getHealthScore, type HealthScoreResult } from "@/lib/ai-health-score";
 import { getModuleAnalysis, type BatchModuleId, type ModuleResultMap } from "@/lib/ai-report-modules";
 import { getComps, type CompsResult } from "@/lib/cad-comps";
-import { getEffectiveTaxRate, getTypicalReductionPct } from "@/lib/texas-tax-rates";
+import { getEffectiveTaxRate, getBaseReductionPct, classifyPropertyCategory } from "@/lib/texas-tax-rates";
 import { CompsMap } from "@/components/CompsMap";
 
 type ModuleAsyncState = {
@@ -118,17 +118,18 @@ function Report() {
   }, [user]);
 
   const savingsData = moduleData.savings?.data as ModuleResultMap["savings"] | undefined;
-  // Prefers the AI-judged reduction percent once the user has unlocked the Savings
-  // module; falls back to getTypicalReductionPct(propertyType) (the real observed
-  // 2025 reduction for this property's category — residential and commercial
-  // differ sharply, see texas-tax-rates.ts) until then, or if that call fails, so
-  // the summary banner always shows a number. The tax rate is never AI-guessed in
-  // either case — always the real county rate (or statewide average).
+  // Prefers the AI-judged reduction percent once the user has unlocked the paid
+  // Savings module (this page is explicitly sold as an AI-generated report, so
+  // that module stays AI-driven); falls back to the same deterministic,
+  // per-county/per-category formula used everywhere else in the app (see
+  // texas-tax-rates.ts) until then, or if that call fails, so the summary
+  // banner always shows a number. The tax rate is never AI-guessed in either
+  // case — always the real county rate (or statewide average).
   const estimated = useMemo(() => {
     if (!state.totalValue) return { reduction: 0, savings: 0 };
     const reductionPct = savingsData
       ? savingsData.reductionPct / 100
-      : getTypicalReductionPct(state.propertyType);
+      : getBaseReductionPct(state.cad, classifyPropertyCategory(state.propertyType));
     const ratePct = getEffectiveTaxRate(state.cad);
     const reduction = Math.round(state.totalValue * reductionPct);
     const savings = Math.round(reduction * ratePct);
@@ -413,8 +414,8 @@ function ModulePreviewBody({
   const error = moduleState?.error;
 
   // Savings always has a number to show — `estimated` (computed by the caller)
-  // already falls back to getTypicalReductionPct(propertyType) at the real
-  // county tax rate until this module is unlocked (or if the call fails), so this renders
+  // already falls back to the deterministic formula at the real county tax
+  // rate until this module is unlocked (or if the call fails), so this renders
   // its own loading/error copy inline rather than going blank.
   if (m.id === "savings") {
     const savings = moduleState?.data as ModuleResultMap["savings"] | undefined;

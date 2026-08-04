@@ -194,17 +194,19 @@ alter table public.properties add column if not exists tax_amount_due numeric;
 alter table public.properties add column if not exists paid_at timestamptz;
 
 -- Real per-property savings estimate (see src/lib/savings-estimate.ts) — "comps"
--- (real comparable-sales data), "ai" (Gemini reasoning over the CAD record, used
--- when no qualifying comp exists), or "baseline" (the app-wide 12%/2.5% fallback
--- assumption, used only when neither of the above produced a positive number, so
--- the dashboard never shows a blank savings state for a property with a known
--- value). Persisted so the dashboard shows the same number the user saw during
--- intake instead of losing it once the property is saved; backfilled for
--- properties added before this column existed via the properties dashboard page.
+-- (real comparable-property data, distance- and value-filtered) or "formula"
+-- (a deterministic reduction % from real per-county/per-category 2025 Texas
+-- protest-outcome data, used when no qualifying comp exists — no AI call, so
+-- the same property always produces the same number). "ai" and "baseline" are
+-- legacy values from before the estimate was made fully deterministic — still
+-- valid to read on old rows, nothing writes them anymore. Persisted so the
+-- dashboard shows the same number the user saw during intake instead of
+-- losing it once the property is saved; backfilled for properties added
+-- before this column existed via the properties dashboard page.
 alter table public.properties add column if not exists estimated_savings numeric;
 alter table public.properties add column if not exists savings_basis text;
 alter table public.properties drop constraint if exists properties_savings_basis_check;
-alter table public.properties add constraint properties_savings_basis_check check (savings_basis in ('comps', 'ai', 'baseline'));
+alter table public.properties add constraint properties_savings_basis_check check (savings_basis in ('comps', 'formula', 'ai', 'baseline'));
 
 -- Business Personal Property tax accounts — a distinct entity from real property
 -- (public.properties): a business can render BPP for a location without owning the

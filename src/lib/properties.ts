@@ -17,7 +17,10 @@ export type PropertyRecord = {
   taxAmountDue: number | null;
   paidAt: string | null;
   estimatedSavings: number | null;
-  savingsBasis: "comps" | "ai" | "baseline" | null;
+  // "ai" and "baseline" are legacy values from before the savings estimate was
+  // made fully deterministic — still readable on old rows, but nothing writes
+  // them anymore (see src/lib/savings-estimate.ts).
+  savingsBasis: "comps" | "formula" | "ai" | "baseline" | null;
   createdAt: string;
 };
 
@@ -37,7 +40,7 @@ type PropertyRow = {
   tax_amount_due: number | null;
   paid_at: string | null;
   estimated_savings: number | null;
-  savings_basis: "comps" | "ai" | "baseline" | null;
+  savings_basis: "comps" | "formula" | "ai" | "baseline" | null;
   created_at: string;
 };
 
@@ -114,7 +117,7 @@ export async function addProperty(
     paymentDueDate?: string;
     taxAmountDue?: number;
     estimatedSavings?: number;
-    savingsBasis?: "comps" | "ai" | "baseline";
+    savingsBasis?: "comps" | "formula";
   },
 ): Promise<PropertyRecord> {
   const existing = await findExistingProperty(userId, property);
@@ -153,7 +156,7 @@ export async function addProperty(
 // missing an estimate rather than leaving it permanently blank.
 export async function updatePropertySavings(
   id: string,
-  savings: { estimatedSavings: number; savingsBasis: "comps" | "ai" | "baseline" },
+  savings: { estimatedSavings: number; savingsBasis: "comps" | "formula" },
 ): Promise<PropertyRecord> {
   const { data, error } = await supabase
     .from("properties")

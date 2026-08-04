@@ -2,6 +2,7 @@
 import { classifyDocument, validateDocument, type Extraction, type DocumentType } from "./document-ai";
 import { getFirstPage } from "./pdf-utils";
 import type { CadDeed, CadValueHistoryEntry } from "./cad-lookup";
+import type { SavingsEstimate } from "./savings-estimate";
 
 export type AuditEntry = {
   ts: number;
@@ -54,6 +55,14 @@ export type IntakeState = {
   protestStatus?: string | null;
   valueHistory?: CadValueHistoryEntry[];
   deeds?: CadDeed[];
+  // Caches the computed savings estimate against the specific property it was
+  // computed for (cachedSavingsKey), so refreshing the page or re-validating the
+  // same address mid-intake reuses this result instead of re-calling the AI —
+  // the AI's reductionPct judgment isn't guaranteed bit-identical call to call,
+  // so without this cache the same address could show a visibly different
+  // dollar amount on every refresh. See runValidation() in intake.tsx.
+  cachedSavings?: SavingsEstimate;
+  cachedSavingsKey?: string;
 
   // document classification flow
   extraction?: Extraction;
