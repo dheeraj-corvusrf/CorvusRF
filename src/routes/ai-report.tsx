@@ -9,8 +9,13 @@ import { getMyBilling } from "@/lib/billing";
 import { getHealthScore, type HealthScoreResult } from "@/lib/ai-health-score";
 import { getModuleAnalysis, type BatchModuleId, type ModuleResultMap } from "@/lib/ai-report-modules";
 import { getComps, type CompsResult } from "@/lib/cad-comps";
-import { getEffectiveTaxRate, getBaseReductionPct, classifyPropertyCategory } from "@/lib/texas-tax-rates";
+import { estimateSavings } from "@/lib/savings-estimate";
 import { CompsMap } from "@/components/CompsMap";
+import { findExistingProperty, addProperty, type PropertyRecord } from "@/lib/properties";
+import { listProtests, type ProtestRecord } from "@/lib/protests";
+import { generateCasePrep } from "@/lib/protest-case";
+import { ProtestAuthorizationFlow } from "@/components/ProtestAuthorizationFlow";
+import { CaseDetailModal } from "@/components/CaseDetailModal";
 
 type ModuleAsyncState = {
   data: unknown;
@@ -55,6 +60,15 @@ function Report() {
     data: null,
     loading: false,
   });
+  // Lets "Request Protest Filing" work from the report page too, not just the
+  // Properties dashboard — resolves (or, on first click, creates) the real saved
+  // PropertyRecord this report is for, reusing the exact same dedup lookup
+  // properties.ts already uses elsewhere so this never creates a duplicate row for
+  // a property the user already has on file.
+  const [resolvedProperty, setResolvedProperty] = useState<PropertyRecord | null>(null);
+  const [existingProtest, setExistingProtest] = useState<ProtestRecord | null>(null);
+  const [authorizing, setAuthorizing] = useState(false);
+  const [showCase, setShowCase] = useState(false);
 
   useEffect(() => {
     const s = readIntake();
@@ -67,7 +81,52 @@ function Report() {
     return () => clearTimeout(t);
   }, [nav]);
 
+  useEffect(() => {
+    if (!user || !state.address) return;
+    findExistingProperty(user.id, {
+      address: state.address,
+      cad: state.cad,
+      accountNumber: state.accountNumber,
+    })
+      .then((property) => {
+        setResolvedProperty(property);
+        if (!property) return;
+        return listProtests(user.id).then((protests) => {
+          setExistingProtest(protests.find((p) => p.propertyId === property.id) ?? null);
+        });
+      })
+      .catch((err) => console.error("Could not resolve this property for protest filing:", err));
+  }, [user, state.address, state.cad, state.accountNumber]);
+
+  async function startProtest() {
+    if (!user) return;
+    let property = resolvedProperty;
+    if (!property) {
+      try {
+        property = await addProperty(user.id, {
+          address: state.address ?? "",
+          cad: state.cad,
+          accountNumber: state.accountNumber,
+          ownerName: state.ownerName,
+          propertyType: state.propertyType,
+          landValue: state.landValue,
+          improvementValue: state.improvementValue,
+          totalValue: state.totalValue,
+          taxYear: state.taxYear,
+        });
+        setResolvedProperty(property);
+      } catch (err) {
+        console.error("Could not save this property before filing:", err);
+        return;
+      }
+    }
+    setAuthorizing(true);
+  }
+
   function loadModule(id: string) {
+    // No AI call backs this module anymore — it renders straight from the
+    // deterministic `estimated` value (see estimateSavings() above).
+    if (id === "savings") return;
     const existing = moduleData[id];
     if ((existing && (existing.loading || existing.data)) || !state.totalValue) return;
     setModuleData((prev) => ({ ...prev, [id]: { data: null, loading: true, error: null } }));
@@ -117,24 +176,59 @@ function Report() {
       .catch(() => setHasFullAccess(false));
   }, [user]);
 
-  const savingsData = moduleData.savings?.data as ModuleResultMap["savings"] | undefined;
-  // Prefers the AI-judged reduction percent once the user has unlocked the paid
-  // Savings module (this page is explicitly sold as an AI-generated report, so
-  // that module stays AI-driven); falls back to the same deterministic,
-  // per-county/per-category formula used everywhere else in the app (see
-  // texas-tax-rates.ts) until then, or if that call fails, so the summary
-  // banner always shows a number. The tax rate is never AI-guessed in either
-  // case — always the real county rate (or statewide average).
+  // The exact same estimateSavings() call the intake savings screen uses (see
+  // savings-estimate.ts) — comps tier first, then the formula tier (base rate +
+  // real assessment-ratio + real 10-year value-trend adjustments). Previously
+  // this page reimplemented a simplified version (base rate only, no
+  // adjustments) and could additionally have this number overridden by a
+  // Gemini-guessed percentage once the Savings module was opened — the same
+  // property could show two different, and non-deterministic, savings figures
+  // depending on which page you were on. Calling the one real function here
+  // instead means this page and the intake flow always agree for the same
+  // property, and the number never depends on an AI call.
+  const [savingsEstimate, setSavingsEstimate] = useState<Awaited<ReturnType<typeof estimateSavings>>>(null);
+  useEffect(() => {
+    if (!state.totalValue) return;
+    estimateSavings({
+      cad: state.cad,
+      accountNumber: state.accountNumber,
+      address: state.address,
+      propertyType: state.propertyType,
+      landValue: state.landValue,
+      improvementValue: state.improvementValue,
+      totalValue: state.totalValue,
+      taxYear: state.taxYear,
+      valueHistory: state.valueHistory,
+    })
+      .then(setSavingsEstimate)
+      .catch((err) => console.error("Savings estimate failed:", err));
+  }, [
+    state.totalValue,
+    state.cad,
+    state.accountNumber,
+    state.address,
+    state.propertyType,
+    state.landValue,
+    state.improvementValue,
+    state.taxYear,
+    state.valueHistory,
+  ]);
+
   const estimated = useMemo(() => {
-    if (!state.totalValue) return { reduction: 0, savings: 0 };
-    const reductionPct = savingsData
-      ? savingsData.reductionPct / 100
-      : getBaseReductionPct(state.cad, classifyPropertyCategory(state.propertyType));
-    const ratePct = getEffectiveTaxRate(state.cad);
-    const reduction = Math.round(state.totalValue * reductionPct);
-    const savings = Math.round(reduction * ratePct);
-    return { reduction, savings };
-  }, [state.totalValue, state.cad, state.propertyType, savingsData]);
+    if (!savingsEstimate || !state.totalValue) return { reduction: 0, savings: 0, rationale: null as string | null };
+    if (savingsEstimate.basis === "comps") {
+      return {
+        reduction: Math.max(0, state.totalValue - savingsEstimate.compsMedian),
+        savings: savingsEstimate.amount,
+        rationale: `Estimated from ${savingsEstimate.compsCount} real comparable properties, at your county's ~${savingsEstimate.effectiveTaxRatePct}% effective tax rate.`,
+      };
+    }
+    return {
+      reduction: Math.round(state.totalValue * (savingsEstimate.reductionPct / 100)),
+      savings: savingsEstimate.amount,
+      rationale: savingsEstimate.rationale,
+    };
+  }, [savingsEstimate, state.totalValue]);
 
   function openModule(m: Module) {
     if (hasFullAccess || m.n <= FREE_MODULE_COUNT) {
@@ -202,6 +296,22 @@ function Report() {
             </>
           )}
         </div>
+        {user && (
+          <div className="w-full pt-3 border-t border-primary-foreground/20 print:hidden">
+            {existingProtest ? (
+              <div className="flex items-center gap-3">
+                <span className="badge-soft">Protest {existingProtest.status.replace("_", " ")}</span>
+                <button onClick={() => setShowCase(true)} className="btn-outline text-sm py-1.5">
+                  View Case
+                </button>
+              </div>
+            ) : (
+              <button onClick={startProtest} className="btn-accent text-sm py-1.5">
+                Request Protest Filing
+              </button>
+            )}
+          </div>
+        )}
       </section>
 
       {/* Modules */}
@@ -329,6 +439,31 @@ function Report() {
           </div>
         </Modal>
       )}
+
+      {authorizing && user && resolvedProperty && (
+        <ProtestAuthorizationFlow
+          userId={user.id}
+          property={resolvedProperty}
+          userEmail={user.email}
+          open={authorizing}
+          onOpenChange={(open) => setAuthorizing(open)}
+          onDone={(created) => {
+            setExistingProtest(created);
+            generateCasePrep(created.id, user.id, resolvedProperty).catch((err) =>
+              console.error("Case prep generation failed:", err),
+            );
+          }}
+        />
+      )}
+
+      {showCase && user && resolvedProperty && existingProtest && (
+        <CaseDetailModal
+          userId={user.id}
+          property={resolvedProperty}
+          protest={existingProtest}
+          onClose={() => setShowCase(false)}
+        />
+      )}
     </div>
   );
 }
@@ -392,7 +527,7 @@ function ModulePreviewBody({
   onRetry,
 }: {
   m: Module;
-  estimated: { reduction: number; savings: number };
+  estimated: { reduction: number; savings: number; rationale: string | null };
   state: IntakeState;
   moduleState: ModuleAsyncState | undefined;
   compsMap: { data: CompsResult | null; loading: boolean };
@@ -413,12 +548,11 @@ function ModulePreviewBody({
   const loading = !moduleState || moduleState.loading;
   const error = moduleState?.error;
 
-  // Savings always has a number to show — `estimated` (computed by the caller)
-  // already falls back to the deterministic formula at the real county tax
-  // rate until this module is unlocked (or if the call fails), so this renders
-  // its own loading/error copy inline rather than going blank.
+  // Deterministic, not AI-generated — `estimated` (computed by the caller) is
+  // the exact same estimateSavings() call the intake savings screen uses, so
+  // this always matches that screen for the same property. No loading/error
+  // state here since there's no AI call backing this module anymore.
   if (m.id === "savings") {
-    const savings = moduleState?.data as ModuleResultMap["savings"] | undefined;
     const current = state.totalValue ?? 0;
     const reduced = Math.max(0, current - estimated.reduction);
     return (
@@ -433,10 +567,8 @@ function ModulePreviewBody({
         </div>
         <ValueComparisonChart current={current} reduced={reduced} />
         <p className="text-center text-xs text-muted-foreground">
-          {savings?.rationale ??
-            (loading ? "AI is refining this estimate…" : "Based on typical Texas effective tax rate.")}
+          {estimated.rationale ?? "Based on your county's real effective tax rate."}
         </p>
-        {error && <ErrorWithRetry message={error} onRetry={onRetry} />}
       </div>
     );
   }
