@@ -142,8 +142,11 @@ function buildRationale(
 ): string {
   const categoryLabel = category === "unknown" ? "properties like this" : `${category} properties`;
   let text = `Based on real 2025 Texas protest outcomes for ${categoryLabel} in ${countyName(cad)}`;
-  if (ratioInfo) {
-    text += `, where the Texas Comptroller's own ratio study measures a ${ratioInfo.cod.toFixed(1)}% coefficient of dispersion (a measure of assessment uniformity — the statistical basis for an equal-and-uniform protest)`;
+  // Only worth mentioning when it actually moved the number — a COD within the
+  // IAAO standard contributes no adjustment (see applyAssessmentRatioAdjustment),
+  // so citing it there would imply it mattered when it didn't.
+  if (ratioInfo && ratioInfo.codOverCeiling > 0) {
+    text += `, where the Texas Comptroller's own ratio study measures a ${ratioInfo.cod.toFixed(1)}% coefficient of dispersion — above the IAAO's standard ceiling for this property type, the statistical basis for an equal-and-uniform protest`;
   }
   text += ".";
   if (trend.jumpTriggered && trend.jumpPct != null) {

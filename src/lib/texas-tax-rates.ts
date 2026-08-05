@@ -121,9 +121,12 @@ export function classifyPropertyCategory(propertyType?: string | null): Property
 //
 // Averaging (a) and (b) makes the figure less sensitive to any single unusual
 // year without inventing a year-by-year breakdown that was never published.
-// Only available for counties where BOTH real figures were found (Bexar,
-// Collin, Fort Bend, Harris, Tarrant, Travis); the rest use only the single
-// 2025 figure, since no comparable multi-year figure exists for them.
+// Only available for counties where BOTH real, county-specific figures were
+// found (Bexar, Collin, Fort Bend, Harris, Travis); Denton and Tarrant use
+// only their real single-source figure, since the other half of the pair
+// isn't a genuine county-specific number for them (see below) — never
+// blending a real county figure with a multi-county regional number just to
+// have two data points.
 //
 // Commercial: O'Connor's real 2025 per-CAD appeal-result analyses (each
 // county has its own published article, e.g.
@@ -147,7 +150,7 @@ export function classifyPropertyCategory(propertyType?: string | null): Property
 const COUNTY_REDUCTION_PCT: Partial<Record<string, Partial<Record<PropertyCategory, number>>>> = {
   "Collin Central Appraisal District": { residential: 0.0475, commercial: 0.087 }, // (4.4% 2025 + 5.1% 3-yr) / 2
   "Denton Central Appraisal District": { residential: 0.098, commercial: 0.019 }, // real Denton-specific 2025 figure (86% win rate, 9.8% avg reduction) — no 3-yr study covers Denton, so single-year only
-  "Tarrant Appraisal District": { residential: 0.089 }, // (7.7% DFW-area proxy + 10.1% 3-yr Tarrant-specific) / 2
+  "Tarrant Appraisal District": { residential: 0.101 }, // real Tarrant-specific 3-yr (2022-2024) figure from Ownwell's per-county study — the only genuinely Tarrant-only number found; the 2025 single-year figure available for Tarrant is a 5-county DFW-region blend (Tarrant/Dallas/Denton/Collin/Ellis combined), not county-specific, so it's deliberately not used here even as half of an average
   "Harris Central Appraisal District": { residential: 0.073, commercial: 0.042 }, // (7.4% 2025 + 7.2% 3-yr) / 2
   "Fort Bend Central Appraisal District": { residential: 0.047, commercial: 0.061 }, // (4.5% 2025 + 4.9% 3-yr) / 2
   "Williamson Central Appraisal District": { residential: 0.028, commercial: 0.028 },
@@ -284,36 +287,44 @@ const ASSESSMENT_RATIO: Partial<Record<string, Partial<Record<PropertyCategory, 
   "Grayson Central Appraisal District": { residential: { medianPct: 1.0, cod: 5.51 }, commercial: { medianPct: 1.02, cod: 10.26 } },
 };
 
-// The average COD across all 10 tracked counties, per category — the
-// reference point a specific county's own COD is compared against. Computed,
-// not looked up, so it stays consistent with the table above automatically.
-function averageCod(category: "residential" | "commercial"): number {
-  const values = Object.values(ASSESSMENT_RATIO)
-    .map((byCategory) => byCategory?.[category]?.cod)
-    .filter((v): v is number => v != null);
-  return values.reduce((sum, v) => sum + v, 0) / values.length;
-}
+// IAAO Standard on Ratio Studies (2013) published acceptable COD ceilings by
+// property type — an absolute, external benchmark every county is measured
+// against on its own, not a comparison to other counties' assessment
+// practices. County character (urban core vs. rural/mixed, homogeneous vs.
+// varied housing/commercial stock) legitimately affects a county's own COD
+// for reasons that have nothing to do with assessment quality, so ranking
+// counties against each other's COD isn't a meaningful signal — measuring
+// each one against the same external professional standard is.
+const IAAO_COD_CEILING: Record<"residential" | "commercial", number> = {
+  residential: 15.0, // single-family / newer, homogeneous housing stock
+  commercial: 20.0, // income-producing / commercial property
+};
 
-// Deliberately small and bounded — COD tells us how inconsistent assessments
-// are county-wide, not which direction or by how much THIS property is
-// mis-assessed, so it nudges the real outcome-based rate rather than driving
-// it. +/-0.15 percentage points of reduction per point of COD above/below the
-// cross-county average, capped at +/-2 points.
+// Deliberately small and bounded, and one-directional — a county within the
+// IAAO standard gets no adjustment (being well within an acceptable range
+// isn't evidence a protest would do worse than the real outcome-based base
+// rate), while a county whose own published COD exceeds the standard for its
+// property type gets a small nudge reflecting that extra equal-and-uniform
+// leverage. +0.15 percentage points of reduction per COD point over the IAAO
+// ceiling, capped at +2 points.
 const COD_ADJUSTMENT_PER_POINT = 0.0015;
 const COD_ADJUSTMENT_CAP_PCT = 0.02;
 
-export type AssessmentRatioInfo = { medianPct: number; cod: number; codVsAverage: number } | null;
+export type AssessmentRatioInfo = { medianPct: number; cod: number; codOverCeiling: number } | null;
 
 export function getAssessmentRatioInfo(cad: string | null | undefined, category: PropertyCategory): AssessmentRatioInfo {
   if (category === "unknown" || !cad) return null;
   const entry = ASSESSMENT_RATIO[cad]?.[category];
   if (!entry) return null;
-  return { medianPct: entry.medianPct, cod: entry.cod, codVsAverage: entry.cod - averageCod(category) };
+  return {
+    medianPct: entry.medianPct,
+    cod: entry.cod,
+    codOverCeiling: Math.max(0, entry.cod - IAAO_COD_CEILING[category]),
+  };
 }
 
 export function applyAssessmentRatioAdjustment(baseReductionPct: number, ratioInfo: AssessmentRatioInfo): number {
   if (!ratioInfo) return baseReductionPct;
-  const raw = ratioInfo.codVsAverage * COD_ADJUSTMENT_PER_POINT;
-  const bounded = Math.max(-COD_ADJUSTMENT_CAP_PCT, Math.min(COD_ADJUSTMENT_CAP_PCT, raw));
-  return Math.max(0, baseReductionPct + bounded);
+  const bounded = Math.min(COD_ADJUSTMENT_CAP_PCT, ratioInfo.codOverCeiling * COD_ADJUSTMENT_PER_POINT);
+  return baseReductionPct + bounded;
 }
