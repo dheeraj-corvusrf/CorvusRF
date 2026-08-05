@@ -278,6 +278,58 @@ create policy "Admins can update all protests"
   on public.protests for update
   using (public.is_admin());
 
+-- AI-generated case prep (see src/lib/protest-case.ts), written by the user's own
+-- client right after they request a protest — not a verified filing outcome, same
+-- self-reported precedent as tax_bills.paid_at/refund_amount. RLS is row-scoped by
+-- user_id like every other table here; it can't distinguish "only these columns,"
+-- so this does technically let a user edit their own status/notes too, same as they
+-- always could edit their own tax_bills payment fields.
+alter table public.protests add column if not exists strategy_recommendation text;
+alter table public.protests add column if not exists strategy_confidence_pct integer;
+alter table public.protests add column if not exists strategy_rationale text;
+alter table public.protests add column if not exists case_prep_generated_at timestamptz;
+
+drop policy if exists "Users can update their own protests" on public.protests;
+create policy "Users can update their own protests"
+  on public.protests for update
+  using (auth.uid() = user_id);
+
+-- Trackable evidence checklist for a protest case — one row per AI-suggested
+-- evidence item, optionally linked to an uploaded document once the user provides
+-- it. Generated from the same "evidence" AI module the paywalled AI Report page
+-- already uses (src/lib/ai-report-modules.ts), just persisted against the real
+-- case instead of only rendering once in a report view.
+create table if not exists public.protest_evidence_items (
+  id uuid primary key default gen_random_uuid(),
+  protest_id uuid not null references public.protests (id) on delete cascade,
+  user_id uuid not null references auth.users (id) on delete cascade,
+  label text not null,
+  document_id uuid references public.documents (id) on delete set null,
+  created_at timestamptz not null default now()
+);
+
+alter table public.protest_evidence_items enable row level security;
+
+drop policy if exists "Users can view their own evidence items" on public.protest_evidence_items;
+create policy "Users can view their own evidence items"
+  on public.protest_evidence_items for select
+  using (auth.uid() = user_id);
+
+drop policy if exists "Users can insert their own evidence items" on public.protest_evidence_items;
+create policy "Users can insert their own evidence items"
+  on public.protest_evidence_items for insert
+  with check (auth.uid() = user_id);
+
+drop policy if exists "Users can update their own evidence items" on public.protest_evidence_items;
+create policy "Users can update their own evidence items"
+  on public.protest_evidence_items for update
+  using (auth.uid() = user_id);
+
+drop policy if exists "Admins can view all evidence items" on public.protest_evidence_items;
+create policy "Admins can view all evidence items"
+  on public.protest_evidence_items for select
+  using (public.is_admin());
+
 -- Original uploaded documents (appraisal notices, tax bills, etc.), persisted per
 -- property so the dashboard's Documents tab lists real files instead of only the
 -- AI-extracted field values. The file itself lives in the "documents" Storage bucket
@@ -411,6 +463,63 @@ create policy "Users can insert their own protest authorizations"
 drop policy if exists "Admins can view all protest authorizations" on public.protest_authorizations;
 create policy "Admins can view all protest authorizations"
   on public.protest_authorizations for select
+  using (public.is_admin());
+
+-- Per-tax-year bill/payment/refund history for a property — closes the loop on the
+-- savings estimate shown at intake, which otherwise never gets compared against what
+-- the county actually billed. `properties.tax_amount_due`/`payment_due_date`/`paid_at`
+-- stay as the "latest bill" snapshot the Deadlines page and dashboard home already
+-- read; this table is the real history behind them and is kept in sync on write
+-- rather than replacing those columns (see src/lib/tax-bills.ts).
+create table if not exists public.tax_bills (
+  id uuid primary key default gen_random_uuid(),
+  property_id uuid not null references public.properties (id) on delete cascade,
+  user_id uuid not null references auth.users (id) on delete cascade,
+  tax_year integer,
+  taxable_value numeric,
+  tax_rate numeric,
+  amount_due numeric,
+  due_date date,
+  penalty_date date,
+  source_document_id uuid references public.documents (id) on delete set null,
+  amount_paid numeric,
+  paid_at timestamptz,
+  payment_confirmation text,
+  refund_amount numeric,
+  refund_expected_at date,
+  refund_received_at timestamptz,
+  notes text,
+  created_at timestamptz not null default now()
+);
+
+alter table public.tax_bills enable row level security;
+
+drop policy if exists "Users can view their own tax bills" on public.tax_bills;
+create policy "Users can view their own tax bills"
+  on public.tax_bills for select
+  using (auth.uid() = user_id);
+
+drop policy if exists "Users can insert their own tax bills" on public.tax_bills;
+create policy "Users can insert their own tax bills"
+  on public.tax_bills for insert
+  with check (auth.uid() = user_id);
+
+-- Unlike properties/documents, tax bills are updated in place (mark paid, record a
+-- refund) rather than only ever inserted, so — unusually for this schema — this table
+-- needs an update policy.
+drop policy if exists "Users can update their own tax bills" on public.tax_bills;
+create policy "Users can update their own tax bills"
+  on public.tax_bills for update
+  using (auth.uid() = user_id);
+
+drop policy if exists "Users can delete their own tax bills" on public.tax_bills;
+create policy "Users can delete their own tax bills"
+  on public.tax_bills for delete
+  using (auth.uid() = user_id);
+
+drop policy if exists "Admins can view all tax bills" on public.tax_bills;
+create policy "Admins can view all tax bills"
+  on public.tax_bills for select
   using (public.is_admin());
 
 -- ── ONE-TIME MANUAL STEP — do NOT run this as part of the routine schema paste ──

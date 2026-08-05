@@ -249,7 +249,7 @@ async function queryCollin(address: string): Promise<CadRecord[]> {
   const url =
     "https://services2.arcgis.com/uXyoacYrZTPTKD3R/ArcGIS/rest/services/CCAD_Parcel_Feature_Set/FeatureServer/4/query" +
     `?where=${encodeURIComponent(where)}` +
-    "&outFields=ownerName,situsConcat,currValLand,currValImprv,currValAppraised,PROP_ID,propType,propYear" +
+    "&outFields=ownerName,situsConcat,currValLand,currValImprv,currValAppraised,PROP_ID,propType,propSubType,propCategoryCode,propYear" +
     `&resultRecordCount=${MULTI_CANDIDATE_LIMIT}&f=json`;
 
   const res = await fetch(url);
@@ -262,7 +262,13 @@ async function queryCollin(address: string): Promise<CadRecord[]> {
     propertyAddress: (attrs.situsConcat as string) ?? address,
     cad: "Collin Central Appraisal District",
     accountNumber: attrs.PROP_ID != null ? String(attrs.PROP_ID) : null,
-    propertyType: (attrs.propType as string) ?? null,
+    // `propType` is always null on this service despite the name — the real
+    // classification lives in propSubType (plain text, e.g. "Commercial") and
+    // propCategoryCode (the Comptroller's standard state code, e.g. "F1").
+    // Discovered 2026-08-04 chasing a real Frisco house that fell through to
+    // the generic "unknown category" fallback.
+    propertyType:
+      (attrs.propSubType as string)?.trim() || (attrs.propCategoryCode as string)?.trim() || (attrs.propType as string)?.trim() || null,
     landValue: (attrs.currValLand as number) ?? null,
     improvementValue: (attrs.currValImprv as number) ?? null,
     totalValue: (attrs.currValAppraised as number) ?? null,
@@ -316,7 +322,7 @@ async function queryDenton(address: string): Promise<CadRecord[]> {
   const url =
     "https://gis.dentoncounty.gov/arcgis/rest/services/Parcels_FC/MapServer/0/query" +
     `?where=${encodeURIComponent(where)}` +
-    "&outFields=name,situs_full_address,landHSValue,landNHSValue,improvementValue,ownerMarketValue,pid,pYear,propType" +
+    "&outFields=name,situs_full_address,landHSValue,landNHSValue,improvementValue,ownerMarketValue,pid,pYear,propType,stateCodes" +
     `&resultRecordCount=${MULTI_CANDIDATE_LIMIT}&f=json`;
 
   const res = await fetch(url);
@@ -331,7 +337,15 @@ async function queryDenton(address: string): Promise<CadRecord[]> {
       propertyAddress: situsAddr || address,
       cad: "Denton Central Appraisal District",
       accountNumber: attrs.pid != null ? String(attrs.pid) : null,
-      propertyType: (attrs.propType as string)?.trim() || null,
+      // `propType` here is always the generic "R" (real property) vs personal
+      // property — it doesn't distinguish residential from commercial at all.
+      // `stateCodes` carries the actual Texas Comptroller state property-type
+      // code (e.g. "A1" single-family, "B1" multifamily, "F1" commercial —
+      // the same codes the Comptroller's own ratio-study reports use), which
+      // classifyPropertyCategory() knows how to read. Discovered 2026-08-04
+      // chasing a real Frisco house that fell through to the generic
+      // "unknown category" fallback.
+      propertyType: (attrs.stateCodes as string)?.trim() || (attrs.propType as string)?.trim() || null,
       landValue:
         (parseMoneyField(attrs.landHSValue) ?? 0) + (parseMoneyField(attrs.landNHSValue) ?? 0),
       improvementValue: parseMoneyField(attrs.improvementValue),

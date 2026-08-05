@@ -3,7 +3,10 @@ import {
   getEffectiveTaxRate,
   classifyPropertyCategory,
   getBaseReductionPct,
-  applyValueJumpAdjustment,
+  applyValueTrendAdjustment,
+  getAssessmentRatioInfo,
+  applyAssessmentRatioAdjustment,
+  type AssessmentRatioInfo,
 } from "./texas-tax-rates";
 
 export type SavingsEstimate =
@@ -36,16 +39,21 @@ export type SavingsEstimateInput = {
 //    an equal-and-uniform protest: appraised value vs. the median appraised
 //    value of a reasonable number of comparable properties.
 // 2. "formula" — reached whenever comps don't apply (wrong county, or nothing
-//    passed the filters). Computes a reduction percent from real, sourced,
-//    per-county/per-category 2025 protest outcome data (see
-//    texas-tax-rates.ts — residential and commercial reduction rates differ
-//    sharply and are looked up separately, per county where a real figure
-//    exists), then applies a further real-data-backed adjustment if this
-//    property's own assessed value jumped more than the published threshold
-//    year over year. Always produces a number when a totalValue exists — this
-//    tier also covers what an "always show something" baseline used to do,
-//    since a deterministic formula never errors out the way a network AI call
-//    could.
+//    passed the filters). Three real, sourced layers, applied in order:
+//      a. A per-county/per-category base reduction rate from real 2025 (and
+//         where available, 3-year blended) protest outcome data — residential
+//         and commercial differ sharply and are looked up separately.
+//      b. A small, bounded nudge from the Texas Comptroller's own published
+//         assessment-ratio data (coefficient of dispersion) for that county
+//         and category — real evidence of how uniformly assessments there
+//         actually hold up, not a guess.
+//      c. A further boost if this property's own assessed value jumped more
+//         than its OWN historical trend supports — using up to 10 years of
+//         real per-property CAD history (not a flat threshold applied to
+//         every property the same way).
+//    Always produces a number when a totalValue exists — this tier also
+//    covers what an "always show something" baseline used to do, since a
+//    deterministic formula never errors out the way a network AI call could.
 //
 // The effective tax rate is never guessed per-property: both tiers use
 // getEffectiveTaxRate(cad), a real county-level rate (or the statewide average
@@ -93,18 +101,20 @@ export async function estimateSavings(property: SavingsEstimateInput): Promise<S
   }
 
   const category = classifyPropertyCategory(property.propertyType);
-  const baseReductionPct = getBaseReductionPct(property.cad, category);
+  const countyBaseReductionPct = getBaseReductionPct(property.cad, category);
+  const ratioInfo = getAssessmentRatioInfo(property.cad, category);
+  const ratioAdjustedPct = applyAssessmentRatioAdjustment(countyBaseReductionPct, ratioInfo);
   const history = (property.valueHistory ?? [])
     .map((h) => ({ year: h.year, value: h.appraisedValue ?? h.marketValue ?? null }))
     .filter((h): h is { year: number; value: number } => h.value != null);
-  const { reductionPct, jumpTriggered, jumpPct } = applyValueJumpAdjustment(baseReductionPct, history);
+  const trend = applyValueTrendAdjustment(ratioAdjustedPct, history);
 
   return {
     basis: "formula",
-    amount: Math.round(totalValue * reductionPct * rate),
-    reductionPct: Math.round(reductionPct * 1000) / 10,
+    amount: Math.round(totalValue * trend.reductionPct * rate),
+    reductionPct: Math.round(trend.reductionPct * 1000) / 10,
     effectiveTaxRatePct: Math.round(rate * 1000) / 10,
-    rationale: buildRationale(category, property.cad, jumpTriggered, jumpPct),
+    rationale: buildRationale(category, property.cad, ratioInfo, trend),
   };
 }
 
@@ -127,13 +137,24 @@ function countyName(cad?: string | null): string {
 function buildRationale(
   category: ReturnType<typeof classifyPropertyCategory>,
   cad: string | null | undefined,
-  jumpTriggered: boolean,
-  jumpPct: number | null,
+  ratioInfo: AssessmentRatioInfo,
+  trend: { jumpTriggered: boolean; jumpPct: number | null; trailingCagrPct: number | null },
 ): string {
   const categoryLabel = category === "unknown" ? "properties like this" : `${category} properties`;
-  const base = `Based on real 2025 Texas protest outcomes for ${categoryLabel} in ${countyName(cad)}.`;
-  if (jumpTriggered && jumpPct != null) {
-    return `${base} Your assessed value jumped ${Math.round(jumpPct * 100)}% this year — published protest-outcome data links larger year-over-year jumps to larger successful reductions.`;
+  let text = `Based on real 2025 Texas protest outcomes for ${categoryLabel} in ${countyName(cad)}`;
+  // Only worth mentioning when it actually moved the number — a COD within the
+  // IAAO standard contributes no adjustment (see applyAssessmentRatioAdjustment),
+  // so citing it there would imply it mattered when it didn't.
+  if (ratioInfo && ratioInfo.codOverCeiling > 0) {
+    text += `, where the Texas Comptroller's own ratio study measures a ${ratioInfo.cod.toFixed(1)}% coefficient of dispersion — above the IAAO's standard ceiling for this property type, the statistical basis for an equal-and-uniform protest`;
   }
-  return base;
+  text += ".";
+  if (trend.jumpTriggered && trend.jumpPct != null) {
+    const vsTrend =
+      trend.trailingCagrPct != null
+        ? ` — well above this property's own ~${Math.round(trend.trailingCagrPct * 100)}%/year historical trend`
+        : "";
+    text += ` Your assessed value jumped ${Math.round(trend.jumpPct * 100)}% this year${vsTrend}, which published protest-outcome data links to larger successful reductions.`;
+  }
+  return text;
 }

@@ -11,6 +11,7 @@ import { getEffectiveTaxRate, getBaseReductionPct, classifyPropertyCategory } fr
 import { listBppAccounts, type BppAccountRecord } from "@/lib/bpp-accounts";
 import { listDocuments, type DocumentRecord } from "@/lib/documents";
 import { listProtests, type ProtestRecord, type ProtestStatus } from "@/lib/protests";
+import { getPropertyProtestStatus } from "@/lib/portfolio-status";
 import { askRouter } from "@/lib/ask-router";
 import { getDeadlineNudge } from "@/lib/deadline-nudge";
 import { AnimatedNumber } from "@/components/AnimatedNumber";
@@ -100,18 +101,15 @@ function Overview() {
     }));
   const upcoming = [...deadlines, ...bills].sort((a, b) => a.when.getTime() - b.when.getTime()).slice(0, 4);
 
-  // Properties with a deadline inside the next 14 days (or already passed — a missed
-  // deadline is the most urgent case, not a reason to stop nudging) that don't have a
-  // protest requested yet. Drives the AI reminder banner below.
+  // Properties flagged "needs_action" by the shared status helper (see
+  // src/lib/portfolio-status.ts — also used for the Properties page's per-property
+  // badges, so this banner and those badges never disagree). Drives the AI reminder
+  // banner below.
   const urgentProperties = properties
-    .filter((p) => !!p.protestDeadline && !protests.some((pr) => pr.propertyId === p.id))
-    .map((p) => ({
-      property: p,
-      daysLeft: Math.ceil(
-        (new Date(p.protestDeadline as string).getTime() - Date.now()) / (1000 * 60 * 60 * 24),
-      ),
-    }))
-    .filter((u) => u.daysLeft <= 14)
+    .map((p) => ({ property: p, ...getPropertyProtestStatus(p, protests) }))
+    .filter(
+      (u): u is typeof u & { daysLeft: number } => u.status === "needs_action" && u.daysLeft != null,
+    )
     .sort((a, b) => a.daysLeft - b.daysLeft);
 
   useEffect(() => {

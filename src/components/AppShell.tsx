@@ -6,6 +6,7 @@ import {
   Briefcase,
   FileText,
   CalendarClock,
+  Receipt,
   CreditCard,
   Settings as SettingsIcon,
 } from "lucide-react";
@@ -17,6 +18,7 @@ const NAV = [
   { to: "/dashboard/bpp-accounts", label: "BPP Accounts", icon: Briefcase },
   { to: "/dashboard/documents", label: "Documents", icon: FileText },
   { to: "/dashboard/deadlines", label: "Deadlines", icon: CalendarClock },
+  { to: "/dashboard/tax-bills", label: "Tax Bills", icon: Receipt },
   { to: "/dashboard/billing", label: "Billing", icon: CreditCard },
   { to: "/dashboard/settings", label: "Settings", icon: SettingsIcon },
 ] as const;

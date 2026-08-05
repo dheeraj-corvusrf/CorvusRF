@@ -33,6 +33,7 @@ import { Route as DashboardLayoutDeadlinesRouteImport } from './routes/dashboard
 import { Route as DashboardLayoutDocumentsRouteImport } from './routes/dashboard/_layout.documents'
 import { Route as DashboardLayoutPropertiesRouteImport } from './routes/dashboard/_layout.properties'
 import { Route as DashboardLayoutSettingsRouteImport } from './routes/dashboard/_layout.settings'
+import { Route as DashboardLayoutTaxBillsRouteImport } from './routes/dashboard/_layout.tax-bills'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -158,6 +159,11 @@ const DashboardLayoutSettingsRoute = DashboardLayoutSettingsRouteImport.update({
   path: '/settings',
   getParentRoute: () => DashboardLayoutRoute,
 } as any)
+const DashboardLayoutTaxBillsRoute = DashboardLayoutTaxBillsRouteImport.update({
+  id: '/tax-bills',
+  path: '/tax-bills',
+  getParentRoute: () => DashboardLayoutRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -183,6 +189,7 @@ export interface FileRoutesByFullPath {
   '/dashboard/documents': typeof DashboardLayoutDocumentsRoute
   '/dashboard/properties': typeof DashboardLayoutPropertiesRoute
   '/dashboard/settings': typeof DashboardLayoutSettingsRoute
+  '/dashboard/tax-bills': typeof DashboardLayoutTaxBillsRoute
   '/dashboard/': typeof DashboardLayoutIndexRoute
 }
 export interface FileRoutesByTo {
@@ -208,6 +215,7 @@ export interface FileRoutesByTo {
   '/dashboard/documents': typeof DashboardLayoutDocumentsRoute
   '/dashboard/properties': typeof DashboardLayoutPropertiesRoute
   '/dashboard/settings': typeof DashboardLayoutSettingsRoute
+  '/dashboard/tax-bills': typeof DashboardLayoutTaxBillsRoute
   '/dashboard': typeof DashboardLayoutIndexRoute
 }
 export interface FileRoutesById {
@@ -235,6 +243,7 @@ export interface FileRoutesById {
   '/dashboard/_layout/documents': typeof DashboardLayoutDocumentsRoute
   '/dashboard/_layout/properties': typeof DashboardLayoutPropertiesRoute
   '/dashboard/_layout/settings': typeof DashboardLayoutSettingsRoute
+  '/dashboard/_layout/tax-bills': typeof DashboardLayoutTaxBillsRoute
   '/dashboard/_layout/': typeof DashboardLayoutIndexRoute
 }
 export interface FileRouteTypes {
@@ -263,6 +272,7 @@ export interface FileRouteTypes {
     | '/dashboard/documents'
     | '/dashboard/properties'
     | '/dashboard/settings'
+    | '/dashboard/tax-bills'
     | '/dashboard/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -288,6 +298,7 @@ export interface FileRouteTypes {
     | '/dashboard/documents'
     | '/dashboard/properties'
     | '/dashboard/settings'
+    | '/dashboard/tax-bills'
     | '/dashboard'
   id:
     | '__root__'
@@ -314,6 +325,7 @@ export interface FileRouteTypes {
     | '/dashboard/_layout/documents'
     | '/dashboard/_layout/properties'
     | '/dashboard/_layout/settings'
+    | '/dashboard/_layout/tax-bills'
     | '/dashboard/_layout/'
   fileRoutesById: FileRoutesById
 }
@@ -507,6 +519,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DashboardLayoutSettingsRouteImport
       parentRoute: typeof DashboardLayoutRoute
     }
+    '/dashboard/_layout/tax-bills': {
+      id: '/dashboard/_layout/tax-bills'
+      path: '/tax-bills'
+      fullPath: '/dashboard/tax-bills'
+      preLoaderRoute: typeof DashboardLayoutTaxBillsRouteImport
+      parentRoute: typeof DashboardLayoutRoute
+    }
   }
 }
 
@@ -517,6 +536,7 @@ interface DashboardLayoutRouteChildren {
   DashboardLayoutDocumentsRoute: typeof DashboardLayoutDocumentsRoute
   DashboardLayoutPropertiesRoute: typeof DashboardLayoutPropertiesRoute
   DashboardLayoutSettingsRoute: typeof DashboardLayoutSettingsRoute
+  DashboardLayoutTaxBillsRoute: typeof DashboardLayoutTaxBillsRoute
   DashboardLayoutIndexRoute: typeof DashboardLayoutIndexRoute
 }
 
@@ -527,6 +547,7 @@ const DashboardLayoutRouteChildren: DashboardLayoutRouteChildren = {
   DashboardLayoutDocumentsRoute: DashboardLayoutDocumentsRoute,
   DashboardLayoutPropertiesRoute: DashboardLayoutPropertiesRoute,
   DashboardLayoutSettingsRoute: DashboardLayoutSettingsRoute,
+  DashboardLayoutTaxBillsRoute: DashboardLayoutTaxBillsRoute,
   DashboardLayoutIndexRoute: DashboardLayoutIndexRoute,
 }
 

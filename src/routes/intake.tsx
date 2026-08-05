@@ -302,6 +302,28 @@ function Intake() {
             {state.accountNumber && (
               <p className="text-xs font-medium text-muted-foreground">PARCEL: {state.accountNumber}</p>
             )}
+
+            {/* The savings figure alone doesn't answer "how much do I actually
+                pay" — these two ground it in real dollars: what the county's
+                current assessed value implies you owe this year, and what
+                that would drop to if the protest succeeds. Same effective tax
+                rate savings.amount was computed with, just applied to the
+                full assessed value instead of only the contested portion. */}
+            <div className="mx-auto mt-6 grid max-w-sm grid-cols-2 gap-4 border-t border-accent/20 pt-6">
+              <div>
+                <div className="text-xs text-muted-foreground">Est. Tax Bill This Year</div>
+                <div className="mt-0.5 font-serif text-xl font-semibold">
+                  {currency((state.totalValue ?? 0) * (savings.effectiveTaxRatePct / 100))}
+                </div>
+              </div>
+              <div>
+                <div className="text-xs text-muted-foreground">Est. Bill After Protest</div>
+                <div className="mt-0.5 font-serif text-xl font-semibold text-success">
+                  {currency((state.totalValue ?? 0) * (savings.effectiveTaxRatePct / 100) - savings.amount)}
+                </div>
+              </div>
+            </div>
+
             <HouseIllustration className="mx-auto mt-6 h-32 w-auto" />
           </div>
           <div className="p-6">
@@ -340,6 +362,8 @@ function Intake() {
               {savings.basis === "comps"
                 ? `*Estimated from ${savings.compsCount} real comparable properties in your subdivision, at your county's ~${savings.effectiveTaxRatePct}% effective tax rate. Your actual result depends on the hearing outcome and county-specific factors.`
                 : "*Modeled from real, published Texas protest-outcome data for this property's county and category — no directly comparable properties were available for this address, so this isn't a specific analysis of your property. Your actual result depends on the hearing outcome and county-specific factors."}
+              {" "}Tax bill figures use your county's estimated effective tax rate applied to the CAD's assessed value —
+              not a bill pulled from the county, and before any exemptions (e.g. homestead) you may qualify for.
             </p>
           </div>
         </section>
@@ -508,11 +532,12 @@ function Stepper({ step }: { step: Step }) {
     ["Confirm", ["confirm"]],
   ] as const;
   return (
-    <ol className="flex items-center gap-1.5 text-xs font-medium sm:gap-2">
+    <ol className="flex w-full items-center text-xs font-medium">
       {items.map(([label, keys], i) => {
         const active = (keys as readonly string[]).includes(step);
+        const isLast = i === items.length - 1;
         return (
-          <li key={label} className="flex items-center gap-1.5 sm:gap-2">
+          <li key={label} className={`flex items-center gap-1.5 sm:gap-2 ${isLast ? "" : "flex-1"}`}>
             <span
               className={`h-6 w-6 shrink-0 rounded-full grid place-items-center ${
                 active ? "bg-primary text-primary-foreground" : "bg-secondary text-muted-foreground"
@@ -526,7 +551,10 @@ function Stepper({ step }: { step: Step }) {
             <span className={`hidden sm:inline ${active ? "text-foreground" : "text-muted-foreground"}`}>
               {label}
             </span>
-            {i < items.length - 1 && <span className="w-4 h-px shrink-0 bg-border sm:w-8" />}
+            {/* Connector grows to fill the gap to the next step, so the whole
+                stepper spans the same width as the card below it instead of
+                sitting in a compact cluster with dead space to the right. */}
+            {!isLast && <span className="h-px flex-1 shrink-0 bg-border mx-1" />}
           </li>
         );
       })}

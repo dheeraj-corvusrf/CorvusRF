@@ -68,12 +68,33 @@ const COMMERCIAL_TYPE_KEYWORDS = [
   "business",
 ];
 
+// Some counties' raw GIS data exposes the actual Texas Comptroller state
+// property-type code (the same "Category A" / "Category F1" labels the
+// Comptroller's own ratio-study reports use — see ASSESSMENT_RATIO below)
+// instead of descriptive text — e.g. Denton's `stateCodes` field returns "A1"
+// or "B1", not "Residential". Real, standardized, statewide codes: A = real
+// property residential (incl. A1 single-family), C1 = vacant residential lot;
+// B = real property multifamily residential (apartments), F = commercial/
+// industrial real property, G = oil/gas/minerals, J = utilities, L = business
+// personal property, C3 = vacant commercial lot.
+function classifyByStateCode(raw: string): PropertyCategory | null {
+  const c = raw.trim().toUpperCase();
+  if (/^A\d*$/.test(c) || c === "C1") return "residential";
+  if (/^[BFGJL]\d*$/.test(c) || c === "C3") return "commercial";
+  return null;
+}
+
 // CAD-provided property-type text is free-form county-specific wording (e.g.
 // "Real, Commercial" vs "SFR" vs a raw building-class code), not a standardized
-// enum, so this is keyword matching rather than an exact lookup — good enough to
-// pick the right real-data anchor below, not precise property classification.
+// enum, so this checks the real state-code system first (see above), then
+// falls back to keyword matching on descriptive text — good enough to pick the
+// right real-data anchor below, not precise property classification.
 export function classifyPropertyCategory(propertyType?: string | null): PropertyCategory {
-  const t = propertyType?.toLowerCase() ?? "";
+  const raw = propertyType?.trim() ?? "";
+  if (!raw) return "unknown";
+  const byCode = classifyByStateCode(raw);
+  if (byCode) return byCode;
+  const t = raw.toLowerCase();
   if (RESIDENTIAL_TYPE_KEYWORDS.some((k) => t.includes(k))) return "residential";
   if (COMMERCIAL_TYPE_KEYWORDS.some((k) => t.includes(k))) return "commercial";
   return "unknown";
@@ -100,9 +121,12 @@ export function classifyPropertyCategory(propertyType?: string | null): Property
 //
 // Averaging (a) and (b) makes the figure less sensitive to any single unusual
 // year without inventing a year-by-year breakdown that was never published.
-// Only available for counties where BOTH real figures were found (Bexar,
-// Collin, Fort Bend, Harris, Tarrant, Travis); the rest use only the single
-// 2025 figure, since no comparable multi-year figure exists for them.
+// Only available for counties where BOTH real, county-specific figures were
+// found (Bexar, Collin, Fort Bend, Harris, Travis); Denton and Tarrant use
+// only their real single-source figure, since the other half of the pair
+// isn't a genuine county-specific number for them (see below) — never
+// blending a real county figure with a multi-county regional number just to
+// have two data points.
 //
 // Commercial: O'Connor's real 2025 per-CAD appeal-result analyses (each
 // county has its own published article, e.g.
@@ -126,7 +150,7 @@ export function classifyPropertyCategory(propertyType?: string | null): Property
 const COUNTY_REDUCTION_PCT: Partial<Record<string, Partial<Record<PropertyCategory, number>>>> = {
   "Collin Central Appraisal District": { residential: 0.0475, commercial: 0.087 }, // (4.4% 2025 + 5.1% 3-yr) / 2
   "Denton Central Appraisal District": { residential: 0.098, commercial: 0.019 }, // real Denton-specific 2025 figure (86% win rate, 9.8% avg reduction) — no 3-yr study covers Denton, so single-year only
-  "Tarrant Appraisal District": { residential: 0.089 }, // (7.7% DFW-area proxy + 10.1% 3-yr Tarrant-specific) / 2
+  "Tarrant Appraisal District": { residential: 0.101 }, // real Tarrant-specific 3-yr (2022-2024) figure from Ownwell's per-county study — the only genuinely Tarrant-only number found; the 2025 single-year figure available for Tarrant is a 5-county DFW-region blend (Tarrant/Dallas/Denton/Collin/Ellis combined), not county-specific, so it's deliberately not used here even as half of an average
   "Harris Central Appraisal District": { residential: 0.073, commercial: 0.042 }, // (7.4% 2025 + 7.2% 3-yr) / 2
   "Fort Bend Central Appraisal District": { residential: 0.047, commercial: 0.061 }, // (4.5% 2025 + 4.9% 3-yr) / 2
   "Williamson Central Appraisal District": { residential: 0.028, commercial: 0.028 },
@@ -168,27 +192,139 @@ const VALUE_JUMP_THRESHOLD_PCT = 0.1;
 const VALUE_JUMP_BOOST_PCT = 0.03;
 const VALUE_JUMP_FLOOR_PCT = 0.1;
 const VALUE_JUMP_CEILING_PCT = 0.15;
+// CAD records typically carry well over 10 years of appraisal history per
+// property (verified up to 13 years on real records) — capped here at the
+// most recent 10 to match the standard "how has this property trended"
+// window, rather than letting one unusually old/volatile year skew the
+// property's own baseline growth rate.
+const TREND_LOOKBACK_YEARS = 10;
 
-export type ValueJumpResult = { reductionPct: number; jumpTriggered: boolean; jumpPct: number | null };
+export type ValueTrendResult = {
+  reductionPct: number;
+  jumpTriggered: boolean;
+  jumpPct: number | null;
+  trailingCagrPct: number | null;
+};
 
-export function applyValueJumpAdjustment(
+// Compares this property's most recent year-over-year change against ITS OWN
+// historical trend (a trailing compound annual growth rate over up to the
+// prior 10 years), rather than a flat threshold applied identically to every
+// property. A property that has always grown ~8%/year jumping to 12% isn't
+// the same signal as one that's been flat for a decade suddenly jumping 12% —
+// the second is the real anomaly. Falls back to a plain two-point comparison
+// against the flat VALUE_JUMP_THRESHOLD_PCT when fewer than 3 valid years of
+// history exist (not enough points to fit a trailing trend).
+export function applyValueTrendAdjustment(
   baseReductionPct: number,
   valueHistory?: Array<{ year: number; value: number | null }> | null,
-): ValueJumpResult {
-  if (!valueHistory || valueHistory.length < 2) {
-    return { reductionPct: baseReductionPct, jumpTriggered: false, jumpPct: null };
-  }
+): ValueTrendResult {
+  const none = { reductionPct: baseReductionPct, jumpTriggered: false, jumpPct: null, trailingCagrPct: null };
+  if (!valueHistory || valueHistory.length < 2) return none;
   const sorted = [...valueHistory]
-    .filter((h): h is { year: number; value: number } => h.value != null)
-    .sort((a, b) => a.year - b.year);
-  if (sorted.length < 2) return { reductionPct: baseReductionPct, jumpTriggered: false, jumpPct: null };
+    .filter((h): h is { year: number; value: number } => h.value != null && h.value > 0)
+    .sort((a, b) => a.year - b.year)
+    .slice(-TREND_LOOKBACK_YEARS);
+  if (sorted.length < 2) return none;
+
   const latest = sorted[sorted.length - 1];
   const prior = sorted[sorted.length - 2];
-  if (prior.value <= 0) return { reductionPct: baseReductionPct, jumpTriggered: false, jumpPct: null };
   const jumpPct = (latest.value - prior.value) / prior.value;
-  if (jumpPct <= VALUE_JUMP_THRESHOLD_PCT) {
-    return { reductionPct: baseReductionPct, jumpTriggered: false, jumpPct };
+
+  let trailingCagrPct: number | null = null;
+  let anomalyTriggered: boolean;
+  if (sorted.length >= 3) {
+    // Trailing trend excludes the latest year on purpose — it's the baseline
+    // this property has been growing at BEFORE the year being evaluated.
+    const trailing = sorted.slice(0, -1);
+    const first = trailing[0];
+    const last = trailing[trailing.length - 1];
+    const yearsSpan = last.year - first.year;
+    trailingCagrPct = yearsSpan > 0 ? Math.pow(last.value / first.value, 1 / yearsSpan) - 1 : null;
+    anomalyTriggered =
+      trailingCagrPct != null
+        ? jumpPct > trailingCagrPct + VALUE_JUMP_THRESHOLD_PCT
+        : jumpPct > VALUE_JUMP_THRESHOLD_PCT;
+  } else {
+    // Only two years on record — not enough to fit a trailing trend, so fall
+    // back to the flat threshold.
+    anomalyTriggered = jumpPct > VALUE_JUMP_THRESHOLD_PCT;
   }
+
+  if (!anomalyTriggered) return { reductionPct: baseReductionPct, jumpTriggered: false, jumpPct, trailingCagrPct };
   const boosted = Math.min(VALUE_JUMP_CEILING_PCT, Math.max(VALUE_JUMP_FLOOR_PCT, baseReductionPct + VALUE_JUMP_BOOST_PCT));
-  return { reductionPct: boosted, jumpTriggered: true, jumpPct };
+  return { reductionPct: boosted, jumpTriggered: true, jumpPct, trailingCagrPct };
+}
+
+// ---------------------------------------------------------------------------
+// Assessment-ratio (equal-and-uniform) signal — real Texas Comptroller data.
+// ---------------------------------------------------------------------------
+//
+// The Comptroller's Appraisal District Ratio Study (Tax Code 5.10) publishes,
+// per county per property category, the median level of appraisal (assessed
+// value as a fraction of the Comptroller's own independently-determined
+// market value) and the coefficient of dispersion (COD) — how spread out
+// individual properties' ratios are around that median. A high COD is the
+// literal statistical definition of an equal-and-uniform problem: it means
+// the county is NOT assessing similar properties at a consistent fraction of
+// value, which is exactly what Tax Code 41.43(b) protests argue. Figures
+// below are each county's most recent published study as of this writing
+// (comptroller.texas.gov/data/property-tax/ratio-study/<year>/ — Category A =
+// single-family residential, Category F1 = commercial real property):
+// Collin/Fort Bend/Williamson/Travis/Bexar/Grayson = 2024 study; Denton/
+// Tarrant/Harris/Montgomery = 2025 study (each CAD is studied at least once
+// every two years per statute, not necessarily the same year for every
+// county).
+const ASSESSMENT_RATIO: Partial<Record<string, Partial<Record<PropertyCategory, { medianPct: number; cod: number }>>>> = {
+  "Collin Central Appraisal District": { residential: { medianPct: 1.0, cod: 4.41 }, commercial: { medianPct: 1.0, cod: 13.24 } },
+  "Denton Central Appraisal District": { residential: { medianPct: 1.0, cod: 6.16 }, commercial: { medianPct: 1.07, cod: 17.96 } },
+  "Tarrant Appraisal District": { residential: { medianPct: 0.97, cod: 10.14 }, commercial: { medianPct: 0.97, cod: 12.46 } },
+  "Harris Central Appraisal District": { residential: { medianPct: 1.0, cod: 7.48 }, commercial: { medianPct: 0.96, cod: 14.49 } },
+  "Fort Bend Central Appraisal District": { residential: { medianPct: 1.0, cod: 6.77 }, commercial: { medianPct: 1.0, cod: 10.43 } },
+  "Williamson Central Appraisal District": { residential: { medianPct: 0.96, cod: 7.57 }, commercial: { medianPct: 0.97, cod: 11.22 } },
+  "Travis Central Appraisal District": { residential: { medianPct: 1.0, cod: 7.59 }, commercial: { medianPct: 1.0, cod: 12.56 } },
+  "Bexar Appraisal District": { residential: { medianPct: 1.0, cod: 7.89 }, commercial: { medianPct: 1.0, cod: 10.28 } },
+  "Montgomery Central Appraisal District": { residential: { medianPct: 1.0, cod: 8.22 }, commercial: { medianPct: 1.05, cod: 14.27 } },
+  "Grayson Central Appraisal District": { residential: { medianPct: 1.0, cod: 5.51 }, commercial: { medianPct: 1.02, cod: 10.26 } },
+};
+
+// IAAO Standard on Ratio Studies (2013) published acceptable COD ceilings by
+// property type — an absolute, external benchmark every county is measured
+// against on its own, not a comparison to other counties' assessment
+// practices. County character (urban core vs. rural/mixed, homogeneous vs.
+// varied housing/commercial stock) legitimately affects a county's own COD
+// for reasons that have nothing to do with assessment quality, so ranking
+// counties against each other's COD isn't a meaningful signal — measuring
+// each one against the same external professional standard is.
+const IAAO_COD_CEILING: Record<"residential" | "commercial", number> = {
+  residential: 15.0, // single-family / newer, homogeneous housing stock
+  commercial: 20.0, // income-producing / commercial property
+};
+
+// Deliberately small and bounded, and one-directional — a county within the
+// IAAO standard gets no adjustment (being well within an acceptable range
+// isn't evidence a protest would do worse than the real outcome-based base
+// rate), while a county whose own published COD exceeds the standard for its
+// property type gets a small nudge reflecting that extra equal-and-uniform
+// leverage. +0.15 percentage points of reduction per COD point over the IAAO
+// ceiling, capped at +2 points.
+const COD_ADJUSTMENT_PER_POINT = 0.0015;
+const COD_ADJUSTMENT_CAP_PCT = 0.02;
+
+export type AssessmentRatioInfo = { medianPct: number; cod: number; codOverCeiling: number } | null;
+
+export function getAssessmentRatioInfo(cad: string | null | undefined, category: PropertyCategory): AssessmentRatioInfo {
+  if (category === "unknown" || !cad) return null;
+  const entry = ASSESSMENT_RATIO[cad]?.[category];
+  if (!entry) return null;
+  return {
+    medianPct: entry.medianPct,
+    cod: entry.cod,
+    codOverCeiling: Math.max(0, entry.cod - IAAO_COD_CEILING[category]),
+  };
+}
+
+export function applyAssessmentRatioAdjustment(baseReductionPct: number, ratioInfo: AssessmentRatioInfo): number {
+  if (!ratioInfo) return baseReductionPct;
+  const bounded = Math.min(COD_ADJUSTMENT_CAP_PCT, ratioInfo.codOverCeiling * COD_ADJUSTMENT_PER_POINT);
+  return baseReductionPct + bounded;
 }
