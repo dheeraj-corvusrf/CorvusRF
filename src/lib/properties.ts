@@ -173,6 +173,27 @@ export async function deleteProperty(id: string): Promise<void> {
   if (error) throw error;
 }
 
+// Keeps this "latest bill" snapshot in sync with the real per-year history in
+// public.tax_bills (see src/lib/tax-bills.ts) whenever a bill is added there — so the
+// Deadlines page and dashboard home widget, which read these two columns directly,
+// show the latest bill without needing to know tax_bills exists.
+export async function updatePropertyBillSnapshot(
+  id: string,
+  snapshot: { paymentDueDate?: string; taxAmountDue?: number },
+): Promise<PropertyRecord> {
+  const update: Record<string, unknown> = {};
+  if (snapshot.paymentDueDate !== undefined) update.payment_due_date = snapshot.paymentDueDate;
+  if (snapshot.taxAmountDue !== undefined) update.tax_amount_due = snapshot.taxAmountDue;
+  const { data, error } = await supabase
+    .from("properties")
+    .update(update)
+    .eq("id", id)
+    .select(SELECT_COLUMNS)
+    .single();
+  if (error) throw error;
+  return fromRow(data as PropertyRow);
+}
+
 // CorvusRF has no live payment integration — there's no bank/county feed to confirm a
 // bill was actually paid, so this records the user's own "I paid this" action rather
 // than a verified payment event.

@@ -413,6 +413,63 @@ create policy "Admins can view all protest authorizations"
   on public.protest_authorizations for select
   using (public.is_admin());
 
+-- Per-tax-year bill/payment/refund history for a property — closes the loop on the
+-- savings estimate shown at intake, which otherwise never gets compared against what
+-- the county actually billed. `properties.tax_amount_due`/`payment_due_date`/`paid_at`
+-- stay as the "latest bill" snapshot the Deadlines page and dashboard home already
+-- read; this table is the real history behind them and is kept in sync on write
+-- rather than replacing those columns (see src/lib/tax-bills.ts).
+create table if not exists public.tax_bills (
+  id uuid primary key default gen_random_uuid(),
+  property_id uuid not null references public.properties (id) on delete cascade,
+  user_id uuid not null references auth.users (id) on delete cascade,
+  tax_year integer,
+  taxable_value numeric,
+  tax_rate numeric,
+  amount_due numeric,
+  due_date date,
+  penalty_date date,
+  source_document_id uuid references public.documents (id) on delete set null,
+  amount_paid numeric,
+  paid_at timestamptz,
+  payment_confirmation text,
+  refund_amount numeric,
+  refund_expected_at date,
+  refund_received_at timestamptz,
+  notes text,
+  created_at timestamptz not null default now()
+);
+
+alter table public.tax_bills enable row level security;
+
+drop policy if exists "Users can view their own tax bills" on public.tax_bills;
+create policy "Users can view their own tax bills"
+  on public.tax_bills for select
+  using (auth.uid() = user_id);
+
+drop policy if exists "Users can insert their own tax bills" on public.tax_bills;
+create policy "Users can insert their own tax bills"
+  on public.tax_bills for insert
+  with check (auth.uid() = user_id);
+
+-- Unlike properties/documents, tax bills are updated in place (mark paid, record a
+-- refund) rather than only ever inserted, so — unusually for this schema — this table
+-- needs an update policy.
+drop policy if exists "Users can update their own tax bills" on public.tax_bills;
+create policy "Users can update their own tax bills"
+  on public.tax_bills for update
+  using (auth.uid() = user_id);
+
+drop policy if exists "Users can delete their own tax bills" on public.tax_bills;
+create policy "Users can delete their own tax bills"
+  on public.tax_bills for delete
+  using (auth.uid() = user_id);
+
+drop policy if exists "Admins can view all tax bills" on public.tax_bills;
+create policy "Admins can view all tax bills"
+  on public.tax_bills for select
+  using (public.is_admin());
+
 -- ── ONE-TIME MANUAL STEP — do NOT run this as part of the routine schema paste ──
 -- After you have an account (sign up normally through the app first), run this once,
 -- by itself, substituting your real email, to make that account an admin:

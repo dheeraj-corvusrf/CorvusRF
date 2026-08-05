@@ -20,6 +20,7 @@ import type { Extraction } from "@/lib/document-ai";
 import { useAuth } from "@/lib/auth";
 import { addProperty } from "@/lib/properties";
 import { uploadDocument } from "@/lib/documents";
+import { addTaxBill, recordRefund } from "@/lib/tax-bills";
 
 export const Route = createFileRoute("/document-review")({
   head: () => ({
@@ -139,13 +140,54 @@ function DocumentReview() {
         });
         toast.success("Property added to your dashboard.");
 
+        let documentId: string | undefined;
         const file = takePendingFile();
         if (file) {
           try {
-            await uploadDocument(user.id, saved.id, file, eff.documentType);
+            const doc = await uploadDocument(user.id, saved.id, file, eff.documentType);
+            documentId = doc.id;
           } catch (err) {
             console.error(err);
             toast.error("Property saved, but the document itself couldn't be stored.");
+          }
+        }
+
+        // Makes the workflow cards below ("AI will track this bill" / "AI will track
+        // the refund") actually true instead of just displaying a message that goes
+        // nowhere — see src/lib/tax-bills.ts.
+        if (routed.some((r) => r.workflow === "tax_payment_tracking")) {
+          try {
+            await addTaxBill(
+              user.id,
+              saved.id,
+              {
+                taxYear: eff.taxYear ?? undefined,
+                taxableValue: eff.taxableValue ?? undefined,
+                taxRate: eff.taxRate ?? undefined,
+                amountDue: eff.taxAmountDue ?? undefined,
+                dueDate: eff.paymentDueDate ?? undefined,
+                penaltyDate: eff.penaltyDate ?? undefined,
+              },
+              documentId,
+            );
+            toast.success("Tax bill saved. Track it under Dashboard → Tax Bills.");
+          } catch (err) {
+            console.error(err);
+            toast.error("Property saved, but the tax bill couldn't be tracked.");
+          }
+        } else if (routed.some((r) => r.workflow === "refund_tracking")) {
+          try {
+            const bill = await addTaxBill(
+              user.id,
+              saved.id,
+              { taxYear: eff.taxYear ?? undefined, notes: "From uploaded refund notice" },
+              documentId,
+            );
+            await recordRefund(bill.id, { amount: eff.refundAmount ?? undefined });
+            toast.success("Refund saved. Track it under Dashboard → Tax Bills.");
+          } catch (err) {
+            console.error(err);
+            toast.error("Property saved, but the refund couldn't be tracked.");
           }
         }
       } catch (err) {
@@ -457,23 +499,36 @@ function DocumentReview() {
             {workflows.length > 1 ? "s" : ""}.
           </p>
           <div className="mt-4 grid gap-3 md:grid-cols-2">
-            {workflows.map((w) => (
-              <div key={w.workflow} className="card-elev p-5">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="badge-soft">{w.primary ? "Primary" : "Also detected"}</span>
-                  <span className="text-xs text-muted-foreground">{w.label}</span>
+            {workflows.map((w) => {
+              const isBillOrRefund =
+                w.workflow === "tax_payment_tracking" || w.workflow === "refund_tracking";
+              return (
+                <div key={w.workflow} className="card-elev p-5">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="badge-soft">{w.primary ? "Primary" : "Also detected"}</span>
+                    <span className="text-xs text-muted-foreground">{w.label}</span>
+                  </div>
+                  <p className="mt-3">{w.message}</p>
+                  <div className="mt-4 flex gap-2">
+                    {isBillOrRefund ? (
+                      <Link
+                        to="/dashboard/tax-bills"
+                        className="btn-primary btn-primary-hover text-sm py-2"
+                      >
+                        View Tax Bills
+                      </Link>
+                    ) : (
+                      <Link to="/ai-report" className="btn-primary btn-primary-hover text-sm py-2">
+                        Continue
+                      </Link>
+                    )}
+                    <Link to="/dashboard" className="btn-outline text-sm py-2">
+                      {user ? "View on Dashboard" : "Go to Dashboard"}
+                    </Link>
+                  </div>
                 </div>
-                <p className="mt-3">{w.message}</p>
-                <div className="mt-4 flex gap-2">
-                  <Link to="/ai-report" className="btn-primary btn-primary-hover text-sm py-2">
-                    Continue
-                  </Link>
-                  <Link to="/dashboard" className="btn-outline text-sm py-2">
-                    {user ? "View on Dashboard" : "Go to Dashboard"}
-                  </Link>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
           {(lowConfidence || mismatch) && (
             <p className="mt-4 text-sm text-muted-foreground">
