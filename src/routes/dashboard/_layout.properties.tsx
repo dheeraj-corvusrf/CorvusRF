@@ -7,8 +7,10 @@ import { listProperties, deleteProperty, type PropertyRecord } from "@/lib/prope
 import { useSavingsBackfill } from "@/hooks/use-savings-backfill";
 import { listProtests, type ProtestRecord, type ProtestStatus } from "@/lib/protests";
 import { listHealthScores, type PropertyAiScore } from "@/lib/property-scores";
+import { getPropertyProtestStatus, type ActionStatus } from "@/lib/portfolio-status";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ProtestAuthorizationFlow } from "@/components/ProtestAuthorizationFlow";
+import { PortfolioTabs } from "@/components/PortfolioTabs";
 
 export const Route = createFileRoute("/dashboard/_layout/properties")({
   component: Properties,
@@ -99,6 +101,10 @@ function Properties() {
         </Link>
       </div>
 
+      <div className="mt-4">
+        <PortfolioTabs />
+      </div>
+
       <div className="mt-6">
         {listError && <p className="mb-4 text-sm text-destructive">{listError}</p>}
         {propertiesLoading ? (
@@ -120,7 +126,7 @@ function Properties() {
                     <div>
                       <div className="flex items-center gap-2">
                         <span className="text-xs text-muted-foreground">{p.cad}</span>
-                        <DeadlineBadge protestDeadline={p.protestDeadline} />
+                        <ActionStatusBadge property={p} protests={protests} />
                       </div>
                       <h3 className="font-serif text-xl font-semibold">{p.address}</h3>
                       <p className="text-sm text-muted-foreground">
@@ -194,28 +200,26 @@ function Properties() {
   );
 }
 
-// Surfaces deadline urgency right on the property card — previously the only way
-// to see this was a separate trip to the Deadlines tab, so a property that
-// actually needed action didn't look any different from one that didn't.
-function DeadlineBadge({ protestDeadline }: { protestDeadline: string | null }) {
-  if (!protestDeadline) return null;
-  const daysLeft = Math.ceil(
-    (new Date(protestDeadline).getTime() - Date.now()) / (1000 * 60 * 60 * 24),
-  );
-  const label =
-    daysLeft < 0
-      ? "Deadline passed"
-      : daysLeft === 0
-        ? "Deadline today"
-        : `Deadline in ${daysLeft} day${daysLeft === 1 ? "" : "s"}`;
-  const urgent = daysLeft <= 7;
-  return (
-    <span
-      className={`badge-soft ${urgent ? "text-destructive" : "text-muted-foreground"}`}
-    >
-      {label}
-    </span>
-  );
+// Surfaces the same needs_action/in_progress/resolved/on_track status the
+// dashboard home nudge banner is driven by (src/lib/portfolio-status.ts) — a
+// property never looks different here than it does in that banner, since both
+// read from the one shared helper.
+const STATUS_TONE: Record<ActionStatus, string> = {
+  needs_action: "text-destructive",
+  in_progress: "text-accent",
+  resolved: "text-success",
+  on_track: "text-muted-foreground",
+};
+
+function ActionStatusBadge({
+  property,
+  protests,
+}: {
+  property: PropertyRecord;
+  protests: ProtestRecord[];
+}) {
+  const { status, label } = getPropertyProtestStatus(property, protests);
+  return <span className={`badge-soft ${STATUS_TONE[status]}`}>{label}</span>;
 }
 
 // Only appears once the background AI health-score call (fired from addProperty())

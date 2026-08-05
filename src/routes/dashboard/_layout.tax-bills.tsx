@@ -14,6 +14,7 @@ import {
   type TaxBillRecord,
 } from "@/lib/tax-bills";
 import { Skeleton } from "@/components/ui/skeleton";
+import { PortfolioTabs } from "@/components/PortfolioTabs";
 
 export const Route = createFileRoute("/dashboard/_layout/tax-bills")({
   component: TaxBills,
@@ -133,6 +134,12 @@ function TaxBills() {
     }
   }
 
+  const dueCount = bills.filter((b) => !b.paidAt).length;
+  const paidCount = bills.filter((b) => !!b.paidAt).length;
+  const refundPendingCount = bills.filter(
+    (b) => (b.refundAmount != null || b.refundExpectedAt) && !b.refundReceivedAt,
+  ).length;
+
   const groups = properties
     .map((property) => ({
       property,
@@ -156,6 +163,20 @@ function TaxBills() {
           {showAddForm ? "Cancel" : "Add Tax Bill"}
         </button>
       </div>
+
+      <div className="mt-4">
+        <PortfolioTabs />
+      </div>
+
+      {bills.length > 0 && (
+        <p className="mt-4 text-sm text-muted-foreground">
+          {dueCount} bill{dueCount === 1 ? "" : "s"} due, {paidCount} paid
+          {refundPendingCount > 0
+            ? `, ${refundPendingCount} refund${refundPendingCount === 1 ? "" : "s"} pending`
+            : ""}
+          .
+        </p>
+      )}
 
       {showAddForm && (
         <form onSubmit={handleAdd} className="mt-6 card-elev p-6 grid gap-3 sm:grid-cols-2">
