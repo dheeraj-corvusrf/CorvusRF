@@ -278,6 +278,58 @@ create policy "Admins can update all protests"
   on public.protests for update
   using (public.is_admin());
 
+-- AI-generated case prep (see src/lib/protest-case.ts), written by the user's own
+-- client right after they request a protest — not a verified filing outcome, same
+-- self-reported precedent as tax_bills.paid_at/refund_amount. RLS is row-scoped by
+-- user_id like every other table here; it can't distinguish "only these columns,"
+-- so this does technically let a user edit their own status/notes too, same as they
+-- always could edit their own tax_bills payment fields.
+alter table public.protests add column if not exists strategy_recommendation text;
+alter table public.protests add column if not exists strategy_confidence_pct integer;
+alter table public.protests add column if not exists strategy_rationale text;
+alter table public.protests add column if not exists case_prep_generated_at timestamptz;
+
+drop policy if exists "Users can update their own protests" on public.protests;
+create policy "Users can update their own protests"
+  on public.protests for update
+  using (auth.uid() = user_id);
+
+-- Trackable evidence checklist for a protest case — one row per AI-suggested
+-- evidence item, optionally linked to an uploaded document once the user provides
+-- it. Generated from the same "evidence" AI module the paywalled AI Report page
+-- already uses (src/lib/ai-report-modules.ts), just persisted against the real
+-- case instead of only rendering once in a report view.
+create table if not exists public.protest_evidence_items (
+  id uuid primary key default gen_random_uuid(),
+  protest_id uuid not null references public.protests (id) on delete cascade,
+  user_id uuid not null references auth.users (id) on delete cascade,
+  label text not null,
+  document_id uuid references public.documents (id) on delete set null,
+  created_at timestamptz not null default now()
+);
+
+alter table public.protest_evidence_items enable row level security;
+
+drop policy if exists "Users can view their own evidence items" on public.protest_evidence_items;
+create policy "Users can view their own evidence items"
+  on public.protest_evidence_items for select
+  using (auth.uid() = user_id);
+
+drop policy if exists "Users can insert their own evidence items" on public.protest_evidence_items;
+create policy "Users can insert their own evidence items"
+  on public.protest_evidence_items for insert
+  with check (auth.uid() = user_id);
+
+drop policy if exists "Users can update their own evidence items" on public.protest_evidence_items;
+create policy "Users can update their own evidence items"
+  on public.protest_evidence_items for update
+  using (auth.uid() = user_id);
+
+drop policy if exists "Admins can view all evidence items" on public.protest_evidence_items;
+create policy "Admins can view all evidence items"
+  on public.protest_evidence_items for select
+  using (public.is_admin());
+
 -- Original uploaded documents (appraisal notices, tax bills, etc.), persisted per
 -- property so the dashboard's Documents tab lists real files instead of only the
 -- AI-extracted field values. The file itself lives in the "documents" Storage bucket

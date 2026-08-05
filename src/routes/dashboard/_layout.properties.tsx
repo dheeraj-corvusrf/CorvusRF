@@ -11,6 +11,8 @@ import { getPropertyProtestStatus, type ActionStatus } from "@/lib/portfolio-sta
 import { Skeleton } from "@/components/ui/skeleton";
 import { ProtestAuthorizationFlow } from "@/components/ProtestAuthorizationFlow";
 import { PortfolioTabs } from "@/components/PortfolioTabs";
+import { CaseDetailModal } from "@/components/CaseDetailModal";
+import { generateCasePrep } from "@/lib/protest-case";
 
 export const Route = createFileRoute("/dashboard/_layout/properties")({
   component: Properties,
@@ -34,6 +36,7 @@ function Properties() {
   const [protests, setProtests] = useState<ProtestRecord[]>([]);
   const [healthScores, setHealthScores] = useState<Record<string, PropertyAiScore>>({});
   const [authorizingProperty, setAuthorizingProperty] = useState<PropertyRecord | null>(null);
+  const [caseProperty, setCaseProperty] = useState<PropertyRecord | null>(null);
 
   useEffect(() => {
     if (!user) return;
@@ -148,7 +151,12 @@ function Properties() {
                       Upgrade
                     </Link>
                     {existingProtest ? (
-                      <span className="badge-soft">Protest {STATUS_LABEL[existingProtest.status]}</span>
+                      <>
+                        <span className="badge-soft">Protest {STATUS_LABEL[existingProtest.status]}</span>
+                        <button onClick={() => setCaseProperty(p)} className="btn-outline">
+                          View Case
+                        </button>
+                      </>
                     ) : (
                       <button
                         onClick={() => setAuthorizingProperty(p)}
@@ -193,7 +201,23 @@ function Properties() {
           onOpenChange={(open) => {
             if (!open) setAuthorizingProperty(null);
           }}
-          onDone={(created) => setProtests((prev) => [created, ...prev])}
+          onDone={(created) => {
+            setProtests((prev) => [created, ...prev]);
+            // Best-effort — the protest request itself is already saved regardless
+            // of whether case-prep generation succeeds (see protest-case.ts).
+            generateCasePrep(created.id, user.id, authorizingProperty).catch((err) =>
+              console.error("Case prep generation failed:", err),
+            );
+          }}
+        />
+      )}
+
+      {caseProperty && user && (
+        <CaseDetailModal
+          userId={user.id}
+          property={caseProperty}
+          protest={protests.find((pr) => pr.propertyId === caseProperty.id)!}
+          onClose={() => setCaseProperty(null)}
         />
       )}
     </div>
