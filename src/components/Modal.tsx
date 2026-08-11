@@ -20,7 +20,10 @@ export function Modal({
   wide?: boolean;
 }) {
   return createPortal(
-    <div className="fixed inset-0 z-50 grid place-items-center p-4 bg-primary/60 backdrop-blur-sm" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 grid place-items-center p-4 bg-primary/60 backdrop-blur-sm backdrop-fade-in"
+      onClick={onClose}
+    >
       <div
         className={`relative overflow-hidden card-elev ${wide ? "w-[75vw] max-w-[75vw]" : "w-full max-w-lg"}`}
         onClick={(e) => e.stopPropagation()}

@@ -41,6 +41,10 @@
   --color-brand-foreground: var(--brand-foreground);
   --shadow-elev: 0 10px 30px -12px oklch(0.18 0.06 250 / 0.25);
   --shadow-card: 0 1px 2px oklch(0 0 0 / 0.04), 0 8px 24px -12px oklch(0.18 0.06 250 / 0.12);
+  /* Thin bright band on a wide transparent field — accent-foreground is the
+     same near-white in both light and dark mode, so one gradient works for
+     both without a dark-mode override. */
+  --btn-sheen-gradient: linear-gradient(115deg, transparent 42%, oklch(1 0 0 / 0.35) 50%, transparent 58%);
 }
 
 :root {
@@ -155,6 +159,8 @@
 @utility btn-primary {
   display: inline-flex; align-items: center; justify-content: center;
   gap: 0.5rem;
+  position: relative;
+  overflow: hidden;
   /* Uses the accent blue rather than --color-primary (navy) so every primary CTA
      across the site reads as the same blue, not a mix of navy and blue buttons. */
   background-color: var(--color-accent);
@@ -169,12 +175,19 @@
      call site also opted into the extra color-darken modifier. */
   &:hover { transform: translateY(-1px); box-shadow: 0 14px 34px -14px oklch(0.18 0.06 250 / 0.32); }
   &:active { transform: translateY(0) scale(0.97); }
+  &::after { content: ""; position: absolute; inset: 0; background: var(--btn-sheen-gradient); background-size: 250% 100%; background-position: 150% 0; pointer-events: none; }
+  @media (prefers-reduced-motion: no-preference) {
+    &::after { transition: background-position .6s ease; }
+    &:hover::after { background-position: -50% 0; }
+  }
 }
 @utility btn-primary-hover { &:hover { background-color: oklch(0.54 0.19 255); } }
 
 @utility btn-accent {
   display: inline-flex; align-items: center; justify-content: center;
   gap: 0.5rem;
+  position: relative;
+  overflow: hidden;
   background-color: var(--color-accent);
   color: var(--color-accent-foreground);
   padding: 0.75rem 1.25rem;
@@ -188,6 +201,14 @@
     box-shadow: 0 14px 34px -14px oklch(0.18 0.06 250 / 0.32);
   }
   &:active { transform: translateY(0) scale(0.97); }
+  /* Diagonal light sheen that sweeps across on hover — a thin bright band
+     riding a wide transparent gradient, slid via background-position rather
+     than a second animated element, so it never affects layout/hit-testing. */
+  &::after { content: ""; position: absolute; inset: 0; background: var(--btn-sheen-gradient); background-size: 250% 100%; background-position: 150% 0; pointer-events: none; }
+  @media (prefers-reduced-motion: no-preference) {
+    &::after { transition: background-position .6s ease; }
+    &:hover::after { background-position: -50% 0; }
+  }
 }
 
 @utility btn-outline {
@@ -245,6 +266,44 @@
 
 @keyframes shimmer { 0%{background-position:-400px 0} 100%{background-position:400px 0} }
 .locked-blur { filter: blur(6px); user-select: none; pointer-events: none; }
+
+/* Cascading entrance for list/grid children (stat cards, table rows, checklist
+   items) — same fade+rise as .card-elev's card-enter, but as an opt-in utility
+   since not every list item should animate (e.g. items added one-at-a-time by
+   user action, not a bulk initial render). Callers pair this with an inline
+   `animation-delay` per index, same convention as .radiate-ring below. */
+@keyframes list-item-enter {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@utility list-item-enter {
+  @media (prefers-reduced-motion: no-preference) {
+    animation: list-item-enter .45s ease-out both;
+  }
+}
+
+/* Fade for Modal.tsx's backdrop — the inner box already animates in via
+   card-enter (inherited from .card-elev), but the backdrop itself used to
+   pop in instantly. Matches radix Dialog's own fade-in-0/fade-out-0. */
+@keyframes backdrop-fade { from { opacity: 0; } to { opacity: 1; } }
+@utility backdrop-fade-in {
+  @media (prefers-reduced-motion: no-preference) {
+    animation: backdrop-fade .2s ease-out both;
+  }
+}
+
+/* Brief fade+rise replayed on every client-side route change (see
+   AppShell.tsx) — keyed on pathname so React remounts this wrapper and the
+   animation restarts. Never touches the prerendered HTML's first paint. */
+@keyframes page-enter {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@utility page-enter {
+  @media (prefers-reduced-motion: no-preference) {
+    animation: page-enter .3s ease-out both;
+  }
+}
 
 /* Ambient motion for the homepage hero scene (clouds drifting, sun glow
    breathing, trees swaying) — each element carries its own animation-duration/

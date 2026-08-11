@@ -16,6 +16,7 @@ import { askRouter } from "@/lib/ask-router";
 import { getDeadlineNudge } from "@/lib/deadline-nudge";
 import { getHearingNudge } from "@/lib/hearing-nudge";
 import { AnimatedNumber } from "@/components/AnimatedNumber";
+import { useFileDrop } from "@/hooks/use-file-drop";
 
 export const Route = createFileRoute("/dashboard/_layout/")({
   component: Overview,
@@ -199,9 +200,7 @@ function Overview() {
     .sort((a, b) => b.ts - a.ts)
     .slice(0, 8);
 
-  async function onUploadNotice(e: React.ChangeEvent<HTMLInputElement>) {
-    const f = e.target.files?.[0];
-    if (!f) return;
+  async function onUploadNotice(f: File) {
     setUploading(true);
     try {
       await classifyAndStoreDocument(f);
@@ -211,6 +210,11 @@ function Overview() {
       setUploading(false);
     }
   }
+
+  const { isDragging: isDraggingNotice, dropHandlers: noticeDropHandlers } = useFileDrop(
+    onUploadNotice,
+    uploading,
+  );
 
   async function handleDeleteProperty(id: string) {
     if (!window.confirm("Remove this property from your dashboard?")) return;
@@ -290,7 +294,11 @@ function Overview() {
 
       {/* Entry points */}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Link to="/intake" onClick={() => resetIntake()} className="card-elev p-4 hover:bg-secondary/40">
+        <Link
+          to="/intake"
+          onClick={() => resetIntake()}
+          className="card-elev p-4 transition-all hover:-translate-y-0.5 hover:bg-secondary/40 hover:shadow-elev"
+        >
           <span className="grid h-9 w-9 place-items-center rounded-lg bg-accent/15 text-accent">
             <Plus className="h-4 w-4" />
           </span>
@@ -302,7 +310,11 @@ function Overview() {
           </p>
         </Link>
 
-        <Link to="/dashboard/bpp-accounts" className="card-elev p-4 hover:bg-secondary/40">
+        <Link
+          to="/dashboard/bpp-accounts"
+          className="card-elev p-4 transition-all hover:-translate-y-0.5 hover:bg-secondary/40 hover:shadow-elev"
+          style={{ animationDelay: "60ms" }}
+        >
           <span className="grid h-9 w-9 place-items-center rounded-lg bg-accent/15 text-accent">
             <Briefcase className="h-4 w-4" />
           </span>
@@ -312,18 +324,39 @@ function Overview() {
           <p className="mt-1 text-xs text-muted-foreground">Track a business personal property account.</p>
         </Link>
 
-        <label className={`card-elev p-4 cursor-pointer block ${uploading ? "opacity-60 pointer-events-none" : "hover:bg-secondary/40"}`}>
+        <label
+          className={`card-elev p-4 cursor-pointer block transition-all ${
+            uploading ? "opacity-60 pointer-events-none" : "hover:-translate-y-0.5 hover:bg-secondary/40 hover:shadow-elev"
+          } ${isDraggingNotice ? "border-accent bg-accent/5" : ""}`}
+          style={{ animationDelay: "120ms" }}
+          {...noticeDropHandlers}
+        >
           <span className="grid h-9 w-9 place-items-center rounded-lg bg-accent/15 text-accent">
             <Upload className="h-4 w-4" />
           </span>
-          <div className="mt-3 font-medium">{uploading ? "Reading document…" : "Upload Notice"}</div>
+          <div className="mt-3 font-medium">
+            {isDraggingNotice ? "Drop to upload" : uploading ? "Reading document…" : "Upload Notice"}
+          </div>
           <p className="mt-1 text-xs text-muted-foreground">
             Drop any tax notice — AI extracts fields and routes it.
           </p>
-          <input type="file" className="hidden" accept=".pdf,image/*" disabled={uploading} onChange={onUploadNotice} />
+          <input
+            type="file"
+            className="hidden"
+            accept=".pdf,image/*"
+            disabled={uploading}
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) onUploadNotice(f);
+            }}
+          />
         </label>
 
-        <form onSubmit={submitAsk} className="card-elev p-4">
+        <form
+          onSubmit={submitAsk}
+          className="card-elev p-4 transition-all hover:-translate-y-0.5 hover:shadow-elev"
+          style={{ animationDelay: "180ms" }}
+        >
           <span className="grid h-9 w-9 place-items-center rounded-lg bg-accent/15 text-accent">
             <Sparkles className="h-4 w-4" />
           </span>
@@ -340,11 +373,11 @@ function Overview() {
 
       {/* Stats */}
       <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-5">
-        <StatCard label="Properties" value={loaded ? properties.length : null} to="/dashboard/properties" />
-        <StatCard label="BPP Accounts" value={loaded ? bppAccounts.length : null} to="/dashboard/bpp-accounts" />
-        <StatCard label="Documents" value={loaded ? documents.length : null} to="/dashboard/documents" />
-        <StatCard label="Cases" value={loaded ? protests.length : null} to="/dashboard/properties" />
-        <StatCard label="Est. Savings" value={loaded ? estimatedSavings : null} format={currency} />
+        <StatCard label="Properties" value={loaded ? properties.length : null} to="/dashboard/properties" delayMs={0} />
+        <StatCard label="BPP Accounts" value={loaded ? bppAccounts.length : null} to="/dashboard/bpp-accounts" delayMs={40} />
+        <StatCard label="Documents" value={loaded ? documents.length : null} to="/dashboard/documents" delayMs={80} />
+        <StatCard label="Cases" value={loaded ? protests.length : null} to="/dashboard/properties" delayMs={120} />
+        <StatCard label="Est. Savings" value={loaded ? estimatedSavings : null} format={currency} delayMs={160} />
       </div>
 
       {properties.length > 0 && (
@@ -430,11 +463,13 @@ function StatCard({
   value,
   to,
   format,
+  delayMs = 0,
 }: {
   label: string;
   value: number | null;
   to?: "/dashboard/properties" | "/dashboard/bpp-accounts" | "/dashboard/documents";
   format?: (n: number) => string;
+  delayMs?: number;
 }) {
   const content = (
     <>
@@ -446,12 +481,20 @@ function StatCard({
   );
   if (to) {
     return (
-      <Link to={to} className="card-elev p-4 block transition-colors hover:bg-secondary/40">
+      <Link
+        to={to}
+        className="card-elev p-4 block transition-all hover:-translate-y-0.5 hover:bg-secondary/40 hover:shadow-elev"
+        style={{ animationDelay: `${delayMs}ms` }}
+      >
         {content}
       </Link>
     );
   }
-  return <div className="card-elev p-4">{content}</div>;
+  return (
+    <div className="card-elev p-4" style={{ animationDelay: `${delayMs}ms` }}>
+      {content}
+    </div>
+  );
 }
 
 const PORTFOLIO_COLORS = ["var(--accent)", "var(--success)", "var(--warning)", "#8b5cf6", "#ec4899", "#14b8a6"];

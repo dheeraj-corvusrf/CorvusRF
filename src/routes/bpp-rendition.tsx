@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { HeroBackground } from "@/components/HeroBackground";
+import { ScrollReveal } from "@/components/ScrollReveal";
 
 export const Route = createFileRoute("/bpp-rendition")({
   head: () => ({
@@ -39,11 +40,13 @@ function Page() {
           </p>
         </div>
         <div className="mt-10 grid gap-5 md:grid-cols-2">
-          {items.map(([t, d]) => (
-            <div key={t} className="card-elev p-6">
-              <h3 className="font-semibold text-lg">{t}</h3>
-              <p className="mt-2 text-muted-foreground">{d}</p>
-            </div>
+          {items.map(([t, d], i) => (
+            <ScrollReveal key={t} delay={i * 80}>
+              <div className="card-elev p-6 transition-all hover:-translate-y-0.5 hover:shadow-elev">
+                <h3 className="font-semibold text-lg">{t}</h3>
+                <p className="mt-2 text-muted-foreground">{d}</p>
+              </div>
+            </ScrollReveal>
           ))}
         </div>
         <div className="mt-8">

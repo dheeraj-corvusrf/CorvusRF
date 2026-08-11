@@ -163,7 +163,7 @@ function AdminPanel() {
           ) : protests.length === 0 ? (
             <p className="text-sm text-muted-foreground">No protest requests yet.</p>
           ) : (
-            protests.map((p) => {
+            protests.map((p, i) => {
               const requester = users.find((u) => u.id === p.userId);
               return (
                 <ProtestRow
@@ -177,6 +177,7 @@ function AdminPanel() {
                   onStatusChange={(status) => handleProtestStatusChange(p.id, status)}
                   onNotesChange={(notes) => handleProtestNotesChange(p.id, notes)}
                   onOpenCase={() => setCaseRecord(p)}
+                  delayMs={Math.min(i * 40, 320)}
                 />
               );
             })
@@ -195,7 +196,7 @@ function AdminPanel() {
             <UserRowSkeleton />
           </>
         ) : (
-          users.map((u) => (
+          users.map((u, i) => (
             <UserRow
               key={u.id}
               record={u}
@@ -205,6 +206,7 @@ function AdminPanel() {
               onPlanChange={(plan) => handlePlanChange(u.id, plan)}
               onToggleAdmin={(makeAdmin) => handleToggleAdmin(u.id, makeAdmin)}
               onDelete={() => handleDeleteUser(u.id)}
+              delayMs={Math.min(i * 40, 320)}
             />
           ))
         )}
@@ -335,6 +337,7 @@ function ProtestRow({
   onStatusChange,
   onNotesChange,
   onOpenCase,
+  delayMs = 0,
 }: {
   record: AdminProtestRecord;
   requesterEmail: string;
@@ -343,6 +346,7 @@ function ProtestRow({
   onStatusChange: (status: ProtestStatus) => void;
   onNotesChange: (notes: string) => Promise<void>;
   onOpenCase: () => void;
+  delayMs?: number;
 }) {
   const [notes, setNotes] = useState(record.notes ?? "");
   const [savingNotes, setSavingNotes] = useState(false);
@@ -418,7 +422,7 @@ function ProtestRow({
   }
 
   return (
-    <div className="card-elev p-4">
+    <div className="card-elev p-4" style={{ animationDelay: `${delayMs}ms` }}>
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
           <div className="font-medium">{record.propertyAddress ?? "Property removed"}</div>
@@ -539,6 +543,7 @@ function UserRow({
   onPlanChange,
   onToggleAdmin,
   onDelete,
+  delayMs = 0,
 }: {
   record: AdminUserRecord;
   isSelf: boolean;
@@ -547,9 +552,10 @@ function UserRow({
   onPlanChange: (plan: PlanValue) => void;
   onToggleAdmin: (makeAdmin: boolean) => void;
   onDelete: () => void;
+  delayMs?: number;
 }) {
   return (
-    <div className="card-elev p-6">
+    <div className="card-elev p-6" style={{ animationDelay: `${delayMs}ms` }}>
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <h3 className="font-serif text-lg font-semibold">

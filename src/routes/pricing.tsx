@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
 import { HeroBackground } from "@/components/HeroBackground";
+import { ScrollReveal } from "@/components/ScrollReveal";
 import {
   startCheckout,
   openBillingPortal,
@@ -233,7 +234,8 @@ function Page() {
       )}
 
       <div className="mt-6 grid gap-5 md:grid-cols-3">
-        <div className="card-elev p-6 flex flex-col">
+        <ScrollReveal>
+        <div className="card-elev p-6 flex flex-col h-full transition-all hover:-translate-y-0.5 hover:shadow-elev">
           <div className="badge-soft self-start">No account required</div>
           <h3 className="mt-3 font-serif text-2xl">Free AI Review</h3>
           <div className="mt-2 flex items-baseline gap-1">
@@ -258,11 +260,12 @@ function Page() {
             </Link>
           </div>
         </div>
+        </ScrollReveal>
 
-        {PAID_PLANS.map((p) => (
+        {PAID_PLANS.map((p, i) => (
+          <ScrollReveal key={p.tier} delay={(i + 1) * 100}>
           <div
-            key={p.tier}
-            className={`card-elev p-6 flex flex-col ${p.highlight ? "ring-2 ring-accent" : ""}`}
+            className={`card-elev p-6 flex flex-col h-full transition-all hover:-translate-y-0.5 hover:shadow-elev ${p.highlight ? "ring-2 ring-accent" : ""}`}
           >
             <div className="badge-soft self-start">{p.tag}</div>
             <h3 className="mt-3 font-serif text-2xl">{p.name}</h3>
@@ -332,6 +335,7 @@ function Page() {
               )}
             </div>
           </div>
+          </ScrollReveal>
         ))}
       </div>
       </div>

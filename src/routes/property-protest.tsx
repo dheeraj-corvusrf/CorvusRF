@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { HeroBackground } from "@/components/HeroBackground";
+import { ScrollReveal } from "@/components/ScrollReveal";
 
 export const Route = createFileRoute("/property-protest")({
   head: () => ({
@@ -38,9 +39,11 @@ function Page() {
             communication, hearings, and settlement.
           </p>
           <ul className="mt-6 grid gap-3">
-            {bullets.map((b) => (
-              <li key={b} className="flex gap-2 text-foreground/90">
-                <span className="mt-2 h-1.5 w-1.5 rounded-full bg-accent" /> {b}
+            {bullets.map((b, i) => (
+              <li key={b}>
+                <ScrollReveal delay={i * 80} className="flex gap-2 text-foreground/90">
+                  <span className="mt-2 h-1.5 w-1.5 rounded-full bg-accent" /> {b}
+                </ScrollReveal>
               </li>
             ))}
           </ul>
