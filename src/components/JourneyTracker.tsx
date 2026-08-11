@@ -30,7 +30,11 @@ const STATUS_RANK: Record<ProtestStatus, number> = {
   requested: 1,
   filed: 2,
   under_review: 3,
+  offer_received: 3,
   hearing_scheduled: 4,
+  decision_received: 4,
+  appealing: 4,
+  arbitrating: 4,
   resolved: 5,
 };
 

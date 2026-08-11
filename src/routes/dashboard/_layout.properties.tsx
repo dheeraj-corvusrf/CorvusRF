@@ -22,7 +22,11 @@ const STATUS_LABEL: Record<ProtestStatus, string> = {
   requested: "Requested",
   filed: "Filed",
   under_review: "Under Review",
+  offer_received: "Offer Received",
   hearing_scheduled: "Hearing Scheduled",
+  decision_received: "Decision Received",
+  appealing: "Appealing",
+  arbitrating: "Arbitrating",
   resolved: "Resolved",
 };
 

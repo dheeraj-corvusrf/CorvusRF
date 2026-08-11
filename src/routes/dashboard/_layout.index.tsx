@@ -24,7 +24,11 @@ const STATUS_LABEL: Record<ProtestStatus, string> = {
   requested: "Requested",
   filed: "Filed",
   under_review: "Under Review",
+  offer_received: "Offer Received",
   hearing_scheduled: "Hearing Scheduled",
+  decision_received: "Decision Received",
+  appealing: "Appealing",
+  arbitrating: "Arbitrating",
   resolved: "Resolved",
 };
 
@@ -439,7 +443,11 @@ const STATUS_COLORS: Record<ProtestStatus, string> = {
   requested: "var(--muted-foreground)",
   filed: "var(--accent)",
   under_review: "var(--warning)",
+  offer_received: "#f59e0b",
   hearing_scheduled: "#8b5cf6",
+  decision_received: "#0ea5e9",
+  appealing: "#ec4899",
+  arbitrating: "#ec4899",
   resolved: "var(--success)",
 };
 
