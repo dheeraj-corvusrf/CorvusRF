@@ -49,6 +49,10 @@ type Extraction = {
   hearingInstructions: string | null;
   paymentDueDate: string | null;
   taxAmountDue: number | null;
+  taxableValue: number | null;
+  taxRate: number | null;
+  penaltyDate: string | null;
+  refundAmount: number | null;
   pinOrEpin: string | null;
   exemptions: string[] | null;
   confidence: number;
@@ -62,11 +66,15 @@ Rules:
 - Money values are numbers (no commas, no $).
 - Dates in ISO YYYY-MM-DD format, EXCEPT hearingTime which is a plain time string exactly as printed (e.g. "9:00 AM").
 - hearingInstructions: if the document states how the hearing will be conducted, what documents/evidence to bring, any deadlines tied to the hearing, or other hearing-day instructions, copy that text VERBATIM (word-for-word, not summarized or reworded). If the document has no such instructions, return null.
+- taxableValue is the value the tax rate was actually applied to on a "Tax Bill / Statement" (may differ from noticeValue due to exemptions) — null on other document types.
+- taxRate is the combined/total tax rate shown on a tax bill, as a plain decimal (e.g. "2.1" for 2.1%, not 0.021) — null if not shown.
+- penaltyDate is the date penalty/interest begins accruing on an unpaid bill, if shown — null otherwise.
+- refundAmount is the dollar amount of a refund on a "Refund Notice" — null on other document types.
 - documentType must be one of: "Real Property Appraisal Notice", "BPP Rendition Form", "BPP Appraisal Notice", "Tax Bill / Statement", "Hearing Notice / ARB", "Refund Notice", "EPIN / PIN Notice", "Exemption Notice", "Other".
 - confidence is a single 0..1 score for the overall extraction quality (OCR clarity + completeness of key fields).
 - Return ONLY a JSON object matching the schema. No prose.`;
 
-const SCHEMA_HINT = `{"documentType":"...","ownerName":null,"propertyName":null,"propertyAddress":null,"situsAddress":null,"county":null,"cadName":null,"accountNumber":null,"parcelId":null,"taxYear":null,"noticeValue":null,"landValue":null,"improvementValue":null,"bppValue":null,"priorValue":null,"noticeDate":null,"mailDate":null,"protestDeadline":null,"hearingDate":null,"hearingTime":null,"hearingInstructions":null,"paymentDueDate":null,"taxAmountDue":null,"pinOrEpin":null,"exemptions":null,"confidence":0.0,"reasoning":null}`;
+const SCHEMA_HINT = `{"documentType":"...","ownerName":null,"propertyName":null,"propertyAddress":null,"situsAddress":null,"county":null,"cadName":null,"accountNumber":null,"parcelId":null,"taxYear":null,"noticeValue":null,"landValue":null,"improvementValue":null,"bppValue":null,"priorValue":null,"noticeDate":null,"mailDate":null,"protestDeadline":null,"hearingDate":null,"hearingTime":null,"hearingInstructions":null,"paymentDueDate":null,"taxAmountDue":null,"taxableValue":null,"taxRate":null,"penaltyDate":null,"refundAmount":null,"pinOrEpin":null,"exemptions":null,"confidence":0.0,"reasoning":null}`;
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -159,6 +167,10 @@ Deno.serve(async (req: Request) => {
       hearingInstructions: parsed.hearingInstructions ?? null,
       paymentDueDate: parsed.paymentDueDate ?? null,
       taxAmountDue: parsed.taxAmountDue ?? null,
+      taxableValue: parsed.taxableValue ?? null,
+      taxRate: parsed.taxRate ?? null,
+      penaltyDate: parsed.penaltyDate ?? null,
+      refundAmount: parsed.refundAmount ?? null,
       pinOrEpin: parsed.pinOrEpin ?? null,
       exemptions: parsed.exemptions ?? null,
       confidence: typeof parsed.confidence === "number" ? parsed.confidence : 0.5,

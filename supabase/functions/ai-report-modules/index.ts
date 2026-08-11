@@ -94,15 +94,6 @@ const MODULE_SPECS: Record<string, ModuleSpec> = {
     schema: `{"checklist": ["<short item>", ...]}`,
     parse: (p) => ({ checklist: checklist(p.checklist) }),
   },
-  savings: {
-    instruction: "Estimate a plausible value-reduction percent and the typical effective tax rate.",
-    schema: `{"reductionPct": <integer 0-30>, "effectiveTaxRatePct": <number>, "rationale": "<1 sentence>"}`,
-    parse: (p) => ({
-      reductionPct: Math.max(0, Math.min(30, Math.round(Number(p.reductionPct) || 0))),
-      effectiveTaxRatePct: Math.max(0, Math.min(5, Number(p.effectiveTaxRatePct) || 2.5)),
-      rationale: p.rationale ?? "",
-    }),
-  },
   executive: {
     instruction: "Write the final executive recommendation, basis, and next step.",
     schema: `{"recommendation": "<1 sentence>", "basis": "<1 sentence>", "nextStep": "<1 sentence>"}`,

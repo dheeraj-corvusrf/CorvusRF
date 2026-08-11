@@ -5,6 +5,7 @@ import { readIntake, classifyAndStoreDocument, type IntakeState } from "@/lib/in
 import { useAuth } from "@/lib/auth";
 import { listProtests, type ProtestRecord, type ProtestStatus } from "@/lib/protests";
 import { listProperties, type PropertyRecord } from "@/lib/properties";
+import { useFileDrop } from "@/hooks/use-file-drop";
 
 const STEP_LABELS = [
   "Start",
@@ -30,7 +31,11 @@ const STATUS_RANK: Record<ProtestStatus, number> = {
   requested: 1,
   filed: 2,
   under_review: 3,
+  offer_received: 3,
   hearing_scheduled: 4,
+  decision_received: 4,
+  appealing: 4,
+  arbitrating: 4,
   resolved: 5,
 };
 
@@ -41,9 +46,9 @@ type StepMessage = { title: string; actions?: Action[] };
 // every time a new property is started (resetIntake() on the homepage) — a
 // returning user beginning their second property would otherwise look like
 // they'd regressed on steps already completed for their first one. `hasSavedProperty`
-// (a real, persisted, account-wide signal — the same one steps 6-11 already use)
-// is OR'd in so completing the pipeline once keeps steps 1-5 checked forever,
-// while a fresh in-progress session still fills in normally for a first-time user.
+// (a real, persisted, account-wide signal) is OR'd in so completing the pipeline
+// once keeps steps 1-5 checked forever, while a fresh in-progress session still
+// fills in normally for a first-time user.
 function computeIntakeSteps(state: IntakeState, hasSavedProperty: boolean): boolean[] {
   const hasStarted = !!(state.address || state.extraction || state.noticeFileName);
   const hasCounty = !!(state.cad || state.extraction?.county || state.extraction?.cadName);
@@ -57,24 +62,6 @@ function computeIntakeSteps(state: IntakeState, hasSavedProperty: boolean): bool
   return [hasStarted, hasCounty, hasProperty, hasDocument, hasReview].map(
     (done) => done || hasSavedProperty,
   );
-}
-
-// Highest-progress protest across all of a user's properties — a user with
-// several cases is only as "stuck" as their furthest-along one for this tracker.
-function maxProtestRank(protests: Array<{ status: ProtestStatus }>): number {
-  return protests.reduce((max, p) => Math.max(max, STATUS_RANK[p.status]), 0);
-}
-
-// The specific protest driving the step/rank shown above — needed so the tracker
-// can say WHICH property it's talking about instead of blending every case a
-// user has into one anonymous bar. Ties (two properties at the same stage) fall
-// back to the most recently requested, since listProtests() is already sorted
-// that way.
-function leadingProtest(protests: ProtestRecord[]): ProtestRecord | null {
-  return protests.reduce<ProtestRecord | null>((best, p) => {
-    if (!best || STATUS_RANK[p.status] > STATUS_RANK[best.status]) return p;
-    return best;
-  }, null);
 }
 
 function computeFilingSteps(rank: number): boolean[] {
@@ -167,26 +154,7 @@ export function JourneyTracker() {
     listProperties(user.id).then(setProperties).catch((err) => console.error(err));
   }, [user]);
 
-  const protestRank = maxProtestRank(protests);
-  const hasSavedProperty = properties.length > 0;
-  const steps = [...computeIntakeSteps(state, hasSavedProperty), ...computeFilingSteps(protestRank)];
-  const completedCount = steps.filter(Boolean).length;
-  const firstIncomplete = steps.findIndex((done) => !done);
-  const allDone = firstIncomplete === -1;
-  const currentStep = allDone ? TOTAL_STEPS - 1 : firstIncomplete;
-  const progress = Math.round((completedCount / TOTAL_STEPS) * 100);
-  const message = getMessage(currentStep, allDone);
-
-  // Steps 6+ are driven by the single furthest-along protest across every property
-  // the user has — without naming it, a user with several properties has no way to
-  // tell which one this bar is even about.
-  const leading = leadingProtest(protests);
-  const leadingAddress = leading ? (properties.find((p) => p.id === leading.propertyId)?.address ?? null) : null;
-  const otherPropertiesInProgress = new Set(protests.map((p) => p.propertyId)).size - 1;
-
-  async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const f = e.target.files?.[0];
-    if (!f) return;
+  async function onFile(f: File) {
     setUploading(true);
     try {
       await classifyAndStoreDocument(f);
@@ -197,31 +165,95 @@ export function JourneyTracker() {
     }
   }
 
+  const { isDragging, dropHandlers } = useFileDrop(onFile, uploading);
+
+  const hasSavedProperty = properties.length > 0;
+  const intakeSteps = computeIntakeSteps(state, hasSavedProperty);
+
+  // Nobody has a saved property yet — one generic tracker driven purely by
+  // whatever the current browser session's in-progress intake flow has done so
+  // far, since there's no per-property case to show progress for.
+  if (!hasSavedProperty) {
+    return (
+      <section className="card-elev p-6">
+        <span className="badge-soft">Your Journey</span>
+        <JourneyBlock
+          steps={[...intakeSteps, false, false, false, false, false, false]}
+          uploading={uploading}
+          onFile={onFile}
+          isDragging={isDragging}
+          dropHandlers={dropHandlers}
+          first
+        />
+      </section>
+    );
+  }
+
+  // One full tracker per property, all inside a single box — each block is
+  // driven by that specific property's own protest (if any), rather than
+  // blending every case the user has into one bar. A property with no protest
+  // yet simply sits at "Choose Service".
   return (
     <section className="card-elev p-6">
-      <div className="flex items-center justify-between flex-wrap gap-2">
-        <span className="badge-soft">Your Journey</span>
-        <div className="text-right">
-          <div className="text-xs text-muted-foreground">Overall progress</div>
+      <span className="badge-soft">Your Journey</span>
+      {properties.map((p, i) => {
+        const protest = protests.find((pr) => pr.propertyId === p.id);
+        const rank = protest ? STATUS_RANK[protest.status] : 0;
+        return (
+          <JourneyBlock
+            key={p.id}
+            title={p.address}
+            steps={[...intakeSteps, ...computeFilingSteps(rank)]}
+            uploading={uploading}
+            onFile={onFile}
+            isDragging={isDragging}
+            dropHandlers={dropHandlers}
+            first={i === 0}
+          />
+        );
+      })}
+    </section>
+  );
+}
+
+function JourneyBlock({
+  title,
+  steps,
+  uploading,
+  onFile,
+  isDragging,
+  dropHandlers,
+  first,
+}: {
+  title?: string;
+  steps: boolean[];
+  uploading: boolean;
+  onFile: (file: File) => void;
+  isDragging: boolean;
+  dropHandlers: ReturnType<typeof useFileDrop>["dropHandlers"];
+  first: boolean;
+}) {
+  const completedCount = steps.filter(Boolean).length;
+  const firstIncomplete = steps.findIndex((done) => !done);
+  const allDone = firstIncomplete === -1;
+  const currentStep = allDone ? TOTAL_STEPS - 1 : firstIncomplete;
+  const progress = Math.round((completedCount / TOTAL_STEPS) * 100);
+  const message = getMessage(currentStep, allDone);
+
+  return (
+    <div className={first ? "mt-3" : "mt-8 border-t border-border pt-8"}>
+      <div className="flex items-start justify-between flex-wrap gap-2">
+        <div>
+          <h2 className="font-serif text-xl font-semibold">
+            {allDone ? "All steps complete" : `Step ${currentStep + 1} of ${TOTAL_STEPS}: ${STEP_LABELS[currentStep]}`}
+          </h2>
+          {title && <p className="text-sm text-muted-foreground">{title}</p>}
+        </div>
+        <div className="text-right shrink-0">
+          <div className="text-xs text-muted-foreground">Progress</div>
           <div className="text-lg font-semibold">{progress}%</div>
         </div>
       </div>
-      <h2 className="mt-3 font-serif text-xl font-semibold">
-        {allDone ? "All steps complete" : `Step ${currentStep + 1} of ${TOTAL_STEPS}: ${STEP_LABELS[currentStep]}`}
-      </h2>
-      {protestRank > 0 && leadingAddress && (
-        <p className="text-sm text-muted-foreground">
-          {leadingAddress}
-          {otherPropertiesInProgress > 0 && (
-            <>
-              {" · "}
-              <Link to="/dashboard/properties" className="underline hover:text-foreground">
-                +{otherPropertiesInProgress} other propert{otherPropertiesInProgress === 1 ? "y" : "ies"} in progress
-              </Link>
-            </>
-          )}
-        </p>
-      )}
 
       <ol className="mt-5 flex items-start gap-2 overflow-x-auto pb-1">
         {STEP_LABELS.map((label, i) => {
@@ -264,16 +296,22 @@ export function JourneyTracker() {
                 a.upload ? (
                   <label
                     key={a.label}
-                    className="btn-primary btn-primary-hover text-sm py-2 cursor-pointer"
+                    className={`btn-primary btn-primary-hover text-sm py-2 cursor-pointer ${
+                      isDragging ? "ring-2 ring-accent" : ""
+                    }`}
+                    {...dropHandlers}
                   >
                     <input
                       type="file"
                       className="hidden"
                       accept=".pdf,image/*"
                       disabled={uploading}
-                      onChange={onFile}
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        if (f) onFile(f);
+                      }}
                     />
-                    {uploading ? "Reading document…" : a.label}
+                    {isDragging ? "Drop to upload" : uploading ? "Reading document…" : a.label}
                   </label>
                 ) : (
                   <Link key={a.label} to={a.to!} className="btn-outline text-sm py-2">
@@ -285,6 +323,6 @@ export function JourneyTracker() {
           )}
         </div>
       )}
-    </section>
+    </div>
   );
 }

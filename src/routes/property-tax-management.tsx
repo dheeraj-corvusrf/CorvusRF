@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { HeroBackground } from "@/components/HeroBackground";
+import { ScrollReveal } from "@/components/ScrollReveal";
 
 export const Route = createFileRoute("/property-tax-management")({
   head: () => ({
@@ -46,16 +47,18 @@ function Page() {
         </div>
 
         <div className="mt-10 grid gap-5 md:grid-cols-2 lg:grid-cols-4">
-          {CAPS.map(([t, d]) => (
-            <div key={t} className="card-elev p-5">
-              <div className="h-9 w-9 rounded-md bg-accent/20 text-accent flex items-center justify-center">
-                <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M5 13l4 4L19 7" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
+          {CAPS.map(([t, d], i) => (
+            <ScrollReveal key={t} delay={i * 60}>
+              <div className="card-elev p-5 h-full transition-all hover:-translate-y-0.5 hover:shadow-elev">
+                <div className="h-9 w-9 rounded-md bg-accent/20 text-accent flex items-center justify-center">
+                  <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M5 13l4 4L19 7" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </div>
+                <h3 className="mt-3 font-semibold">{t}</h3>
+                <p className="mt-1 text-sm text-muted-foreground">{d}</p>
               </div>
-              <h3 className="mt-3 font-semibold">{t}</h3>
-              <p className="mt-1 text-sm text-muted-foreground">{d}</p>
-            </div>
+            </ScrollReveal>
           ))}
         </div>
 

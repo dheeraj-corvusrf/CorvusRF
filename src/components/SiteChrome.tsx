@@ -1,5 +1,5 @@
-import { Link, useNavigate } from "@tanstack/react-router";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { useAuth } from "@/lib/auth";
 import { supabase } from "@/lib/supabase";
 import { checkIsAdmin } from "@/lib/admin";
@@ -14,14 +14,23 @@ const NAV = [
   { to: "/contact", label: "Contact Us" },
 ] as const;
 
+function isNavActive(pathname: string, to: string) {
+  return to === "/" ? pathname === "/" : pathname === to || pathname.startsWith(`${to}/`);
+}
+
 export function SiteNav() {
   const nav = useNavigate();
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
   const [open, setOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [scrolled, setScrolled] = useState(false);
   const profileRef = useRef<HTMLDivElement>(null);
   const { user } = useAuth();
   const signedIn = !!user;
   const [isAdmin, setIsAdmin] = useState(false);
+  const navItems = signedIn
+    ? [NAV[0], { to: "/dashboard", label: "Dashboard" } as const, ...NAV.slice(1)]
+    : NAV;
 
   useEffect(() => {
     if (!user) {
@@ -42,8 +51,50 @@ export function SiteNav() {
     return () => document.removeEventListener("mousedown", onClickOutside);
   }, [profileOpen]);
 
+  // Sticky nav gains a bit of depth once content has actually scrolled under
+  // it, instead of always casting the same flat shadow.
+  useEffect(() => {
+    function onScroll() {
+      setScrolled(window.scrollY > 8);
+    }
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
+  const navContainerRef = useRef<HTMLDivElement>(null);
+  const linkRefs = useRef<Record<string, HTMLAnchorElement | null>>({});
+  const [indicator, setIndicator] = useState({ left: 0, width: 0, visible: false });
+
+  // A single pill slides between nav links on route change instead of each
+  // link toggling its own static background — deps are primitives (pathname,
+  // signedIn), not the `navItems` array literal, since that's a fresh
+  // reference every render and would otherwise re-fire this effect forever.
+  useLayoutEffect(() => {
+    function recompute() {
+      const container = navContainerRef.current;
+      const activeItem = navItems.find((item) => isNavActive(pathname, item.to));
+      const link = activeItem ? linkRefs.current[activeItem.to] : null;
+      if (!container || !link) {
+        setIndicator((s) => (s.visible ? { left: s.left, width: s.width, visible: false } : s));
+        return;
+      }
+      const containerRect = container.getBoundingClientRect();
+      const linkRect = link.getBoundingClientRect();
+      setIndicator({ left: linkRect.left - containerRect.left, width: linkRect.width, visible: true });
+    }
+    recompute();
+    window.addEventListener("resize", recompute);
+    return () => window.removeEventListener("resize", recompute);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname, signedIn]);
+
   return (
-    <header className="sticky top-0 z-40 border-b border-border/70 bg-background/85 backdrop-blur">
+    <header
+      className={`sticky top-0 z-40 border-b border-border/70 bg-background/85 backdrop-blur transition-shadow duration-300 ${
+        scrolled ? "shadow-[0_8px_24px_-16px_oklch(0.18_0.06_250_/_0.35)]" : ""
+      }`}
+    >
       <div className="container-page flex h-16 items-center justify-between gap-4">
         <Link to="/" className="flex items-center gap-2">
           <LogoMark />
@@ -52,13 +103,21 @@ export function SiteNav() {
           </span>
         </Link>
 
-        <nav className="hidden lg:flex items-center gap-1">
-          {NAV.map((item) => (
+        <nav ref={navContainerRef} className="relative hidden lg:flex items-center gap-1">
+          <span
+            aria-hidden
+            className="absolute inset-y-1 rounded-md bg-secondary transition-[left,width] duration-300 ease-out"
+            style={{ left: indicator.left, width: indicator.width, opacity: indicator.visible ? 1 : 0 }}
+          />
+          {navItems.map((item) => (
             <Link
               key={item.to}
+              ref={(el) => {
+                linkRefs.current[item.to] = el;
+              }}
               to={item.to}
-              className="rounded-md px-3 py-2 text-sm font-medium text-foreground/80 hover:bg-secondary hover:text-foreground"
-              activeProps={{ className: "bg-secondary text-foreground" }}
+              className="relative rounded-md px-3 py-2 text-sm font-medium text-foreground/80 transition-colors hover:bg-secondary/60 hover:text-foreground"
+              activeProps={{ className: "text-foreground" }}
               activeOptions={{ exact: item.to === "/" }}
             >
               {item.label}
@@ -71,7 +130,7 @@ export function SiteNav() {
             <div className="relative" ref={profileRef}>
               <button
                 onClick={() => setProfileOpen((v) => !v)}
-                className="flex h-9 w-9 items-center justify-center rounded-full bg-primary text-primary-foreground text-sm font-semibold"
+                className="flex h-9 w-9 items-center justify-center rounded-full bg-primary text-primary-foreground text-sm font-semibold transition-transform hover:scale-105 active:scale-95"
                 aria-label="Profile menu"
               >
                 {(user?.email?.[0] ?? "U").toUpperCase()}
@@ -81,14 +140,14 @@ export function SiteNav() {
                   <Link
                     to="/dashboard"
                     onClick={() => setProfileOpen(false)}
-                    className="block rounded-md px-3 py-2 hover:bg-secondary"
+                    className="block rounded-md px-3 py-2 transition-colors hover:bg-secondary"
                   >
                     Dashboard
                   </Link>
                   <Link
                     to="/pricing"
                     onClick={() => setProfileOpen(false)}
-                    className="block rounded-md px-3 py-2 hover:bg-secondary"
+                    className="block rounded-md px-3 py-2 transition-colors hover:bg-secondary"
                   >
                     Subscription
                   </Link>
@@ -96,7 +155,7 @@ export function SiteNav() {
                     <Link
                       to="/admin"
                       onClick={() => setProfileOpen(false)}
-                      className="block rounded-md px-3 py-2 hover:bg-secondary"
+                      className="block rounded-md px-3 py-2 transition-colors hover:bg-secondary"
                     >
                       Admin
                     </Link>
@@ -107,7 +166,7 @@ export function SiteNav() {
                       setProfileOpen(false);
                       nav({ to: "/" });
                     }}
-                    className="block w-full rounded-md px-3 py-2 text-left hover:bg-secondary"
+                    className="block w-full rounded-md px-3 py-2 text-left transition-colors hover:bg-secondary"
                   >
                     Sign out
                   </button>
@@ -131,12 +190,12 @@ export function SiteNav() {
       {open && (
         <div className="lg:hidden border-t border-border/70 bg-background">
           <div className="container-page grid gap-1 py-3">
-            {NAV.map((item) => (
+            {navItems.map((item) => (
               <Link
                 key={item.to}
                 to={item.to}
                 onClick={() => setOpen(false)}
-                className="rounded-md px-3 py-3 text-sm font-medium hover:bg-secondary"
+                className="rounded-md px-3 py-3 text-sm font-medium transition-colors hover:bg-secondary"
               >
                 {item.label}
               </Link>

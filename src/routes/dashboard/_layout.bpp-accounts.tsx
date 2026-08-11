@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
 import { listBppAccounts, addBppAccount, deleteBppAccount, type BppAccountRecord } from "@/lib/bpp-accounts";
 import { Skeleton } from "@/components/ui/skeleton";
+import { PortfolioTabs } from "@/components/PortfolioTabs";
 
 export const Route = createFileRoute("/dashboard/_layout/bpp-accounts")({
   component: BppAccounts,
@@ -81,6 +82,10 @@ function BppAccounts() {
         <button onClick={() => setShowForm((v) => !v)} className="btn-primary btn-primary-hover">
           {showForm ? "Cancel" : "Add BPP Account"}
         </button>
+      </div>
+
+      <div className="mt-4">
+        <PortfolioTabs />
       </div>
 
       {showForm && (

@@ -29,6 +29,10 @@ function Settings() {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
   const [deleting, setDeleting] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmNewPassword, setConfirmNewPassword] = useState("");
+  const [changingPassword, setChangingPassword] = useState(false);
 
   useEffect(() => {
     if (!user) return;
@@ -60,6 +64,41 @@ function Settings() {
       toast.error(err instanceof Error ? err.message : "Could not save your profile.");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleChangePassword(e: React.FormEvent) {
+    e.preventDefault();
+    if (!user?.email) return;
+    if (newPassword !== confirmNewPassword) {
+      toast.error("New passwords don't match.");
+      return;
+    }
+    if (newPassword.length < 6) {
+      toast.error("Password must be at least 6 characters.");
+      return;
+    }
+    setChangingPassword(true);
+    try {
+      // Supabase's updateUser() doesn't require the current password by
+      // default, so re-verify it here first — otherwise anyone with a
+      // left-open or hijacked session could lock the real owner out just by
+      // setting a new password without ever knowing the old one.
+      const { error: reauthError } = await supabase.auth.signInWithPassword({
+        email: user.email,
+        password: currentPassword,
+      });
+      if (reauthError) throw new Error("Current password is incorrect.");
+      const { error: updateError } = await supabase.auth.updateUser({ password: newPassword });
+      if (updateError) throw updateError;
+      toast.success("Password updated.");
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmNewPassword("");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not update your password.");
+    } finally {
+      setChangingPassword(false);
     }
   }
 
@@ -136,6 +175,59 @@ function Settings() {
           </label>
           <button type="submit" disabled={saving} className="btn-primary btn-primary-hover w-fit disabled:opacity-60">
             {saving ? "Saving…" : "Save Changes"}
+          </button>
+        </form>
+      )}
+
+      {!loading && (
+        <form onSubmit={handleChangePassword} className="mt-8 card-elev p-6 max-w-xl grid gap-4">
+          <div>
+            <h2 className="font-semibold">Change Password</h2>
+            <p className="text-sm text-muted-foreground">Update the password you sign in with.</p>
+          </div>
+          <label className="grid gap-1">
+            <span className="text-xs font-medium text-muted-foreground">Current password</span>
+            <input
+              required
+              type="password"
+              autoComplete="current-password"
+              value={currentPassword}
+              onChange={(e) => setCurrentPassword(e.target.value)}
+              className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+            />
+          </label>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="grid gap-1">
+              <span className="text-xs font-medium text-muted-foreground">New password</span>
+              <input
+                required
+                type="password"
+                minLength={6}
+                autoComplete="new-password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              />
+            </label>
+            <label className="grid gap-1">
+              <span className="text-xs font-medium text-muted-foreground">Confirm new password</span>
+              <input
+                required
+                type="password"
+                minLength={6}
+                autoComplete="new-password"
+                value={confirmNewPassword}
+                onChange={(e) => setConfirmNewPassword(e.target.value)}
+                className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              />
+            </label>
+          </div>
+          <button
+            type="submit"
+            disabled={changingPassword}
+            className="btn-primary btn-primary-hover w-fit disabled:opacity-60"
+          >
+            {changingPassword ? "Updating…" : "Update Password"}
           </button>
         </form>
       )}

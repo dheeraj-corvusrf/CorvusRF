@@ -2,6 +2,8 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useId, useState } from "react";
 import { toast } from "sonner";
 import { Check } from "lucide-react";
+import { AnimatedSteps } from "@/components/AnimatedSteps";
+import { CircularSearchLoader } from "@/components/CircularSearchLoader";
 import { AreaChart, Area, XAxis, YAxis, ResponsiveContainer, Tooltip } from "recharts";
 import {
   readIntake,
@@ -17,7 +19,10 @@ import { cadLookup } from "@/lib/cad-lookup";
 import { AddressAutocomplete } from "@/components/AddressAutocomplete";
 import { useAuth } from "@/lib/auth";
 import { addProperty, findExistingProperty, type PropertyRecord } from "@/lib/properties";
+import { estimateSavings, type SavingsEstimate } from "@/lib/savings-estimate";
 import { SampleNoticeDialog } from "@/components/SampleNoticeDialog";
+import { HouseIllustration } from "@/assets/illustrations/house";
+import { useFileDrop } from "@/hooks/use-file-drop";
 
 export const Route = createFileRoute("/intake")({
   head: () => ({
@@ -34,7 +39,7 @@ export const Route = createFileRoute("/intake")({
   component: Intake,
 });
 
-type Step = "address" | "validating" | "notice" | "confirm" | "notfound" | "classifying";
+type Step = "address" | "validating" | "notice" | "savings" | "confirm" | "notfound" | "classifying";
 
 function Intake() {
   const nav = useNavigate();
@@ -48,6 +53,10 @@ function Intake() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [alreadySaved, setAlreadySaved] = useState<PropertyRecord | null>(null);
+  // See estimateSavings() for the comps -> AI -> baseline cascade. null only
+  // means we don't even have an assessed value to estimate from yet (the
+  // savings step is skipped straight to confirm in that case).
+  const [savings, setSavings] = useState<SavingsEstimate>(null);
 
   useEffect(() => {
     const s = readIntake();
@@ -95,7 +104,38 @@ function Intake() {
         deeds: res.record.deeds ?? undefined,
       });
       setState(next);
-      setStep("confirm");
+
+      // See estimateSavings() for the comps -> formula cascade — both tiers are
+      // fully deterministic (no AI call), so the same property always produces
+      // the same number. Only null (no assessed value at all) skips the
+      // savings step straight to confirm.
+      //
+      // Still cached against this exact property (cad+accountNumber, or
+      // address when no account number exists) so refreshing the page or
+      // re-validating the same address mid-intake reuses the prior result
+      // instead of re-running the comps lookup for nothing — a performance
+      // nicety now, not a correctness requirement, since the estimate would
+      // come out identical either way.
+      const savingsKey = next.cad && next.accountNumber ? `${next.cad}::${next.accountNumber}` : next.address;
+      let nextSavings: SavingsEstimate;
+      if (savingsKey && next.cachedSavingsKey === savingsKey && next.cachedSavings !== undefined) {
+        nextSavings = next.cachedSavings;
+      } else {
+        nextSavings = await estimateSavings({
+          cad: next.cad,
+          accountNumber: next.accountNumber,
+          address: next.address,
+          propertyType: next.propertyType,
+          landValue: next.landValue,
+          improvementValue: next.improvementValue,
+          totalValue: next.totalValue,
+          taxYear: next.taxYear,
+          valueHistory: next.valueHistory,
+        });
+        updateIntake({ cachedSavings: nextSavings, cachedSavingsKey: savingsKey });
+      }
+      setSavings(nextSavings);
+      setStep(nextSavings ? "savings" : "confirm");
       // Check whether this exact CAD record is already on the user's account —
       // shown as a notice on the confirm screen instead of letting them hit
       // "Confirm Property" again for something already saved.
@@ -117,9 +157,7 @@ function Intake() {
     }
   }
 
-  async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const f = e.target.files?.[0];
-    if (!f) return;
+  async function onFile(f: File) {
     setError(null);
     setNoticeName(f.name);
     setStep("classifying");
@@ -138,6 +176,8 @@ function Intake() {
       setStep("address");
     }
   }
+
+  const { isDragging, dropHandlers } = useFileDrop(onFile);
 
   return (
     <div className={`container-page py-12 ${step === "confirm" ? "max-w-5xl" : "max-w-3xl"}`}>
@@ -190,14 +230,29 @@ function Intake() {
             <button className="btn-primary btn-primary-hover">Validate address</button>
           </form>
 
-          <div className="mt-6 rounded-lg border border-dashed border-border p-5 text-center">
-            <p className="text-sm font-medium">Have your appraisal notice?</p>
+          <div
+            className={`mt-6 rounded-lg border border-dashed p-5 text-center transition-colors ${
+              isDragging ? "border-accent bg-accent/5" : "border-border"
+            }`}
+            {...dropHandlers}
+          >
+            <p className="text-sm font-medium">
+              {isDragging ? "Drop to upload" : "Have your appraisal notice?"}
+            </p>
             <p className="text-xs text-muted-foreground">
               PDF / PNG / JPG, up to {Math.round(UPLOAD_LIMITS.maxFileBytes / (1024 * 1024))} MB,
               up to {UPLOAD_LIMITS.maxPages} pages.
             </p>
             <label className="mt-3 btn-outline cursor-pointer inline-flex">
-              <input type="file" className="hidden" accept=".pdf,image/*" onChange={onFile} />
+              <input
+                type="file"
+                className="hidden"
+                accept=".pdf,image/*"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) onFile(f);
+                }}
+              />
               Upload Appraisal Notice
             </label>
             <p className="mt-2 text-xs text-muted-foreground">
@@ -212,15 +267,10 @@ function Intake() {
       )}
 
       {step === "validating" && (
-        <section className="mt-8 card-elev p-6">
-          <h2 className="font-serif text-xl font-semibold">Working on it…</h2>
-          <AnimatedSteps
-            steps={[
-              { label: "Validating property address", status: "done" },
-              { label: "Identifying county appraisal district", status: "done" },
-              { label: "Retrieving official property information", status: "active" },
-            ]}
-          />
+        <section className="mt-8 card-elev p-10 text-center">
+          <CircularSearchLoader className="h-48 w-48 mx-auto" />
+          <h2 className="mt-6 font-serif text-2xl font-semibold">Searching for your property…</h2>
+          {address && <p className="mt-2 text-muted-foreground">{address}</p>}
         </section>
       )}
 
@@ -259,6 +309,85 @@ function Intake() {
         </section>
       )}
 
+      {step === "savings" && state.address && savings && (
+        <section className="mt-8 card-elev overflow-hidden">
+          <div className="bg-accent/10 px-6 pt-10 pb-8 text-center">
+            <p className="text-sm font-medium text-muted-foreground">Potential Protest Savings*</p>
+            <p className="mt-1 font-serif text-5xl font-bold text-accent">{currency(savings.amount)}</p>
+            <p className="mt-2 text-sm text-muted-foreground">{state.address}</p>
+            {state.accountNumber && (
+              <p className="text-xs font-medium text-muted-foreground">PARCEL: {state.accountNumber}</p>
+            )}
+
+            {/* The savings figure alone doesn't answer "how much do I actually
+                pay" — these two ground it in real dollars: what the county's
+                current assessed value implies you owe this year, and what
+                that would drop to if the protest succeeds. Same effective tax
+                rate savings.amount was computed with, just applied to the
+                full assessed value instead of only the contested portion. */}
+            <div className="mx-auto mt-6 grid max-w-sm grid-cols-2 gap-4 border-t border-accent/20 pt-6">
+              <div>
+                <div className="text-xs text-muted-foreground">Est. Tax Bill This Year</div>
+                <div className="mt-0.5 font-serif text-xl font-semibold">
+                  {currency((state.totalValue ?? 0) * (savings.effectiveTaxRatePct / 100))}
+                </div>
+              </div>
+              <div>
+                <div className="text-xs text-muted-foreground">Est. Bill After Protest</div>
+                <div className="mt-0.5 font-serif text-xl font-semibold text-success">
+                  {currency((state.totalValue ?? 0) * (savings.effectiveTaxRatePct / 100) - savings.amount)}
+                </div>
+              </div>
+            </div>
+
+            <HouseIllustration className="mx-auto mt-6 h-32 w-auto" />
+          </div>
+          <div className="p-6">
+            {savings.basis === "comps" && (
+              <div className="mb-5 grid gap-3 sm:grid-cols-2 text-sm">
+                <Field label="Comparable Properties Used" value={savings.compsCount.toString()} />
+                <Field label="Comps Median Value" value={currency(savings.compsMedian)} />
+                <Field label="Your Assessed Value" value={currency(state.totalValue)} bold />
+                <Field
+                  label="Value Above Median"
+                  value={currency((state.totalValue ?? 0) - savings.compsMedian)}
+                  bold
+                />
+                <Field label="Effective Tax Rate Used" value={`${savings.effectiveTaxRatePct}%`} />
+              </div>
+            )}
+            {savings.basis === "formula" && (
+              <div className="mb-5 grid gap-3 sm:grid-cols-2 text-sm">
+                <span className="badge-soft sm:col-span-2 w-fit">
+                  Modeled from real Texas protest data — no direct comps available
+                </span>
+                <Field label="Typical Reduction for This Property" value={`${savings.reductionPct}%`} />
+                <Field label="Effective Tax Rate Used" value={`${savings.effectiveTaxRatePct}%`} />
+                <Field label="Your Assessed Value" value={currency(state.totalValue)} bold />
+                <div className="sm:col-span-2">
+                  <Field label="Basis" value={savings.rationale} />
+                </div>
+              </div>
+            )}
+            <div className="flex flex-wrap gap-2">
+              <button onClick={() => setStep("confirm")} className="btn-primary btn-primary-hover">
+                Continue
+              </button>
+              <button onClick={() => setStep("address")} className="btn-outline">
+                Search a Different Address
+              </button>
+            </div>
+            <p className="mt-4 text-xs text-muted-foreground">
+              {savings.basis === "comps"
+                ? `*Estimated from ${savings.compsCount} real comparable properties in your subdivision, at your county's ~${savings.effectiveTaxRatePct}% effective tax rate. Your actual result depends on the hearing outcome and county-specific factors.`
+                : "*Modeled from real, published Texas protest-outcome data for this property's county and category — no directly comparable properties were available for this address, so this isn't a specific analysis of your property. Your actual result depends on the hearing outcome and county-specific factors."}
+              {" "}Tax bill figures use your county's estimated effective tax rate applied to the CAD's assessed value —
+              not a bill pulled from the county, and before any exemptions (e.g. homestead) you may qualify for.
+            </p>
+          </div>
+        </section>
+      )}
+
       {step === "confirm" && state.address && (
         <section className="mt-8 card-elev p-6">
           <div className="flex items-center gap-2">
@@ -291,36 +420,48 @@ function Intake() {
             </p>
           )}
 
-          {state.valueHistory && state.valueHistory.length > 0 && (
-            <div className="mt-6">
-              <h3 className="text-sm font-semibold">Value History</h3>
-              <ValueHistoryChart history={state.valueHistory} />
-              <div className="mt-2 overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-left text-xs uppercase tracking-wide text-muted-foreground">
-                      <th className="py-1 pr-4">Year</th>
-                      <th className="py-1 pr-4">Land</th>
-                      <th className="py-1 pr-4">Improvement</th>
-                      <th className="py-1 pr-4">Market</th>
-                      <th className="py-1 pr-4">Appraised</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {state.valueHistory.map((v) => (
-                      <tr key={v.year} className="border-t border-border">
-                        <td className="py-1 pr-4">{v.year}</td>
-                        <td className="py-1 pr-4">{currency(v.landValue)}</td>
-                        <td className="py-1 pr-4">{currency(v.improvementValue)}</td>
-                        <td className="py-1 pr-4">{currency(v.marketValue)}</td>
-                        <td className="py-1 pr-4">{currency(v.appraisedValue)}</td>
+          {(() => {
+            // A CAD can return one row per year going back a decade-plus with
+            // every value field null (the year existed in the county's system,
+            // but nothing was published for it) — showing a table that's
+            // entirely dashes isn't useful, so only real rows count, and the
+            // whole section stays hidden unless at least one does.
+            const realHistory = (state.valueHistory ?? []).filter(
+              (v) =>
+                v.landValue != null || v.improvementValue != null || v.marketValue != null || v.appraisedValue != null,
+            );
+            if (realHistory.length === 0) return null;
+            return (
+              <div className="mt-6">
+                <h3 className="text-sm font-semibold">Value History</h3>
+                <ValueHistoryChart history={realHistory} />
+                <div className="mt-2 overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-left text-xs uppercase tracking-wide text-muted-foreground">
+                        <th className="py-1 pr-4">Year</th>
+                        <th className="py-1 pr-4">Land</th>
+                        <th className="py-1 pr-4">Improvement</th>
+                        <th className="py-1 pr-4">Market</th>
+                        <th className="py-1 pr-4">Appraised</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {realHistory.map((v) => (
+                        <tr key={v.year} className="border-t border-border">
+                          <td className="py-1 pr-4">{v.year}</td>
+                          <td className="py-1 pr-4">{currency(v.landValue)}</td>
+                          <td className="py-1 pr-4">{currency(v.improvementValue)}</td>
+                          <td className="py-1 pr-4">{currency(v.marketValue)}</td>
+                          <td className="py-1 pr-4">{currency(v.appraisedValue)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
 
           {state.deeds && state.deeds.length > 0 && (
             <div className="mt-6">
@@ -377,6 +518,8 @@ function Intake() {
                       improvementValue: state.improvementValue,
                       totalValue: state.totalValue,
                       taxYear: state.taxYear,
+                      estimatedSavings: savings?.amount,
+                      savingsBasis: savings?.basis,
                     });
                   } catch (err) {
                     setSaving(false);
@@ -401,9 +544,20 @@ function Intake() {
             <button onClick={() => setStep("address")} className="btn-outline">
               Edit Address
             </button>
-            <label className="btn-outline cursor-pointer">
-              <input type="file" className="hidden" accept=".pdf,image/*" onChange={onFile} />
-              Upload Another Notice
+            <label
+              className={`btn-outline cursor-pointer ${isDragging ? "ring-2 ring-accent" : ""}`}
+              {...dropHandlers}
+            >
+              <input
+                type="file"
+                className="hidden"
+                accept=".pdf,image/*"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) onFile(f);
+                }}
+              />
+              {isDragging ? "Drop to upload" : "Upload Another Notice"}
             </label>
           </div>
         </section>
@@ -416,84 +570,36 @@ function Stepper({ step }: { step: Step }) {
   const items = [
     ["Address", ["address"]],
     ["Validate", ["validating", "notfound"]],
+    ["Savings", ["savings"]],
     ["Confirm", ["confirm"]],
   ] as const;
   return (
-    <ol className="flex items-center gap-2 text-xs font-medium">
+    <ol className="flex w-full items-center text-xs font-medium">
       {items.map(([label, keys], i) => {
         const active = (keys as readonly string[]).includes(step);
+        const isLast = i === items.length - 1;
         return (
-          <li key={label} className="flex items-center gap-2">
+          <li key={label} className={`flex items-center gap-1.5 sm:gap-2 ${isLast ? "" : "flex-1"}`}>
             <span
-              className={`h-6 w-6 rounded-full grid place-items-center ${
+              className={`h-6 w-6 shrink-0 rounded-full grid place-items-center ${
                 active ? "bg-primary text-primary-foreground" : "bg-secondary text-muted-foreground"
               }`}
             >
               {i + 1}
             </span>
-            <span className={active ? "text-foreground" : "text-muted-foreground"}>{label}</span>
-            {i < items.length - 1 && <span className="w-8 h-px bg-border" />}
+            {/* Full labels once there's room (sm+); numbers-only on narrow
+                phones so 4 steps fit without pushing the page into
+                horizontal scroll. */}
+            <span className={`hidden sm:inline ${active ? "text-foreground" : "text-muted-foreground"}`}>
+              {label}
+            </span>
+            {/* Connector grows to fill the gap to the next step, so the whole
+                stepper spans the same width as the card below it instead of
+                sitting in a compact cluster with dead space to the right. */}
+            {!isLast && <span className="h-px flex-1 shrink-0 bg-border mx-1" />}
           </li>
         );
       })}
-    </ol>
-  );
-}
-
-type StepStatus = "done" | "active" | "pending";
-
-// A vertical stepper for "AI is working" screens — numbered circles connected by
-// a line, each animating in place as its status changes: the active circle gets
-// a pulsing ring (visibly "in progress"), and done gets a checkmark that pops in
-// (tw-animate-css's zoom-in/fade-in) instead of the old plain-checkmark +
-// strikethrough-text treatment.
-function AnimatedSteps({ steps }: { steps: { label: string; status: StepStatus }[] }) {
-  return (
-    <ol className="mt-4">
-      {steps.map((step, i) => (
-        <li key={step.label} className="flex gap-3">
-          <div className="flex flex-col items-center">
-            <span className="relative grid h-7 w-7 shrink-0 place-items-center">
-              {step.status === "active" && (
-                <span className="absolute inset-0 rounded-full bg-accent opacity-60 animate-ping" />
-              )}
-              <span
-                className={`relative grid h-7 w-7 place-items-center rounded-full text-xs font-semibold transition-colors duration-300 ${
-                  step.status === "done"
-                    ? "bg-success text-success-foreground"
-                    : step.status === "active"
-                      ? "bg-accent text-accent-foreground"
-                      : "bg-secondary text-muted-foreground"
-                }`}
-              >
-                {step.status === "done" ? (
-                  <Check className="h-3.5 w-3.5 animate-in zoom-in-50 fade-in duration-300" />
-                ) : (
-                  i + 1
-                )}
-              </span>
-            </span>
-            {i < steps.length - 1 && (
-              <span
-                className={`w-0.5 flex-1 min-h-[1.5rem] transition-colors duration-500 ${
-                  step.status === "done" ? "bg-success" : "bg-border"
-                }`}
-              />
-            )}
-          </div>
-          <div
-            className={`pb-6 text-sm transition-colors duration-300 ${
-              step.status === "pending"
-                ? "text-muted-foreground"
-                : step.status === "active"
-                  ? "font-medium text-foreground"
-                  : "text-muted-foreground"
-            }`}
-          >
-            {step.label}
-          </div>
-        </li>
-      ))}
     </ol>
   );
 }

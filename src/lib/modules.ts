@@ -80,7 +80,7 @@ export const MODULES: Module[] = [
     title: "Estimated Tax Savings & ROI",
     question: "How much could I potentially save, and is filing a protest worthwhile?",
     status: "Completed",
-    teaser: "AI-estimated value reduction and tax savings based on your assessed value.",
+    teaser: "Modeled from real comparable properties or published Texas protest-outcome data, at your county's real effective tax rate — not an AI guess.",
   },
   {
     id: "executive",
