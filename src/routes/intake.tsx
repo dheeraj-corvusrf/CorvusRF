@@ -22,6 +22,7 @@ import { addProperty, findExistingProperty, type PropertyRecord } from "@/lib/pr
 import { estimateSavings, type SavingsEstimate } from "@/lib/savings-estimate";
 import { SampleNoticeDialog } from "@/components/SampleNoticeDialog";
 import { HouseIllustration } from "@/assets/illustrations/house";
+import { useFileDrop } from "@/hooks/use-file-drop";
 
 export const Route = createFileRoute("/intake")({
   head: () => ({
@@ -156,9 +157,7 @@ function Intake() {
     }
   }
 
-  async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const f = e.target.files?.[0];
-    if (!f) return;
+  async function onFile(f: File) {
     setError(null);
     setNoticeName(f.name);
     setStep("classifying");
@@ -177,6 +176,8 @@ function Intake() {
       setStep("address");
     }
   }
+
+  const { isDragging, dropHandlers } = useFileDrop(onFile);
 
   return (
     <div className={`container-page py-12 ${step === "confirm" ? "max-w-5xl" : "max-w-3xl"}`}>
@@ -229,14 +230,29 @@ function Intake() {
             <button className="btn-primary btn-primary-hover">Validate address</button>
           </form>
 
-          <div className="mt-6 rounded-lg border border-dashed border-border p-5 text-center">
-            <p className="text-sm font-medium">Have your appraisal notice?</p>
+          <div
+            className={`mt-6 rounded-lg border border-dashed p-5 text-center transition-colors ${
+              isDragging ? "border-accent bg-accent/5" : "border-border"
+            }`}
+            {...dropHandlers}
+          >
+            <p className="text-sm font-medium">
+              {isDragging ? "Drop to upload" : "Have your appraisal notice?"}
+            </p>
             <p className="text-xs text-muted-foreground">
               PDF / PNG / JPG, up to {Math.round(UPLOAD_LIMITS.maxFileBytes / (1024 * 1024))} MB,
               up to {UPLOAD_LIMITS.maxPages} pages.
             </p>
             <label className="mt-3 btn-outline cursor-pointer inline-flex">
-              <input type="file" className="hidden" accept=".pdf,image/*" onChange={onFile} />
+              <input
+                type="file"
+                className="hidden"
+                accept=".pdf,image/*"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) onFile(f);
+                }}
+              />
               Upload Appraisal Notice
             </label>
             <p className="mt-2 text-xs text-muted-foreground">
@@ -528,9 +544,20 @@ function Intake() {
             <button onClick={() => setStep("address")} className="btn-outline">
               Edit Address
             </button>
-            <label className="btn-outline cursor-pointer">
-              <input type="file" className="hidden" accept=".pdf,image/*" onChange={onFile} />
-              Upload Another Notice
+            <label
+              className={`btn-outline cursor-pointer ${isDragging ? "ring-2 ring-accent" : ""}`}
+              {...dropHandlers}
+            >
+              <input
+                type="file"
+                className="hidden"
+                accept=".pdf,image/*"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) onFile(f);
+                }}
+              />
+              {isDragging ? "Drop to upload" : "Upload Another Notice"}
             </label>
           </div>
         </section>

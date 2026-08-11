@@ -16,6 +16,7 @@ import { listProtests, type ProtestRecord } from "@/lib/protests";
 import { generateCasePrep } from "@/lib/protest-case";
 import { ProtestAuthorizationFlow } from "@/components/ProtestAuthorizationFlow";
 import { CaseDetailModal } from "@/components/CaseDetailModal";
+import { AnimatedNumber } from "@/components/AnimatedNumber";
 
 type ModuleAsyncState = {
   data: unknown;
@@ -562,7 +563,7 @@ function ModulePreviewBody({
             Estimated Tax Savings
           </div>
           <div className="font-serif text-4xl font-bold text-success">
-            {currency(estimated.savings)}
+            <AnimatedNumber value={estimated.savings} format={currency} duration={900} />
           </div>
         </div>
         <ValueComparisonChart current={current} reduced={reduced} />
@@ -756,7 +757,7 @@ function RadialGauge({ value, sublabel }: { value: number; sublabel?: string }) 
       </ResponsiveContainer>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
         <div className="text-3xl font-bold" style={{ color }}>
-          {value}
+          <AnimatedNumber value={value} />
         </div>
         {sublabel && (
           <div className="px-3 text-center text-[10px] text-muted-foreground">{sublabel}</div>

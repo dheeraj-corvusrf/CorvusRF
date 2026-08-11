@@ -5,6 +5,7 @@ import { readIntake, classifyAndStoreDocument, type IntakeState } from "@/lib/in
 import { useAuth } from "@/lib/auth";
 import { listProtests, type ProtestRecord, type ProtestStatus } from "@/lib/protests";
 import { listProperties, type PropertyRecord } from "@/lib/properties";
+import { useFileDrop } from "@/hooks/use-file-drop";
 
 const STEP_LABELS = [
   "Start",
@@ -153,9 +154,7 @@ export function JourneyTracker() {
     listProperties(user.id).then(setProperties).catch((err) => console.error(err));
   }, [user]);
 
-  async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const f = e.target.files?.[0];
-    if (!f) return;
+  async function onFile(f: File) {
     setUploading(true);
     try {
       await classifyAndStoreDocument(f);
@@ -165,6 +164,8 @@ export function JourneyTracker() {
       setUploading(false);
     }
   }
+
+  const { isDragging, dropHandlers } = useFileDrop(onFile, uploading);
 
   const hasSavedProperty = properties.length > 0;
   const intakeSteps = computeIntakeSteps(state, hasSavedProperty);
@@ -180,6 +181,8 @@ export function JourneyTracker() {
           steps={[...intakeSteps, false, false, false, false, false, false]}
           uploading={uploading}
           onFile={onFile}
+          isDragging={isDragging}
+          dropHandlers={dropHandlers}
           first
         />
       </section>
@@ -203,6 +206,8 @@ export function JourneyTracker() {
             steps={[...intakeSteps, ...computeFilingSteps(rank)]}
             uploading={uploading}
             onFile={onFile}
+            isDragging={isDragging}
+            dropHandlers={dropHandlers}
             first={i === 0}
           />
         );
@@ -216,12 +221,16 @@ function JourneyBlock({
   steps,
   uploading,
   onFile,
+  isDragging,
+  dropHandlers,
   first,
 }: {
   title?: string;
   steps: boolean[];
   uploading: boolean;
-  onFile: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  onFile: (file: File) => void;
+  isDragging: boolean;
+  dropHandlers: ReturnType<typeof useFileDrop>["dropHandlers"];
   first: boolean;
 }) {
   const completedCount = steps.filter(Boolean).length;
@@ -287,16 +296,22 @@ function JourneyBlock({
                 a.upload ? (
                   <label
                     key={a.label}
-                    className="btn-primary btn-primary-hover text-sm py-2 cursor-pointer"
+                    className={`btn-primary btn-primary-hover text-sm py-2 cursor-pointer ${
+                      isDragging ? "ring-2 ring-accent" : ""
+                    }`}
+                    {...dropHandlers}
                   >
                     <input
                       type="file"
                       className="hidden"
                       accept=".pdf,image/*"
                       disabled={uploading}
-                      onChange={onFile}
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        if (f) onFile(f);
+                      }}
                     />
-                    {uploading ? "Reading document…" : a.label}
+                    {isDragging ? "Drop to upload" : uploading ? "Reading document…" : a.label}
                   </label>
                 ) : (
                   <Link key={a.label} to={a.to!} className="btn-outline text-sm py-2">

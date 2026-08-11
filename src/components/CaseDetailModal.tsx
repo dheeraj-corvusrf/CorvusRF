@@ -217,10 +217,11 @@ export function CasePlanSection({
         </div>
         {totalCount > 0 ? (
           <div className="mt-2 grid gap-2">
-            {caseData!.evidenceItems.map((item) => (
+            {caseData!.evidenceItems.map((item, i) => (
               <div
                 key={item.id}
-                className="min-w-0 flex items-center justify-between gap-2 rounded-md border border-border p-2.5 text-sm"
+                className="min-w-0 flex items-center justify-between gap-2 rounded-md border border-border p-2.5 text-sm list-item-enter transition-colors hover:bg-secondary/30"
+                style={{ animationDelay: `${Math.min(i * 50, 400)}ms` }}
               >
                 <span className="min-w-0 flex-1 truncate">{item.label}</span>
                 {item.documentFileName ? (

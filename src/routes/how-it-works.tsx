@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { HeroBackground } from "@/components/HeroBackground";
+import { ScrollReveal } from "@/components/ScrollReveal";
 
 export const Route = createFileRoute("/how-it-works")({
   head: () => ({
@@ -47,31 +48,37 @@ function HowItWorks() {
         </div>
 
         <ol className="mt-12 grid gap-5 md:grid-cols-2">
-          {STEPS.map((s) => (
-            <li key={s.n} className="card-elev p-6">
-              <div className="flex items-center gap-3">
-                <span className="flex h-9 w-9 items-center justify-center rounded-full bg-primary text-primary-foreground font-serif text-lg">
-                  {s.n}
-                </span>
-                <h3 className="text-xl font-semibold">{s.t}</h3>
-              </div>
-              <p className="mt-3 text-muted-foreground">{s.d}</p>
+          {STEPS.map((s, i) => (
+            <li key={s.n}>
+              <ScrollReveal delay={i * 80} className="h-full">
+                <div className="card-elev p-6 h-full transition-all hover:-translate-y-0.5 hover:shadow-elev">
+                  <div className="flex items-center gap-3">
+                    <span className="flex h-9 w-9 items-center justify-center rounded-full bg-primary text-primary-foreground font-serif text-lg">
+                      {s.n}
+                    </span>
+                    <h3 className="text-xl font-semibold">{s.t}</h3>
+                  </div>
+                  <p className="mt-3 text-muted-foreground">{s.d}</p>
+                </div>
+              </ScrollReveal>
             </li>
           ))}
         </ol>
 
-        <div className="mt-12 card-elev p-8 bg-primary text-primary-foreground">
-          <h2 className="font-serif text-2xl">Start with just one thing</h2>
-          <p className="mt-2 text-primary-foreground/80">
-            Upload a notice. Check a deadline. Ask AI what to do. Enter a property. File a BPP.
-          </p>
-          <div className="mt-5 flex flex-wrap gap-3">
-            <Link to="/" className="btn-accent">Start Free AI Property Review</Link>
-            <Link to="/pricing" className="btn-outline border-white/30 text-primary-foreground hover:bg-background/10">
-              See Pricing
-            </Link>
+        <ScrollReveal>
+          <div className="mt-12 card-elev p-8 bg-primary text-primary-foreground">
+            <h2 className="font-serif text-2xl">Start with just one thing</h2>
+            <p className="mt-2 text-primary-foreground/80">
+              Upload a notice. Check a deadline. Ask AI what to do. Enter a property. File a BPP.
+            </p>
+            <div className="mt-5 flex flex-wrap gap-3">
+              <Link to="/" className="btn-accent">Start Free AI Property Review</Link>
+              <Link to="/pricing" className="btn-outline border-white/30 text-primary-foreground hover:bg-background/10">
+                See Pricing
+              </Link>
+            </div>
           </div>
-        </div>
+        </ScrollReveal>
       </div>
     </div>
   );
