@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { currency } from "@/lib/intake-store";
 import { useAuth } from "@/lib/auth";
 import { listProperties, markPropertyPaid, type PropertyRecord } from "@/lib/properties";
+import { listProtests, type ProtestRecord } from "@/lib/protests";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export const Route = createFileRoute("/dashboard/_layout/deadlines")({
@@ -13,13 +14,17 @@ export const Route = createFileRoute("/dashboard/_layout/deadlines")({
 function Deadlines() {
   const { user } = useAuth();
   const [properties, setProperties] = useState<PropertyRecord[]>([]);
+  const [protests, setProtests] = useState<ProtestRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [markingPaidId, setMarkingPaidId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!user) return;
-    listProperties(user.id)
-      .then(setProperties)
+    Promise.all([listProperties(user.id), listProtests(user.id)])
+      .then(([props, prot]) => {
+        setProperties(props);
+        setProtests(prot);
+      })
       .catch((err) => console.error(err))
       .finally(() => setLoading(false));
   }, [user]);
@@ -55,12 +60,25 @@ function Deadlines() {
     })
     .sort((a, b) => Number(a.isPaid) - Number(b.isPaid) || a.daysLeft - b.daysLeft);
 
+  const hearings = protests
+    .filter((pr) => pr.status === "hearing_scheduled" && !!pr.hearingDate)
+    .map((pr) => {
+      const property = properties.find((p) => p.id === pr.propertyId);
+      const hearingDate = new Date(pr.hearingDate as string);
+      const daysLeft = Math.ceil((hearingDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+      return { property, hearingDate, daysLeft };
+    })
+    .filter(
+      (h): h is { property: PropertyRecord; hearingDate: Date; daysLeft: number } => !!h.property,
+    )
+    .sort((a, b) => a.daysLeft - b.daysLeft);
+
   if (loading) {
     return (
       <div className="grid gap-8">
         <div>
           <h1 className="font-serif text-2xl font-semibold">Deadlines</h1>
-          <p className="text-muted-foreground text-sm">Protest deadlines and tax bills, in one place.</p>
+          <p className="text-muted-foreground text-sm">Protest deadlines, ARB hearings, and tax bills, in one place.</p>
         </div>
         <div className="grid gap-3">
           {[0, 1].map((i) => (
@@ -81,7 +99,7 @@ function Deadlines() {
     <div className="grid gap-8">
       <div>
         <h1 className="font-serif text-2xl font-semibold">Deadlines</h1>
-        <p className="text-muted-foreground text-sm">Protest deadlines and tax bills, in one place.</p>
+        <p className="text-muted-foreground text-sm">Protest deadlines, ARB hearings, and tax bills, in one place.</p>
       </div>
 
       <section>
@@ -113,6 +131,41 @@ function Deadlines() {
           ) : (
             <div className="card-elev p-6 text-center text-sm text-muted-foreground">
               No notifications. Upload an appraisal notice with a protest deadline and it'll show up here.
+            </div>
+          )}
+        </div>
+      </section>
+
+      <section>
+        <h2 className="font-semibold">Upcoming Hearings</h2>
+        <div className="mt-3">
+          {hearings.length > 0 ? (
+            <div className="grid gap-3">
+              {hearings.map(({ property, hearingDate, daysLeft }) => (
+                <div
+                  key={property.id}
+                  className="card-elev p-4 flex items-center justify-between flex-wrap gap-2"
+                >
+                  <div>
+                    <div className="font-medium">{property.address}</div>
+                    <div className="text-xs text-muted-foreground">
+                      ARB hearing: {hearingDate.toLocaleDateString()}
+                    </div>
+                  </div>
+                  <span className={`badge-soft ${daysLeft <= 7 ? "text-destructive" : ""}`}>
+                    {daysLeft < 0
+                      ? "Hearing passed"
+                      : daysLeft === 0
+                        ? "Today"
+                        : `${daysLeft} day${daysLeft === 1 ? "" : "s"} left`}
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="card-elev p-6 text-center text-sm text-muted-foreground">
+              No hearings scheduled. Once a hearing is scheduled from a case's Case Progress
+              section, it'll show up here.
             </div>
           )}
         </div>

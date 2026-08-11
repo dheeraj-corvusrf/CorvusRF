@@ -14,6 +14,7 @@ import { listProtests, type ProtestRecord, type ProtestStatus } from "@/lib/prot
 import { getPropertyProtestStatus } from "@/lib/portfolio-status";
 import { askRouter } from "@/lib/ask-router";
 import { getDeadlineNudge } from "@/lib/deadline-nudge";
+import { getHearingNudge } from "@/lib/hearing-nudge";
 import { AnimatedNumber } from "@/components/AnimatedNumber";
 
 export const Route = createFileRoute("/dashboard/_layout/")({
@@ -48,6 +49,8 @@ function Overview() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [nudge, setNudge] = useState<string | null>(null);
   const nudgedPropertyId = useRef<string | null>(null);
+  const [hearingNudge, setHearingNudge] = useState<string | null>(null);
+  const nudgedHearingProtestId = useRef<string | null>(null);
 
   useEffect(() => {
     if (!user) return;
@@ -103,7 +106,35 @@ function Overview() {
       when: new Date(p.paymentDueDate as string),
       label: "Tax bill due",
     }));
-  const upcoming = [...deadlines, ...bills].sort((a, b) => a.when.getTime() - b.when.getTime()).slice(0, 4);
+  const hearingDates = protests
+    .filter((pr) => pr.status === "hearing_scheduled" && !!pr.hearingDate)
+    .map((pr) => ({
+      property: properties.find((p) => p.id === pr.propertyId),
+      when: new Date(pr.hearingDate as string),
+      label: "ARB hearing",
+    }))
+    .filter((h): h is { property: PropertyRecord; when: Date; label: string } => !!h.property);
+  const upcoming = [...deadlines, ...bills, ...hearingDates]
+    .sort((a, b) => a.when.getTime() - b.when.getTime())
+    .slice(0, 4);
+
+  // Same 14-day threshold as NEEDS_ACTION_WINDOW_DAYS in portfolio-status.ts —
+  // a hearing this close is exactly as urgent as a protest deadline this close.
+  const HEARING_REMINDER_WINDOW_DAYS = 14;
+  const hearingReminders = protests
+    .filter((pr) => pr.status === "hearing_scheduled" && !!pr.hearingDate)
+    .map((pr) => {
+      const property = properties.find((p) => p.id === pr.propertyId);
+      const daysLeft = Math.ceil(
+        (new Date(pr.hearingDate as string).getTime() - Date.now()) / (1000 * 60 * 60 * 24),
+      );
+      return { protest: pr, property, daysLeft };
+    })
+    .filter(
+      (h): h is { protest: ProtestRecord; property: PropertyRecord; daysLeft: number } =>
+        !!h.property && h.daysLeft <= HEARING_REMINDER_WINDOW_DAYS,
+    )
+    .sort((a, b) => a.daysLeft - b.daysLeft);
 
   // Properties flagged "needs_action" by the shared status helper (see
   // src/lib/portfolio-status.ts — also used for the Properties page's per-property
@@ -130,6 +161,17 @@ function Overview() {
       .catch((err) => console.error("Deadline nudge failed:", err));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [urgentProperties.length > 0 ? urgentProperties[0].property.id : null]);
+
+  useEffect(() => {
+    if (hearingReminders.length === 0) return;
+    const soonest = hearingReminders[0];
+    if (nudgedHearingProtestId.current === soonest.protest.id) return;
+    nudgedHearingProtestId.current = soonest.protest.id;
+    getHearingNudge({ address: soonest.property.address, daysLeft: soonest.daysLeft })
+      .then((r) => setHearingNudge(r.message))
+      .catch((err) => console.error("Hearing nudge failed:", err));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hearingReminders.length > 0 ? hearingReminders[0].protest.id : null]);
 
   const activity: ActivityItem[] = [
     ...properties.map((p) => ({
@@ -224,6 +266,23 @@ function Overview() {
             </p>
             <Link to="/dashboard/properties" className="btn-outline text-sm mt-3 inline-flex">
               Review &amp; Request Protest
+            </Link>
+          </div>
+        </div>
+      )}
+
+      {hearingNudge && hearingReminders.length > 0 && (
+        <div className="card-elev p-4 border-destructive/30 flex items-start gap-3">
+          <AlertTriangle className="h-5 w-5 shrink-0 text-destructive mt-0.5" />
+          <div className="min-w-0">
+            <p className="text-sm font-medium">{hearingNudge}</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {hearingReminders[0].property.address}
+              {hearingReminders.length > 1 &&
+                ` — +${hearingReminders.length - 1} other hearing${hearingReminders.length - 1 === 1 ? "" : "s"} coming up`}
+            </p>
+            <Link to="/dashboard/properties" className="btn-outline text-sm mt-3 inline-flex">
+              View Case
             </Link>
           </div>
         </div>
