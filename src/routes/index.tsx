@@ -15,6 +15,7 @@ import { MicButton } from "@/components/MicButton";
 import { AnimatedSteps } from "@/components/AnimatedSteps";
 import { ScrollReveal } from "@/components/ScrollReveal";
 import { HouseIllustration } from "@/assets/illustrations/house";
+import { useFileDrop } from "@/hooks/use-file-drop";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -50,9 +51,7 @@ function Home() {
     navigate({ to: "/intake" });
   };
 
-  async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const f = e.target.files?.[0];
-    if (!f) return;
+  async function onFile(f: File) {
     setUploading(true);
     try {
       await classifyAndStoreDocument(f);
@@ -65,6 +64,8 @@ function Home() {
       setUploading(false);
     }
   }
+
+  const { isDragging, dropHandlers } = useFileDrop(onFile, uploading);
 
   return (
     <>
@@ -129,8 +130,9 @@ function Home() {
           <label
             className={`btn-outline inline-flex items-center gap-2 cursor-pointer bg-card shadow-elev ${
               uploading ? "opacity-60 pointer-events-none" : ""
-            }`}
+            } ${isDragging ? "ring-2 ring-accent" : ""}`}
             style={{ backgroundColor: "var(--color-card)" }}
+            {...dropHandlers}
           >
             <Upload className="h-4 w-4" />
             <input
@@ -138,9 +140,12 @@ function Home() {
               className="hidden"
               accept=".pdf,image/*"
               disabled={uploading}
-              onChange={onFile}
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) onFile(f);
+              }}
             />
-            {uploading ? "Reading document…" : "Upload Appraisal Notice"}
+            {isDragging ? "Drop to upload" : uploading ? "Reading document…" : "Upload Appraisal Notice"}
           </label>
         </div>
 
