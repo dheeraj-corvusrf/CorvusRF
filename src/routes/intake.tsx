@@ -357,6 +357,9 @@ function Intake() {
               <button onClick={() => setStep("confirm")} className="btn-primary btn-primary-hover">
                 Continue
               </button>
+              <button onClick={() => setStep("address")} className="btn-outline">
+                Search a Different Address
+              </button>
             </div>
             <p className="mt-4 text-xs text-muted-foreground">
               {savings.basis === "comps"
