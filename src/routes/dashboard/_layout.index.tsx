@@ -1,15 +1,22 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Plus, Briefcase, Upload, Sparkles, ArrowUpRight, Trash2 } from "lucide-react";
+import { Plus, Briefcase, Upload, Sparkles, ArrowUpRight, Trash2, AlertTriangle } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Cell, LabelList, ResponsiveContainer, PieChart, Pie } from "recharts";
 import { useAuth } from "@/lib/auth";
 import { currency, resetIntake, classifyAndStoreDocument } from "@/lib/intake-store";
 import { listProperties, deleteProperty, type PropertyRecord } from "@/lib/properties";
+import { useSavingsBackfill } from "@/hooks/use-savings-backfill";
+import { getEffectiveTaxRate, getBaseReductionPct, classifyPropertyCategory } from "@/lib/texas-tax-rates";
 import { listBppAccounts, type BppAccountRecord } from "@/lib/bpp-accounts";
 import { listDocuments, type DocumentRecord } from "@/lib/documents";
 import { listProtests, type ProtestRecord, type ProtestStatus } from "@/lib/protests";
+import { getPropertyProtestStatus } from "@/lib/portfolio-status";
 import { askRouter } from "@/lib/ask-router";
+import { getDeadlineNudge } from "@/lib/deadline-nudge";
+import { getHearingNudge } from "@/lib/hearing-nudge";
+import { AnimatedNumber } from "@/components/AnimatedNumber";
+import { useFileDrop } from "@/hooks/use-file-drop";
 
 export const Route = createFileRoute("/dashboard/_layout/")({
   component: Overview,
@@ -19,7 +26,11 @@ const STATUS_LABEL: Record<ProtestStatus, string> = {
   requested: "Requested",
   filed: "Filed",
   under_review: "Under Review",
+  offer_received: "Offer Received",
   hearing_scheduled: "Hearing Scheduled",
+  decision_received: "Decision Received",
+  appealing: "Appealing",
+  arbitrating: "Arbitrating",
   resolved: "Resolved",
 };
 
@@ -37,6 +48,10 @@ function Overview() {
   const [askQuery, setAskQuery] = useState("");
   const [asking, setAsking] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [nudge, setNudge] = useState<string | null>(null);
+  const nudgedPropertyId = useRef<string | null>(null);
+  const [hearingNudge, setHearingNudge] = useState<string | null>(null);
+  const nudgedHearingProtestId = useRef<string | null>(null);
 
   useEffect(() => {
     if (!user) return;
@@ -56,18 +71,24 @@ function Overview() {
       .finally(() => setLoaded(true));
   }, [user]);
 
+  useSavingsBackfill(properties, setProperties);
+
   const addressFor = (propertyId: string) =>
     properties.find((p) => p.id === propertyId)?.address ?? "Property removed";
 
-  // Same fixed 12% reduction / 2.5% effective-rate assumption used as the pre-AI
-  // fallback estimate elsewhere (ai-report.tsx, pricing) — deliberately not calling
-  // the AI modules here, since that would defeat the point of making those lazy
-  // (loadModule-on-unlock) to save tokens.
+  // Prefers the real per-property estimate computed during intake (comps- or
+  // formula-grounded — see src/lib/savings-estimate.ts) whenever it's on file.
+  // Only falls back to the same deterministic formula's base reduction rate for
+  // properties useSavingsBackfill hasn't caught up to yet — deliberately not
+  // calling estimateSavings() synchronously here, since that's what the
+  // backfill hook above already does in the background and persists.
   const estimatedSavings = useMemo(
     () =>
       properties.reduce((sum, p) => {
+        if (p.estimatedSavings != null) return sum + p.estimatedSavings;
         if (!p.totalValue) return sum;
-        return sum + Math.round(p.totalValue * 0.12 * 0.025);
+        const category = classifyPropertyCategory(p.propertyType);
+        return sum + Math.round(p.totalValue * getBaseReductionPct(p.cad, category) * getEffectiveTaxRate(p.cad));
       }, 0),
     [properties],
   );
@@ -86,7 +107,72 @@ function Overview() {
       when: new Date(p.paymentDueDate as string),
       label: "Tax bill due",
     }));
-  const upcoming = [...deadlines, ...bills].sort((a, b) => a.when.getTime() - b.when.getTime()).slice(0, 4);
+  const hearingDates = protests
+    .filter((pr) => pr.status === "hearing_scheduled" && !!pr.hearingDate)
+    .map((pr) => ({
+      property: properties.find((p) => p.id === pr.propertyId),
+      when: new Date(pr.hearingDate as string),
+      label: "ARB hearing",
+    }))
+    .filter((h): h is { property: PropertyRecord; when: Date; label: string } => !!h.property);
+  const upcoming = [...deadlines, ...bills, ...hearingDates]
+    .sort((a, b) => a.when.getTime() - b.when.getTime())
+    .slice(0, 4);
+
+  // Same 14-day threshold as NEEDS_ACTION_WINDOW_DAYS in portfolio-status.ts —
+  // a hearing this close is exactly as urgent as a protest deadline this close.
+  const HEARING_REMINDER_WINDOW_DAYS = 14;
+  const hearingReminders = protests
+    .filter((pr) => pr.status === "hearing_scheduled" && !!pr.hearingDate)
+    .map((pr) => {
+      const property = properties.find((p) => p.id === pr.propertyId);
+      const daysLeft = Math.ceil(
+        (new Date(pr.hearingDate as string).getTime() - Date.now()) / (1000 * 60 * 60 * 24),
+      );
+      return { protest: pr, property, daysLeft };
+    })
+    .filter(
+      (h): h is { protest: ProtestRecord; property: PropertyRecord; daysLeft: number } =>
+        !!h.property && h.daysLeft <= HEARING_REMINDER_WINDOW_DAYS,
+    )
+    .sort((a, b) => a.daysLeft - b.daysLeft);
+
+  // Properties flagged "needs_action" by the shared status helper (see
+  // src/lib/portfolio-status.ts — also used for the Properties page's per-property
+  // badges, so this banner and those badges never disagree). Drives the AI reminder
+  // banner below.
+  const urgentProperties = properties
+    .map((p) => ({ property: p, ...getPropertyProtestStatus(p, protests) }))
+    .filter(
+      (u): u is typeof u & { daysLeft: number } => u.status === "needs_action" && u.daysLeft != null,
+    )
+    .sort((a, b) => a.daysLeft - b.daysLeft);
+
+  useEffect(() => {
+    if (urgentProperties.length === 0) return;
+    const soonest = urgentProperties[0];
+    if (nudgedPropertyId.current === soonest.property.id) return;
+    nudgedPropertyId.current = soonest.property.id;
+    getDeadlineNudge({
+      address: soonest.property.address,
+      daysLeft: soonest.daysLeft,
+      totalValue: soonest.property.totalValue ?? undefined,
+    })
+      .then((r) => setNudge(r.message))
+      .catch((err) => console.error("Deadline nudge failed:", err));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [urgentProperties.length > 0 ? urgentProperties[0].property.id : null]);
+
+  useEffect(() => {
+    if (hearingReminders.length === 0) return;
+    const soonest = hearingReminders[0];
+    if (nudgedHearingProtestId.current === soonest.protest.id) return;
+    nudgedHearingProtestId.current = soonest.protest.id;
+    getHearingNudge({ address: soonest.property.address, daysLeft: soonest.daysLeft })
+      .then((r) => setHearingNudge(r.message))
+      .catch((err) => console.error("Hearing nudge failed:", err));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hearingReminders.length > 0 ? hearingReminders[0].protest.id : null]);
 
   const activity: ActivityItem[] = [
     ...properties.map((p) => ({
@@ -114,9 +200,7 @@ function Overview() {
     .sort((a, b) => b.ts - a.ts)
     .slice(0, 8);
 
-  async function onUploadNotice(e: React.ChangeEvent<HTMLInputElement>) {
-    const f = e.target.files?.[0];
-    if (!f) return;
+  async function onUploadNotice(f: File) {
     setUploading(true);
     try {
       await classifyAndStoreDocument(f);
@@ -126,6 +210,11 @@ function Overview() {
       setUploading(false);
     }
   }
+
+  const { isDragging: isDraggingNotice, dropHandlers: noticeDropHandlers } = useFileDrop(
+    onUploadNotice,
+    uploading,
+  );
 
   async function handleDeleteProperty(id: string) {
     if (!window.confirm("Remove this property from your dashboard?")) return;
@@ -158,7 +247,7 @@ function Overview() {
   const firstName = user?.user_metadata?.first_name as string | undefined;
 
   return (
-    <div className="grid gap-6">
+    <div className="grid grid-cols-1 min-w-0 gap-6">
       <div>
         <span className="badge-soft">
           <span className="h-1.5 w-1.5 rounded-full bg-accent" /> AI is watching your properties
@@ -169,9 +258,47 @@ function Overview() {
         <p className="text-muted-foreground">Pick any entry point below — AI figures out the right workflow.</p>
       </div>
 
+      {nudge && urgentProperties.length > 0 && (
+        <div className="card-elev p-4 border-destructive/30 flex items-start gap-3">
+          <AlertTriangle className="h-5 w-5 shrink-0 text-destructive mt-0.5" />
+          <div className="min-w-0">
+            <p className="text-sm font-medium">{nudge}</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {urgentProperties[0].property.address}
+              {urgentProperties.length > 1 &&
+                ` — +${urgentProperties.length - 1} other propert${urgentProperties.length - 1 === 1 ? "y" : "ies"} also need attention`}
+            </p>
+            <Link to="/dashboard/properties" className="btn-outline text-sm mt-3 inline-flex">
+              Review &amp; Request Protest
+            </Link>
+          </div>
+        </div>
+      )}
+
+      {hearingNudge && hearingReminders.length > 0 && (
+        <div className="card-elev p-4 border-destructive/30 flex items-start gap-3">
+          <AlertTriangle className="h-5 w-5 shrink-0 text-destructive mt-0.5" />
+          <div className="min-w-0">
+            <p className="text-sm font-medium">{hearingNudge}</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {hearingReminders[0].property.address}
+              {hearingReminders.length > 1 &&
+                ` — +${hearingReminders.length - 1} other hearing${hearingReminders.length - 1 === 1 ? "" : "s"} coming up`}
+            </p>
+            <Link to="/dashboard/properties" className="btn-outline text-sm mt-3 inline-flex">
+              View Case
+            </Link>
+          </div>
+        </div>
+      )}
+
       {/* Entry points */}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Link to="/intake" onClick={() => resetIntake()} className="card-elev p-4 hover:bg-secondary/40">
+        <Link
+          to="/intake"
+          onClick={() => resetIntake()}
+          className="card-elev p-4 transition-all hover:-translate-y-0.5 hover:bg-secondary/40 hover:shadow-elev"
+        >
           <span className="grid h-9 w-9 place-items-center rounded-lg bg-accent/15 text-accent">
             <Plus className="h-4 w-4" />
           </span>
@@ -183,7 +310,11 @@ function Overview() {
           </p>
         </Link>
 
-        <Link to="/dashboard/bpp-accounts" className="card-elev p-4 hover:bg-secondary/40">
+        <Link
+          to="/dashboard/bpp-accounts"
+          className="card-elev p-4 transition-all hover:-translate-y-0.5 hover:bg-secondary/40 hover:shadow-elev"
+          style={{ animationDelay: "60ms" }}
+        >
           <span className="grid h-9 w-9 place-items-center rounded-lg bg-accent/15 text-accent">
             <Briefcase className="h-4 w-4" />
           </span>
@@ -193,18 +324,39 @@ function Overview() {
           <p className="mt-1 text-xs text-muted-foreground">Track a business personal property account.</p>
         </Link>
 
-        <label className={`card-elev p-4 cursor-pointer block ${uploading ? "opacity-60 pointer-events-none" : "hover:bg-secondary/40"}`}>
+        <label
+          className={`card-elev p-4 cursor-pointer block transition-all ${
+            uploading ? "opacity-60 pointer-events-none" : "hover:-translate-y-0.5 hover:bg-secondary/40 hover:shadow-elev"
+          } ${isDraggingNotice ? "border-accent bg-accent/5" : ""}`}
+          style={{ animationDelay: "120ms" }}
+          {...noticeDropHandlers}
+        >
           <span className="grid h-9 w-9 place-items-center rounded-lg bg-accent/15 text-accent">
             <Upload className="h-4 w-4" />
           </span>
-          <div className="mt-3 font-medium">{uploading ? "Reading document…" : "Upload Notice"}</div>
+          <div className="mt-3 font-medium">
+            {isDraggingNotice ? "Drop to upload" : uploading ? "Reading document…" : "Upload Notice"}
+          </div>
           <p className="mt-1 text-xs text-muted-foreground">
             Drop any tax notice — AI extracts fields and routes it.
           </p>
-          <input type="file" className="hidden" accept=".pdf,image/*" disabled={uploading} onChange={onUploadNotice} />
+          <input
+            type="file"
+            className="hidden"
+            accept=".pdf,image/*"
+            disabled={uploading}
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) onUploadNotice(f);
+            }}
+          />
         </label>
 
-        <form onSubmit={submitAsk} className="card-elev p-4">
+        <form
+          onSubmit={submitAsk}
+          className="card-elev p-4 transition-all hover:-translate-y-0.5 hover:shadow-elev"
+          style={{ animationDelay: "180ms" }}
+        >
           <span className="grid h-9 w-9 place-items-center rounded-lg bg-accent/15 text-accent">
             <Sparkles className="h-4 w-4" />
           </span>
@@ -221,22 +373,22 @@ function Overview() {
 
       {/* Stats */}
       <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-5">
-        <StatCard label="Properties" value={loaded ? properties.length : "…"} to="/dashboard/properties" />
-        <StatCard label="BPP Accounts" value={loaded ? bppAccounts.length : "…"} to="/dashboard/bpp-accounts" />
-        <StatCard label="Documents" value={loaded ? documents.length : "…"} to="/dashboard/documents" />
-        <StatCard label="Cases" value={loaded ? protests.length : "…"} to="/dashboard/properties" />
-        <StatCard label="Est. Savings" value={loaded ? currency(estimatedSavings) : "…"} />
+        <StatCard label="Properties" value={loaded ? properties.length : null} to="/dashboard/properties" delayMs={0} />
+        <StatCard label="BPP Accounts" value={loaded ? bppAccounts.length : null} to="/dashboard/bpp-accounts" delayMs={40} />
+        <StatCard label="Documents" value={loaded ? documents.length : null} to="/dashboard/documents" delayMs={80} />
+        <StatCard label="Cases" value={loaded ? protests.length : null} to="/dashboard/properties" delayMs={120} />
+        <StatCard label="Est. Savings" value={loaded ? estimatedSavings : null} format={currency} delayMs={160} />
       </div>
 
       {properties.length > 0 && (
-        <div className="card-elev p-5">
+        <div className="card-elev p-5 min-w-0">
           <h3 className="font-semibold">Portfolio Value</h3>
           <PortfolioValueChart properties={properties} />
         </div>
       )}
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <div className="card-elev p-5">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <div className="card-elev p-5 min-w-0">
           <h3 className="font-semibold">Cases & AI Recommendations</h3>
           {protests.length > 0 ? (
             <ProtestStatusChart protests={protests} addressFor={addressFor} />
@@ -245,7 +397,7 @@ function Overview() {
           )}
         </div>
 
-        <div className="card-elev p-5">
+        <div className="card-elev p-5 min-w-0">
           <div className="flex items-center justify-between">
             <h3 className="font-semibold">Deadlines</h3>
             <Link to="/dashboard/deadlines" className="text-xs text-accent hover:underline">
@@ -253,10 +405,10 @@ function Overview() {
             </Link>
           </div>
           {upcoming.length > 0 ? (
-            <div className="mt-3 grid gap-2">
+            <div className="mt-3 grid min-w-0 gap-2">
               {upcoming.map((u, i) => (
-                <div key={i} className="flex items-center justify-between gap-2 text-sm">
-                  <span className="truncate">
+                <div key={i} className="flex items-center justify-between gap-2 text-sm min-w-0">
+                  <span className="truncate min-w-0">
                     {u.label} — {u.property.address}
                   </span>
                   <span className="shrink-0 text-xs text-muted-foreground">
@@ -273,14 +425,14 @@ function Overview() {
         </div>
       </div>
 
-      <div className="card-elev p-5">
+      <div className="card-elev p-5 min-w-0">
         <h3 className="font-semibold">Recent Activity</h3>
         {activity.length > 0 ? (
-          <div className="mt-3 grid gap-2">
+          <div className="mt-3 grid min-w-0 gap-2">
             {activity.map((a, i) => (
-              <div key={i} className="flex items-center justify-between gap-2 text-sm">
-                <span className="text-muted-foreground">{a.label}</span>
-                <span className="truncate">{a.detail}</span>
+              <div key={i} className="flex items-center justify-between gap-2 text-sm min-w-0">
+                <span className="shrink-0 text-muted-foreground">{a.label}</span>
+                <span className="truncate min-w-0">{a.detail}</span>
                 <span className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
                   {new Date(a.ts).toLocaleDateString()}
                   {a.propertyId && (
@@ -310,25 +462,39 @@ function StatCard({
   label,
   value,
   to,
+  format,
+  delayMs = 0,
 }: {
   label: string;
-  value: string | number;
+  value: number | null;
   to?: "/dashboard/properties" | "/dashboard/bpp-accounts" | "/dashboard/documents";
+  format?: (n: number) => string;
+  delayMs?: number;
 }) {
   const content = (
     <>
       <div className="text-xs text-muted-foreground">{label}</div>
-      <div className="mt-1 font-serif text-2xl font-semibold">{value}</div>
+      <div className="mt-1 font-serif text-2xl font-semibold">
+        {value === null ? "…" : <AnimatedNumber value={value} format={format} />}
+      </div>
     </>
   );
   if (to) {
     return (
-      <Link to={to} className="card-elev p-4 block transition-colors hover:bg-secondary/40">
+      <Link
+        to={to}
+        className="card-elev p-4 block transition-all hover:-translate-y-0.5 hover:bg-secondary/40 hover:shadow-elev"
+        style={{ animationDelay: `${delayMs}ms` }}
+      >
         {content}
       </Link>
     );
   }
-  return <div className="card-elev p-4">{content}</div>;
+  return (
+    <div className="card-elev p-4" style={{ animationDelay: `${delayMs}ms` }}>
+      {content}
+    </div>
+  );
 }
 
 const PORTFOLIO_COLORS = ["var(--accent)", "var(--success)", "var(--warning)", "#8b5cf6", "#ec4899", "#14b8a6"];
@@ -379,7 +545,11 @@ const STATUS_COLORS: Record<ProtestStatus, string> = {
   requested: "var(--muted-foreground)",
   filed: "var(--accent)",
   under_review: "var(--warning)",
+  offer_received: "#f59e0b",
   hearing_scheduled: "#8b5cf6",
+  decision_received: "#0ea5e9",
+  appealing: "#ec4899",
+  arbitrating: "#ec4899",
   resolved: "var(--success)",
 };
 
@@ -426,10 +596,10 @@ function ProtestStatusChart({
           ))}
         </div>
       </div>
-      <div className="mt-4 grid gap-2 border-t border-border pt-3">
+      <div className="mt-4 grid min-w-0 gap-2 border-t border-border pt-3">
         {protests.slice(0, 3).map((pr) => (
-          <div key={pr.id} className="flex items-center justify-between gap-2 text-sm">
-            <span className="truncate">{addressFor(pr.propertyId)}</span>
+          <div key={pr.id} className="flex items-center justify-between gap-2 text-sm min-w-0">
+            <span className="truncate min-w-0">{addressFor(pr.propertyId)}</span>
             <span className="badge-soft shrink-0">{STATUS_LABEL[pr.status]}</span>
           </div>
         ))}

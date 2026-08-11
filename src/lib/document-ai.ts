@@ -35,6 +35,10 @@ export type Extraction = {
   hearingInstructions: string | null;
   paymentDueDate: string | null;
   taxAmountDue: number | null;
+  taxableValue: number | null;
+  taxRate: number | null;
+  penaltyDate: string | null;
+  refundAmount: number | null;
   pinOrEpin: string | null;
   exemptions: string[] | null;
   confidence: number; // 0-1

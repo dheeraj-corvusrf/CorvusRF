@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { supabase, isSupabaseConfigured } from "@/lib/supabase";
 import { searchPropertiesByOwner } from "@/lib/cad-owner-search";
@@ -93,16 +93,18 @@ function SignIn() {
         if (!data.session || !data.user) {
           // Email confirmation is required before a session is issued.
           setCheckEmail(true);
-        } else if (companyName.trim()) {
+        } else {
           // Real, one-time opportunistic lookup — search supported CAD sources for
-          // properties already on file under this business name, so the user doesn't
-          // have to type in every address by hand.
+          // properties already on file under this ownership name, so the user doesn't
+          // have to type in every address by hand. Falls back to the person's own
+          // full name when no business/LLC name was given, so individual owners get
+          // portfolio discovery too, not just LLC/business signups.
           const userId = data.user.id;
-          const company = companyName.trim();
+          const ownerName = companyName.trim() || `${firstName.trim()} ${lastName.trim()}`;
           try {
-            const matches = await searchPropertiesByOwner(company);
+            const matches = await searchPropertiesByOwner(ownerName);
             if (matches.length > 0) {
-              setOwnerMatches({ userId, companyName: company, matches });
+              setOwnerMatches({ userId, companyName: ownerName, matches });
             } else {
               nav({ to: "/" });
             }
@@ -110,8 +112,6 @@ function SignIn() {
             console.error(err);
             nav({ to: "/" });
           }
-        } else {
-          nav({ to: "/" });
         }
       } else {
         const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
@@ -236,6 +236,14 @@ function SignIn() {
             className="rounded-md border border-input bg-background px-3 py-2"
           />
         </label>
+        {mode === "signin" && (
+          <Link
+            to="/forgot-password"
+            className="-mt-2 justify-self-end text-sm text-muted-foreground hover:text-foreground"
+          >
+            Forgot password?
+          </Link>
+        )}
         {mode === "signup" && (
           <label className="grid gap-1 text-sm">
             <span className="font-medium">Confirm Password</span>

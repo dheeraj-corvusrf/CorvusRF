@@ -27,7 +27,7 @@ Deno.serve(async (req: Request) => {
       systemInstruction: {
         parts: [
           {
-            text: "You are CorvusRF's Texas property tax assistant. Answer briefly and accurately. If unsure, say so. Do not invent numbers.",
+            text: "You are CorvusRF's Texas property tax assistant. Answer briefly and accurately. If unsure, say so. Do not invent numbers. Respond in plain text only — no markdown, no asterisks, no bullet points or numbered lists, no headers.",
           },
         ],
       },
@@ -36,7 +36,7 @@ Deno.serve(async (req: Request) => {
           role: "user",
           parts: [
             {
-              text: `Document context (extracted JSON):\n${context ?? "(none)"}\n\nQuestion: ${question}`,
+              text: `Context:\n${context ?? "(none)"}\n\nQuestion: ${question}`,
             },
           ],
         },

@@ -16,11 +16,13 @@ import { Route as AiReportRouteImport } from './routes/ai-report'
 import { Route as BppRenditionRouteImport } from './routes/bpp-rendition'
 import { Route as ContactRouteImport } from './routes/contact'
 import { Route as DocumentReviewRouteImport } from './routes/document-review'
+import { Route as ForgotPasswordRouteImport } from './routes/forgot-password'
 import { Route as HowItWorksRouteImport } from './routes/how-it-works'
 import { Route as IntakeRouteImport } from './routes/intake'
 import { Route as PricingRouteImport } from './routes/pricing'
 import { Route as PropertyProtestRouteImport } from './routes/property-protest'
 import { Route as PropertyTaxManagementRouteImport } from './routes/property-tax-management'
+import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as SignInRouteImport } from './routes/sign-in'
 import { Route as TaxPaymentRouteImport } from './routes/tax-payment'
 import { Route as DashboardLayoutRouteImport } from './routes/dashboard/_layout'
@@ -31,6 +33,7 @@ import { Route as DashboardLayoutDeadlinesRouteImport } from './routes/dashboard
 import { Route as DashboardLayoutDocumentsRouteImport } from './routes/dashboard/_layout.documents'
 import { Route as DashboardLayoutPropertiesRouteImport } from './routes/dashboard/_layout.properties'
 import { Route as DashboardLayoutSettingsRouteImport } from './routes/dashboard/_layout.settings'
+import { Route as DashboardLayoutTaxBillsRouteImport } from './routes/dashboard/_layout.tax-bills'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -67,6 +70,11 @@ const DocumentReviewRoute = DocumentReviewRouteImport.update({
   path: '/document-review',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ForgotPasswordRoute = ForgotPasswordRouteImport.update({
+  id: '/forgot-password',
+  path: '/forgot-password',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const HowItWorksRoute = HowItWorksRouteImport.update({
   id: '/how-it-works',
   path: '/how-it-works',
@@ -90,6 +98,11 @@ const PropertyProtestRoute = PropertyProtestRouteImport.update({
 const PropertyTaxManagementRoute = PropertyTaxManagementRouteImport.update({
   id: '/property-tax-management',
   path: '/property-tax-management',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ResetPasswordRoute = ResetPasswordRouteImport.update({
+  id: '/reset-password',
+  path: '/reset-password',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SignInRoute = SignInRouteImport.update({
@@ -146,6 +159,11 @@ const DashboardLayoutSettingsRoute = DashboardLayoutSettingsRouteImport.update({
   path: '/settings',
   getParentRoute: () => DashboardLayoutRoute,
 } as any)
+const DashboardLayoutTaxBillsRoute = DashboardLayoutTaxBillsRouteImport.update({
+  id: '/tax-bills',
+  path: '/tax-bills',
+  getParentRoute: () => DashboardLayoutRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -155,11 +173,13 @@ export interface FileRoutesByFullPath {
   '/bpp-rendition': typeof BppRenditionRoute
   '/contact': typeof ContactRoute
   '/document-review': typeof DocumentReviewRoute
+  '/forgot-password': typeof ForgotPasswordRoute
   '/how-it-works': typeof HowItWorksRoute
   '/intake': typeof IntakeRoute
   '/pricing': typeof PricingRoute
   '/property-protest': typeof PropertyProtestRoute
   '/property-tax-management': typeof PropertyTaxManagementRoute
+  '/reset-password': typeof ResetPasswordRoute
   '/sign-in': typeof SignInRoute
   '/tax-payment': typeof TaxPaymentRoute
   '/dashboard': typeof DashboardLayoutRouteWithChildren
@@ -169,6 +189,7 @@ export interface FileRoutesByFullPath {
   '/dashboard/documents': typeof DashboardLayoutDocumentsRoute
   '/dashboard/properties': typeof DashboardLayoutPropertiesRoute
   '/dashboard/settings': typeof DashboardLayoutSettingsRoute
+  '/dashboard/tax-bills': typeof DashboardLayoutTaxBillsRoute
   '/dashboard/': typeof DashboardLayoutIndexRoute
 }
 export interface FileRoutesByTo {
@@ -179,11 +200,13 @@ export interface FileRoutesByTo {
   '/bpp-rendition': typeof BppRenditionRoute
   '/contact': typeof ContactRoute
   '/document-review': typeof DocumentReviewRoute
+  '/forgot-password': typeof ForgotPasswordRoute
   '/how-it-works': typeof HowItWorksRoute
   '/intake': typeof IntakeRoute
   '/pricing': typeof PricingRoute
   '/property-protest': typeof PropertyProtestRoute
   '/property-tax-management': typeof PropertyTaxManagementRoute
+  '/reset-password': typeof ResetPasswordRoute
   '/sign-in': typeof SignInRoute
   '/tax-payment': typeof TaxPaymentRoute
   '/dashboard/billing': typeof DashboardLayoutBillingRoute
@@ -192,6 +215,7 @@ export interface FileRoutesByTo {
   '/dashboard/documents': typeof DashboardLayoutDocumentsRoute
   '/dashboard/properties': typeof DashboardLayoutPropertiesRoute
   '/dashboard/settings': typeof DashboardLayoutSettingsRoute
+  '/dashboard/tax-bills': typeof DashboardLayoutTaxBillsRoute
   '/dashboard': typeof DashboardLayoutIndexRoute
 }
 export interface FileRoutesById {
@@ -203,11 +227,13 @@ export interface FileRoutesById {
   '/bpp-rendition': typeof BppRenditionRoute
   '/contact': typeof ContactRoute
   '/document-review': typeof DocumentReviewRoute
+  '/forgot-password': typeof ForgotPasswordRoute
   '/how-it-works': typeof HowItWorksRoute
   '/intake': typeof IntakeRoute
   '/pricing': typeof PricingRoute
   '/property-protest': typeof PropertyProtestRoute
   '/property-tax-management': typeof PropertyTaxManagementRoute
+  '/reset-password': typeof ResetPasswordRoute
   '/sign-in': typeof SignInRoute
   '/tax-payment': typeof TaxPaymentRoute
   '/dashboard/_layout': typeof DashboardLayoutRouteWithChildren
@@ -217,6 +243,7 @@ export interface FileRoutesById {
   '/dashboard/_layout/documents': typeof DashboardLayoutDocumentsRoute
   '/dashboard/_layout/properties': typeof DashboardLayoutPropertiesRoute
   '/dashboard/_layout/settings': typeof DashboardLayoutSettingsRoute
+  '/dashboard/_layout/tax-bills': typeof DashboardLayoutTaxBillsRoute
   '/dashboard/_layout/': typeof DashboardLayoutIndexRoute
 }
 export interface FileRouteTypes {
@@ -229,11 +256,13 @@ export interface FileRouteTypes {
     | '/bpp-rendition'
     | '/contact'
     | '/document-review'
+    | '/forgot-password'
     | '/how-it-works'
     | '/intake'
     | '/pricing'
     | '/property-protest'
     | '/property-tax-management'
+    | '/reset-password'
     | '/sign-in'
     | '/tax-payment'
     | '/dashboard'
@@ -243,6 +272,7 @@ export interface FileRouteTypes {
     | '/dashboard/documents'
     | '/dashboard/properties'
     | '/dashboard/settings'
+    | '/dashboard/tax-bills'
     | '/dashboard/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -253,11 +283,13 @@ export interface FileRouteTypes {
     | '/bpp-rendition'
     | '/contact'
     | '/document-review'
+    | '/forgot-password'
     | '/how-it-works'
     | '/intake'
     | '/pricing'
     | '/property-protest'
     | '/property-tax-management'
+    | '/reset-password'
     | '/sign-in'
     | '/tax-payment'
     | '/dashboard/billing'
@@ -266,6 +298,7 @@ export interface FileRouteTypes {
     | '/dashboard/documents'
     | '/dashboard/properties'
     | '/dashboard/settings'
+    | '/dashboard/tax-bills'
     | '/dashboard'
   id:
     | '__root__'
@@ -276,11 +309,13 @@ export interface FileRouteTypes {
     | '/bpp-rendition'
     | '/contact'
     | '/document-review'
+    | '/forgot-password'
     | '/how-it-works'
     | '/intake'
     | '/pricing'
     | '/property-protest'
     | '/property-tax-management'
+    | '/reset-password'
     | '/sign-in'
     | '/tax-payment'
     | '/dashboard/_layout'
@@ -290,6 +325,7 @@ export interface FileRouteTypes {
     | '/dashboard/_layout/documents'
     | '/dashboard/_layout/properties'
     | '/dashboard/_layout/settings'
+    | '/dashboard/_layout/tax-bills'
     | '/dashboard/_layout/'
   fileRoutesById: FileRoutesById
 }
@@ -301,11 +337,13 @@ export interface RootRouteChildren {
   BppRenditionRoute: typeof BppRenditionRoute
   ContactRoute: typeof ContactRoute
   DocumentReviewRoute: typeof DocumentReviewRoute
+  ForgotPasswordRoute: typeof ForgotPasswordRoute
   HowItWorksRoute: typeof HowItWorksRoute
   IntakeRoute: typeof IntakeRoute
   PricingRoute: typeof PricingRoute
   PropertyProtestRoute: typeof PropertyProtestRoute
   PropertyTaxManagementRoute: typeof PropertyTaxManagementRoute
+  ResetPasswordRoute: typeof ResetPasswordRoute
   SignInRoute: typeof SignInRoute
   TaxPaymentRoute: typeof TaxPaymentRoute
   DashboardLayoutRoute: typeof DashboardLayoutRouteWithChildren
@@ -362,6 +400,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DocumentReviewRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/forgot-password': {
+      id: '/forgot-password'
+      path: '/forgot-password'
+      fullPath: '/forgot-password'
+      preLoaderRoute: typeof ForgotPasswordRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/how-it-works': {
       id: '/how-it-works'
       path: '/how-it-works'
@@ -395,6 +440,13 @@ declare module '@tanstack/react-router' {
       path: '/property-tax-management'
       fullPath: '/property-tax-management'
       preLoaderRoute: typeof PropertyTaxManagementRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/reset-password': {
+      id: '/reset-password'
+      path: '/reset-password'
+      fullPath: '/reset-password'
+      preLoaderRoute: typeof ResetPasswordRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/sign-in': {
@@ -467,6 +519,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DashboardLayoutSettingsRouteImport
       parentRoute: typeof DashboardLayoutRoute
     }
+    '/dashboard/_layout/tax-bills': {
+      id: '/dashboard/_layout/tax-bills'
+      path: '/tax-bills'
+      fullPath: '/dashboard/tax-bills'
+      preLoaderRoute: typeof DashboardLayoutTaxBillsRouteImport
+      parentRoute: typeof DashboardLayoutRoute
+    }
   }
 }
 
@@ -477,6 +536,7 @@ interface DashboardLayoutRouteChildren {
   DashboardLayoutDocumentsRoute: typeof DashboardLayoutDocumentsRoute
   DashboardLayoutPropertiesRoute: typeof DashboardLayoutPropertiesRoute
   DashboardLayoutSettingsRoute: typeof DashboardLayoutSettingsRoute
+  DashboardLayoutTaxBillsRoute: typeof DashboardLayoutTaxBillsRoute
   DashboardLayoutIndexRoute: typeof DashboardLayoutIndexRoute
 }
 
@@ -487,6 +547,7 @@ const DashboardLayoutRouteChildren: DashboardLayoutRouteChildren = {
   DashboardLayoutDocumentsRoute: DashboardLayoutDocumentsRoute,
   DashboardLayoutPropertiesRoute: DashboardLayoutPropertiesRoute,
   DashboardLayoutSettingsRoute: DashboardLayoutSettingsRoute,
+  DashboardLayoutTaxBillsRoute: DashboardLayoutTaxBillsRoute,
   DashboardLayoutIndexRoute: DashboardLayoutIndexRoute,
 }
 
@@ -502,11 +563,13 @@ const rootRouteChildren: RootRouteChildren = {
   BppRenditionRoute: BppRenditionRoute,
   ContactRoute: ContactRoute,
   DocumentReviewRoute: DocumentReviewRoute,
+  ForgotPasswordRoute: ForgotPasswordRoute,
   HowItWorksRoute: HowItWorksRoute,
   IntakeRoute: IntakeRoute,
   PricingRoute: PricingRoute,
   PropertyProtestRoute: PropertyProtestRoute,
   PropertyTaxManagementRoute: PropertyTaxManagementRoute,
+  ResetPasswordRoute: ResetPasswordRoute,
   SignInRoute: SignInRoute,
   TaxPaymentRoute: TaxPaymentRoute,
   DashboardLayoutRoute: DashboardLayoutRouteWithChildren,

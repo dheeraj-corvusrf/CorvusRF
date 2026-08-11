@@ -79,8 +79,10 @@ create table if not exists public.properties (
 
 alter table public.properties enable row level security;
 
--- Users may only see, add, and remove their own properties — no update policy since
--- properties are re-derived from a fresh CAD lookup rather than hand-edited.
+-- Users may see, add, remove, and update their own properties. Most fields are
+-- re-derived from a fresh CAD lookup rather than hand-edited, but a few (paid_at,
+-- estimated_savings/savings_basis) are legitimately written back onto an existing
+-- row after creation — see "Users can update their own properties" below.
 drop policy if exists "Users can view their own properties" on public.properties;
 create policy "Users can view their own properties"
   on public.properties for select
@@ -95,6 +97,15 @@ drop policy if exists "Users can delete their own properties" on public.properti
 create policy "Users can delete their own properties"
   on public.properties for delete
   using (auth.uid() = user_id);
+
+-- Was missing entirely until this was added, which meant markPropertyPaid()'s
+-- update() call was silently rejected by RLS the whole time (no error surfaced —
+-- .update() against a row RLS hides from you just updates zero rows).
+drop policy if exists "Users can update their own properties" on public.properties;
+create policy "Users can update their own properties"
+  on public.properties for update
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
 
 -- Admin panel support: a manual is_admin flag and a manual plan field (no real
 -- billing — matches the 3 tiers in src/routes/pricing.tsx).
@@ -182,6 +193,21 @@ alter table public.properties add column if not exists payment_due_date date;
 alter table public.properties add column if not exists tax_amount_due numeric;
 alter table public.properties add column if not exists paid_at timestamptz;
 
+-- Real per-property savings estimate (see src/lib/savings-estimate.ts) — "comps"
+-- (real comparable-property data, distance- and value-filtered) or "formula"
+-- (a deterministic reduction % from real per-county/per-category 2025 Texas
+-- protest-outcome data, used when no qualifying comp exists — no AI call, so
+-- the same property always produces the same number). "ai" and "baseline" are
+-- legacy values from before the estimate was made fully deterministic — still
+-- valid to read on old rows, nothing writes them anymore. Persisted so the
+-- dashboard shows the same number the user saw during intake instead of
+-- losing it once the property is saved; backfilled for properties added
+-- before this column existed via the properties dashboard page.
+alter table public.properties add column if not exists estimated_savings numeric;
+alter table public.properties add column if not exists savings_basis text;
+alter table public.properties drop constraint if exists properties_savings_basis_check;
+alter table public.properties add constraint properties_savings_basis_check check (savings_basis in ('comps', 'formula', 'ai', 'baseline'));
+
 -- Business Personal Property tax accounts — a distinct entity from real property
 -- (public.properties): a business can render BPP for a location without owning the
 -- real estate it sits in, so this isn't just a property with a type filter.
@@ -226,9 +252,8 @@ create table if not exists public.protests (
   updated_at timestamptz not null default now()
 );
 
-alter table public.protests drop constraint if exists protests_status_check;
-alter table public.protests add constraint protests_status_check
-  check (status in ('requested', 'filed', 'under_review', 'hearing_scheduled', 'resolved'));
+-- status check constraint is defined further below, once, after the full set of
+-- possible values (added for case-progress tracking) is established.
 
 alter table public.protests enable row level security;
 
@@ -250,6 +275,101 @@ create policy "Admins can view all protests"
 drop policy if exists "Admins can update all protests" on public.protests;
 create policy "Admins can update all protests"
   on public.protests for update
+  using (public.is_admin());
+
+-- AI-generated case prep (see src/lib/protest-case.ts), written by the user's own
+-- client right after they request a protest — not a verified filing outcome, same
+-- self-reported precedent as tax_bills.paid_at/refund_amount. RLS is row-scoped by
+-- user_id like every other table here; it can't distinguish "only these columns,"
+-- so this does technically let a user edit their own status/notes too, same as they
+-- always could edit their own tax_bills payment fields.
+alter table public.protests add column if not exists strategy_recommendation text;
+alter table public.protests add column if not exists strategy_confidence_pct integer;
+alter table public.protests add column if not exists strategy_rationale text;
+alter table public.protests add column if not exists case_prep_generated_at timestamptz;
+
+drop policy if exists "Users can update their own protests" on public.protests;
+create policy "Users can update their own protests"
+  on public.protests for update
+  using (auth.uid() = user_id);
+
+-- Case progress through settlement/hearing/decision/escalation (see
+-- src/lib/protest-case.ts) — same self-reported precedent as everything else on
+-- this table; there's no live county API, so someone has to enter what actually
+-- happened. original_value is a snapshot taken at request time (not read live off
+-- properties.total_value), since that can change in later years and the case needs
+-- to remember what it actually started from.
+alter table public.protests add column if not exists original_value numeric;
+alter table public.protests add column if not exists settlement_offer_value numeric;
+alter table public.protests add column if not exists settlement_offer_received_at date;
+alter table public.protests add column if not exists hearing_date date;
+alter table public.protests add column if not exists arb_decision text;
+alter table public.protests add column if not exists arb_decision_date date;
+alter table public.protests add column if not exists final_value numeric;
+alter table public.protests add column if not exists escalation_path text;
+alter table public.protests add column if not exists closed_at timestamptz;
+
+alter table public.protests drop constraint if exists protests_arb_decision_check;
+alter table public.protests add constraint protests_arb_decision_check
+  check (arb_decision is null or arb_decision in ('approved', 'partial', 'denied'));
+
+alter table public.protests drop constraint if exists protests_escalation_path_check;
+alter table public.protests add constraint protests_escalation_path_check
+  check (escalation_path is null or escalation_path in ('accept', 'appeal', 'arbitration'));
+
+alter table public.protests drop constraint if exists protests_status_check;
+alter table public.protests add constraint protests_status_check
+  check (status in ('requested', 'filed', 'under_review', 'offer_received',
+    'hearing_scheduled', 'decision_received', 'appealing', 'arbitrating', 'resolved'));
+
+-- Trackable evidence checklist for a protest case — one row per AI-suggested
+-- evidence item, optionally linked to an uploaded document once the user provides
+-- it. Generated from the same "evidence" AI module the paywalled AI Report page
+-- already uses (src/lib/ai-report-modules.ts), just persisted against the real
+-- case instead of only rendering once in a report view.
+create table if not exists public.protest_evidence_items (
+  id uuid primary key default gen_random_uuid(),
+  protest_id uuid not null references public.protests (id) on delete cascade,
+  user_id uuid not null references auth.users (id) on delete cascade,
+  label text not null,
+  document_id uuid references public.documents (id) on delete set null,
+  created_at timestamptz not null default now()
+);
+
+alter table public.protest_evidence_items enable row level security;
+
+drop policy if exists "Users can view their own evidence items" on public.protest_evidence_items;
+create policy "Users can view their own evidence items"
+  on public.protest_evidence_items for select
+  using (auth.uid() = user_id);
+
+drop policy if exists "Users can insert their own evidence items" on public.protest_evidence_items;
+create policy "Users can insert their own evidence items"
+  on public.protest_evidence_items for insert
+  with check (auth.uid() = user_id);
+
+drop policy if exists "Users can update their own evidence items" on public.protest_evidence_items;
+create policy "Users can update their own evidence items"
+  on public.protest_evidence_items for update
+  using (auth.uid() = user_id);
+
+drop policy if exists "Admins can view all evidence items" on public.protest_evidence_items;
+create policy "Admins can view all evidence items"
+  on public.protest_evidence_items for select
+  using (public.is_admin());
+
+-- Lets staff run generateCasePrep()/linkEvidenceDocument() (src/lib/protest-case.ts)
+-- on a customer's behalf from the admin panel — inserted/updated rows still carry
+-- the CUSTOMER's own user_id (passed explicitly by the client, not auth.uid()), so
+-- the customer's own "Users can ..." policies above keep working for them too.
+drop policy if exists "Admins can insert evidence items" on public.protest_evidence_items;
+create policy "Admins can insert evidence items"
+  on public.protest_evidence_items for insert
+  with check (public.is_admin());
+
+drop policy if exists "Admins can update all evidence items" on public.protest_evidence_items;
+create policy "Admins can update all evidence items"
+  on public.protest_evidence_items for update
   using (public.is_admin());
 
 -- Original uploaded documents (appraisal notices, tax bills, etc.), persisted per
@@ -288,6 +408,14 @@ create policy "Admins can view all documents"
   on public.documents for select
   using (public.is_admin());
 
+-- Lets staff index an uploaded file (src/lib/documents.ts's uploadDocument()) on a
+-- customer's behalf — same "row still carries the customer's own user_id" pattern
+-- as the evidence-items admin policies above.
+drop policy if exists "Admins can insert documents" on public.documents;
+create policy "Admins can insert documents"
+  on public.documents for insert
+  with check (public.is_admin());
+
 -- Private bucket: objects are stored at "{user_id}/{property_id}/{filename}" so the
 -- storage.objects policies below can scope access by the first path segment alone.
 insert into storage.buckets (id, name, public)
@@ -300,6 +428,14 @@ create policy "Users can upload their own documents"
   with check (
     bucket_id = 'documents' and (storage.foldername(name))[1] = auth.uid()::text
   );
+
+-- No path restriction (unlike the user policy above) — staff need to write into the
+-- CUSTOMER's own folder, not their own, so the customer can still read it back via
+-- their own "Users can view their own documents" policy below.
+drop policy if exists "Admins can upload any documents" on storage.objects;
+create policy "Admins can upload any documents"
+  on storage.objects for insert
+  with check (bucket_id = 'documents' and public.is_admin());
 
 drop policy if exists "Users can view their own documents" on storage.objects;
 create policy "Users can view their own documents"
@@ -314,6 +450,135 @@ create policy "Users can delete their own documents"
   using (
     bucket_id = 'documents' and (storage.foldername(name))[1] = auth.uid()::text
   );
+
+-- AI-computed "protest opportunity" score, generated once in the background right
+-- after a property is added (see src/lib/property-scores.ts) so the dashboard can
+-- show it without the user ever opening the on-demand AI Report page. Write-once,
+-- like properties itself — no update/delete policy.
+create table if not exists public.property_ai_scores (
+  id uuid primary key default gen_random_uuid(),
+  property_id uuid not null references public.properties (id) on delete cascade,
+  user_id uuid not null references auth.users (id) on delete cascade,
+  score integer not null,
+  summary text not null,
+  factors text[] not null default '{}',
+  computed_at timestamptz not null default now()
+);
+
+alter table public.property_ai_scores enable row level security;
+
+drop policy if exists "Users can view their own property AI scores" on public.property_ai_scores;
+create policy "Users can view their own property AI scores"
+  on public.property_ai_scores for select
+  using (auth.uid() = user_id);
+
+drop policy if exists "Users can insert their own property AI scores" on public.property_ai_scores;
+create policy "Users can insert their own property AI scores"
+  on public.property_ai_scores for insert
+  with check (auth.uid() = user_id);
+
+drop policy if exists "Admins can view all property AI scores" on public.property_ai_scores;
+create policy "Admins can view all property AI scores"
+  on public.property_ai_scores for select
+  using (public.is_admin());
+
+-- Records a user's signed authorization to let CorvusRF act as their tax agent for
+-- a given protest (the "CorvusRF Managed" workspace path) — owner/entity details plus
+-- a captured signature (drawn PNG data URL or typed text), collected via
+-- ProtestAuthorizationFlow.tsx from the dashboard's "Request Protest Filing" action.
+create table if not exists public.protest_authorizations (
+  id uuid primary key default gen_random_uuid(),
+  protest_id uuid references public.protests (id) on delete cascade,
+  property_id uuid not null references public.properties (id) on delete cascade,
+  user_id uuid not null references auth.users (id) on delete cascade,
+  first_name text not null,
+  last_name text not null,
+  email text not null,
+  phone text not null,
+  is_entity boolean not null default false,
+  entity_name text,
+  entity_relationship text,
+  entity_type text,
+  purchased_recently boolean,
+  signature_type text not null check (signature_type in ('draw', 'type')),
+  signature_data text not null,
+  signed_at timestamptz not null default now(),
+  created_at timestamptz not null default now()
+);
+
+alter table public.protest_authorizations enable row level security;
+
+drop policy if exists "Users can view their own protest authorizations" on public.protest_authorizations;
+create policy "Users can view their own protest authorizations"
+  on public.protest_authorizations for select
+  using (auth.uid() = user_id);
+
+drop policy if exists "Users can insert their own protest authorizations" on public.protest_authorizations;
+create policy "Users can insert their own protest authorizations"
+  on public.protest_authorizations for insert
+  with check (auth.uid() = user_id);
+
+drop policy if exists "Admins can view all protest authorizations" on public.protest_authorizations;
+create policy "Admins can view all protest authorizations"
+  on public.protest_authorizations for select
+  using (public.is_admin());
+
+-- Per-tax-year bill/payment/refund history for a property — closes the loop on the
+-- savings estimate shown at intake, which otherwise never gets compared against what
+-- the county actually billed. `properties.tax_amount_due`/`payment_due_date`/`paid_at`
+-- stay as the "latest bill" snapshot the Deadlines page and dashboard home already
+-- read; this table is the real history behind them and is kept in sync on write
+-- rather than replacing those columns (see src/lib/tax-bills.ts).
+create table if not exists public.tax_bills (
+  id uuid primary key default gen_random_uuid(),
+  property_id uuid not null references public.properties (id) on delete cascade,
+  user_id uuid not null references auth.users (id) on delete cascade,
+  tax_year integer,
+  taxable_value numeric,
+  tax_rate numeric,
+  amount_due numeric,
+  due_date date,
+  penalty_date date,
+  source_document_id uuid references public.documents (id) on delete set null,
+  amount_paid numeric,
+  paid_at timestamptz,
+  payment_confirmation text,
+  refund_amount numeric,
+  refund_expected_at date,
+  refund_received_at timestamptz,
+  notes text,
+  created_at timestamptz not null default now()
+);
+
+alter table public.tax_bills enable row level security;
+
+drop policy if exists "Users can view their own tax bills" on public.tax_bills;
+create policy "Users can view their own tax bills"
+  on public.tax_bills for select
+  using (auth.uid() = user_id);
+
+drop policy if exists "Users can insert their own tax bills" on public.tax_bills;
+create policy "Users can insert their own tax bills"
+  on public.tax_bills for insert
+  with check (auth.uid() = user_id);
+
+-- Unlike properties/documents, tax bills are updated in place (mark paid, record a
+-- refund) rather than only ever inserted, so — unusually for this schema — this table
+-- needs an update policy.
+drop policy if exists "Users can update their own tax bills" on public.tax_bills;
+create policy "Users can update their own tax bills"
+  on public.tax_bills for update
+  using (auth.uid() = user_id);
+
+drop policy if exists "Users can delete their own tax bills" on public.tax_bills;
+create policy "Users can delete their own tax bills"
+  on public.tax_bills for delete
+  using (auth.uid() = user_id);
+
+drop policy if exists "Admins can view all tax bills" on public.tax_bills;
+create policy "Admins can view all tax bills"
+  on public.tax_bills for select
+  using (public.is_admin());
 
 -- ── ONE-TIME MANUAL STEP — do NOT run this as part of the routine schema paste ──
 -- After you have an account (sign up normally through the app first), run this once,

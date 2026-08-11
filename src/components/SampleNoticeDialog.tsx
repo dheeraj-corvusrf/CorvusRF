@@ -24,14 +24,21 @@ const FIELDS: Array<{ label: string; sample: string }> = [
   { label: "Protest Deadline", sample: "May 15 (or 30 days after this notice was mailed)" },
 ];
 
-export function SampleNoticeDialog() {
+export function SampleNoticeDialog({
+  triggerClassName = "text-muted-foreground hover:text-foreground",
+}: {
+  // Lets a caller override the trigger's colors when it sits on a background
+  // (e.g. the homepage hero's grass) where the default muted-gray text doesn't
+  // have enough contrast to read — the underline/icon/label stay the same.
+  triggerClassName?: string;
+}) {
   const [open, setOpen] = useState(false);
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         <button
           type="button"
-          className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground underline underline-offset-2"
+          className={`inline-flex items-center gap-1.5 text-xs underline underline-offset-2 ${triggerClassName}`}
         >
           <FileText className="h-3.5 w-3.5" />
           View sample appraisal notice
