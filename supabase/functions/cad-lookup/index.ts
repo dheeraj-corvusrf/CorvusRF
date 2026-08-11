@@ -34,10 +34,14 @@ type CadRecord = {
   improvementValue: number | null;
   totalValue: number | null;
   taxYear: number | null;
-  // Enrichment fields — only populated for the counties whose public site runs on
-  // a vendor with a real JSON API (TrueProdigy: Denton/Montgomery/Tarrant/Travis;
-  // BIS Consultants: Fort Bend/Grayson). See texas_cad_vendor_landscape memory for
-  // why the other 5 counties can't offer this (bot-blocked or scraping-only).
+  // Enrichment fields — populated for the counties whose public site offers a real,
+  // callable second source: TrueProdigy (Denton/Montgomery/Tarrant/Travis), BIS
+  // Consultants (Fort Bend/Grayson), Williamson's own JSON search API, and Dallas's
+  // plain-GET account-detail pages. Collin and Harris remain unenriched (bot/WAF-
+  // blocked); Bexar's second source (bexar.trueautomation.com) now also returns a
+  // hard 403 from an Azure Application Gateway even with a real browser User-Agent
+  // — confirmed 2026-08-11, not attempted further. See texas_cad_vendor_landscape
+  // memory for the full per-county breakdown.
   legalDescription?: string | null;
   subdivision?: string | null;
   geoId?: string | null;
@@ -744,8 +748,9 @@ async function queryDallas(address: string): Promise<CadRecord[]> {
 // must never fail, and a confirm screen must never show stale/wrong enrichment,
 // just because a second, non-essential vendor call didn't work this time.
 //
-// Two vendor platforms cover 6 of the 11 counties (see texas_cad_vendor_landscape
-// memory for the other 5, which are either bot-protected or scraping-only):
+// Four real second sources now cover 8 of the 11 counties (see
+// texas_cad_vendor_landscape memory for the remaining 3 — Collin/Harris are
+// bot-walled, Bexar's own second source is now also infrastructure-blocked):
 //   - TrueProdigy (Denton, Montgomery, Tarrant, Travis): confirmed live 2026-07-27
 //     that each county's own ArcGIS accountNumber IS that county's TrueProdigy
 //     "pid" (Tarrant's needs its leading zeros stripped first).
@@ -753,12 +758,17 @@ async function queryDallas(address: string): Promise<CadRecord[]> {
 //     (PROPNUMBER) matches BIS's own "geoId" field; Grayson's ArcGIS accountNumber
 //     (PropertyNumber) matches BIS's own "propertyId" field instead — different
 //     cross-reference key per county, both confirmed live.
+//   - Williamson (Phase 6, 2026-08-11): search.wcad.org's own unauthenticated JSON
+//     search API — see enrichWilliamson below.
+//   - Dallas (Phase 6, 2026-08-11): dallascad.org's plain-GET account-detail pages,
+//     keyed directly by the already-trusted account number — see enrichDallas
+//     below, including why it doesn't need the same house-number cross-check.
 //
-// In both cases, the enrichment lookup is keyed off the property ID already
-// trusted from the primary match — never re-derived from the user's typed
+// TrueProdigy/BIS/Williamson enrichment is keyed off the property ID or address
+// already trusted from the primary match — never re-derived from the user's typed
 // address — and is cross-checked against the primary match's own house number
-// before merging, so a wrong cross-county ID coincidence can never silently
-// attach one property's deed/value history onto a different property's screen.
+// before merging, so a wrong cross-county ID coincidence can never silently attach
+// one property's deed/value history onto a different property's screen.
 
 const TRUEPRODIGY_OFFICE_BY_CAD: Record<string, string> = {
   "Denton Central Appraisal District": "Denton",
@@ -953,6 +963,147 @@ async function enrichBIS(
   }
 }
 
+// Williamson (Phase 6, 2026-08-11) — search.wcad.org's own results grid calls a
+// plain, unauthenticated JSON GET (no VIEWSTATE, no browser needed) that the 2026-
+// 07-27 vendor-landscape investigation missed (it either didn't exist yet or wasn't
+// found by that pass — this was confirmed live just now, not assumed). No per-
+// property detail endpoint was found, but the search results themselves already
+// carry legal description, subdivision, and a real owner mailing address (which no
+// county currently returns via the ArcGIS primary match) — same value tier as the
+// BIS-tier counties (Fort Bend/Grayson), no deed history.
+async function enrichWilliamson(
+  propertyAddress: string,
+  expectedHouseNumber: string,
+): Promise<Partial<CadRecord> | null> {
+  try {
+    // The API requires a tax-year filter (omitting it returns zero results) but
+    // isn't picky about which recent year — 2025/2026/2027 all confirmed live —
+    // so this uses the current calendar year rather than a literal that would go
+    // stale, matching no county-specific significance beyond "a real recent year".
+    const taxYear = new Date().getFullYear();
+    const url =
+      "https://search.wcad.org/ProxyT/Search/Properties/" +
+      `?f=${encodeURIComponent(propertyAddress)}&ty=${taxYear}&pvty=${taxYear}&pn=1&st=9&so=1&pt=RP%3BPP%3BMH%3BNR&take=20&skip=0&page=1&pageSize=20`;
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const json = (await res.json()) as { ResultList?: Array<Record<string, unknown>> };
+    const rows = json.ResultList ?? [];
+    if (rows.length === 0) return null;
+
+    const match = rows.find((r) => {
+      const situs = String(r.SitusAddress ?? "").trim();
+      return expectedHouseNumber && situs.startsWith(expectedHouseNumber);
+    });
+    if (!match) return null;
+
+    return {
+      legalDescription: (match.LegalDescription as string) || null,
+      subdivision: (match.Subdivision as string) || null,
+      mailingAddress: (match.OwnerFullAddress as string)?.trim() || null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+// Dallas (Phase 6, 2026-08-11) — the account-detail pages (dallascad.org) need no
+// search/postback at all for enrichment: they're reachable with a single plain GET
+// keyed directly by the account number the primary queryDallas() match already
+// trusts. Confirmed live with a cold, cookie-less request — the page renders with
+// stable ASP.NET server-control element IDs (parsed below via regex, not a full DOM
+// parser, since the IDs are fixed and predictable). Account type (residential vs.
+// commercial vs. business-personal-property) isn't known ahead of time, so this
+// tries each detail-page variant in turn and stops at the first real hit — a 200
+// with no lblOwner span is DCAD's "wrong type for this ID" response, not an error.
+// This is also the first enrichment function that backfills VALUE fields, not just
+// extra detail — deliberate, since queryDallas()'s ArcGIS source has none at all;
+// enrichRecord()'s existing spread-merge already applies them correctly.
+const DALLAS_DETAIL_PATHS = ["AcctDetailRes.aspx", "AcctDetailCom.aspx", "AcctDetailBPP.aspx"];
+
+function extractSpan(html: string, id: string): string | null {
+  const m = html.match(new RegExp(`id="${id}"[^>]*>([^<]*)`, "i"));
+  const text = m?.[1]?.replace(/&nbsp;/g, " ").trim();
+  return text || null;
+}
+
+// DCAD shows "Value in Dispute" instead of a number whenever a property's value is
+// under active protest (confirmed live 2026-08-11) — stripping non-digits from that
+// text leaves an EMPTY string, and `Number("")` is 0 in JS (not NaN), so this must
+// require at least one real digit before parsing, or a disputed value would have
+// silently come back as a fabricated $0 instead of the honest "no value available".
+function parseDallasDollar(v: string | null): number | null {
+  if (!v || !/\d/.test(v)) return null;
+  const n = Number(v.replace(/[^0-9.-]/g, ""));
+  return Number.isFinite(n) ? Math.round(n) : null;
+}
+
+// No house-number cross-check needed here, unlike every other enrichment
+// function: this fetches by the EXACT account number the primary queryDallas()
+// match already trusts (a direct primary-key lookup), not an independent
+// secondary text search that could ambiguously match a different property —
+// that's the risk the cross-check in the other enrich* functions guards
+// against, and it doesn't apply to a lookup keyed by an already-trusted ID.
+async function enrichDallas(accountNumber: string): Promise<Partial<CadRecord> | null> {
+  try {
+    for (const path of DALLAS_DETAIL_PATHS) {
+      const res = await fetch(
+        `https://www.dallascad.org/${path}?ID=${encodeURIComponent(accountNumber)}`,
+      );
+      if (!res.ok) continue;
+      const html = await res.text();
+      // Bounded by the next <a name="MultiOwner"> anchor, not a "double <br />"
+      // pattern — confirmed live 2026-08-11 that the real markup only has a single
+      // trailing <br /> after the address (with blank whitespace before it, not a
+      // second tag), so the original double-<br /> terminator never matched and
+      // silently swallowed the rest of the page instead of just the owner block.
+      // The header span's own inner text ("Owner (Current 2027)") is explicitly
+      // consumed too, so it can't leak into the first line.
+      const ownerBlock = html.match(/id="lblOwner"[^>]*>[^<]*<\/span>([\s\S]*?)<a name=/i)?.[1];
+      if (!ownerBlock) continue; // wrong account-type page for this ID — try the next
+
+      // ownerBlock is "NAME[<br />NAME2 ...]<br />LINE1<br />LINE2" — some accounts
+      // list multiple co-owners, each on their own <br />-separated line, before the
+      // address (confirmed live 2026-08-11 on a real two-owner account, which broke
+      // an earlier "everything after line 1" assumption). The address itself is
+      // always the last two lines (street, then city/state/zip) regardless of how
+      // many owner-name lines precede it, so slice from the end instead.
+      const lines = ownerBlock.split(/<br\s*\/?>/i).map((s) => s.replace(/&nbsp;/g, " ").trim()).filter(Boolean);
+      const mailingAddress = lines.length >= 2 ? lines.slice(-2).join(", ") : null;
+
+      // The legal-description text lives in nested <span id="LegalDesc1_lblLegalN">
+      // elements inside each <TD>, not as the TD's own direct text — confirmed live
+      // 2026-08-11 that matching bare <TD>text</TD> finds nothing, since every cell
+      // opens with a <span> tag before any text.
+      const legalLines: string[] = [];
+      const legalMatch = html.match(/id="lblLegalDesc"[\s\S]*?<\/TABLE>/i)?.[0];
+      if (legalMatch) {
+        for (const m of legalMatch.matchAll(/id="LegalDesc1_lblLegal\d+"[^>]*>([^<]*)/gi)) {
+          const line = m[1].trim();
+          if (line) legalLines.push(line);
+        }
+      }
+      const saleDate = legalMatch?.match(/id="LegalDesc1_lblSaleDate"[^>]*>([^<]*)/i)?.[1]?.trim() || null;
+
+      return {
+        legalDescription: legalLines.join(" ").trim() || null,
+        mailingAddress,
+        landValue: parseDallasDollar(extractSpan(html, "ValueSummary1_pnlValue_lblLandVal")),
+        improvementValue: parseDallasDollar(extractSpan(html, "ValueSummary1_lblImpVal")),
+        totalValue: parseDallasDollar(extractSpan(html, "ValueSummary1_pnlValue_lblTotalVal")),
+        // Only the single most-recent deed's date is available here (unlike
+        // TrueProdigy's full deed history) — same lighter tier as Fort Bend/Grayson,
+        // which get no deed info at all, so a date-only entry is still a real gain.
+        deeds: saleDate
+          ? [{ date: saleDate, type: null, description: null, seller: null, buyer: null, instrumentNum: null }]
+          : undefined,
+      };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 async function enrichRecord(record: CadRecord): Promise<CadRecord> {
   if (!record.accountNumber) return record;
   const expectedHouseNumber = houseNumberOf(record.propertyAddress);
@@ -962,7 +1113,11 @@ async function enrichRecord(record: CadRecord): Promise<CadRecord> {
       ? await enrichTrueProdigy(record.cad, record.accountNumber, expectedHouseNumber)
       : record.cad in BIS_CONFIG_BY_CAD
         ? await enrichBIS(record.cad, record.accountNumber, expectedHouseNumber)
-        : null;
+        : record.cad === "Williamson Central Appraisal District"
+          ? await enrichWilliamson(record.propertyAddress, expectedHouseNumber)
+          : record.cad === "Dallas Central Appraisal District"
+            ? await enrichDallas(record.accountNumber)
+            : null;
 
   return enrichment ? { ...record, ...enrichment } : record;
 }

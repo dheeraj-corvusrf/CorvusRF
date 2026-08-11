@@ -12,15 +12,14 @@ import { requestProtest, type ProtestRecord } from "@/lib/protests";
 import { createAuthorization } from "@/lib/protest-authorizations";
 import type { PropertyRecord } from "@/lib/properties";
 
-// TODO(business): fill in CorvusRF's real business address, phone, email, and legal
-// venue below before this agreement is used for a real signature. The TDLR
-// regulatory line is intentionally omitted until registration is confirmed. Fee
-// (25%) and service scope were explicitly confirmed as CorvusRF's real terms.
-const AGREEMENT = {
-  address: "[CorvusRF business address — TBD]",
-  phone: "[CorvusRF phone — TBD]",
-  email: "[CorvusRF email — TBD]",
-  venue: "[venue county — TBD], Texas",
+// The TDLR regulatory line is intentionally omitted until registration is
+// confirmed. Fee (25%) and service scope were explicitly confirmed as
+// CorvusRF's real terms.
+export const AGREEMENT = {
+  address: "18740 Wainsborough Ln, Dallas, TX",
+  phone: "(469) 501-9362",
+  email: "properties@srclandbuilding.com",
+  venue: "Dallas County, Texas",
 };
 
 type Step = "owner" | "purchase" | "review";

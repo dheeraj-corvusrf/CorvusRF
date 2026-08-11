@@ -14,6 +14,8 @@ import {
   updateProtestNotes,
   listDocumentsForProperty,
   getCaseSummary,
+  toProtestRecord,
+  toPropertyRecordStub,
   PLAN_OPTIONS,
   PROTEST_STATUS_OPTIONS,
   type AdminUserRecord,
@@ -22,10 +24,11 @@ import {
   type AdminDocumentRecord,
   type CaseSummaryResult,
 } from "@/lib/admin";
-import type { ProtestStatus } from "@/lib/protests";
+import type { ProtestRecord, ProtestStatus } from "@/lib/protests";
 import { listProperties, addProperty, deleteProperty, type PropertyRecord } from "@/lib/properties";
 import { currency } from "@/lib/intake-store";
 import { AddressAutocomplete } from "@/components/AddressAutocomplete";
+import { AdminCaseProgressModal } from "@/components/AdminCaseProgressModal";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export const Route = createFileRoute("/admin")({
@@ -47,6 +50,7 @@ function AdminPanel() {
   const [protests, setProtests] = useState<AdminProtestRecord[]>([]);
   const [protestsLoading, setProtestsLoading] = useState(true);
   const [expandedProtestId, setExpandedProtestId] = useState<string | null>(null);
+  const [caseRecord, setCaseRecord] = useState<AdminProtestRecord | null>(null);
 
   useEffect(() => {
     if (loading) return;
@@ -90,6 +94,13 @@ function AdminPanel() {
   async function handleProtestNotesChange(protestId: string, notes: string) {
     setProtests((cur) => cur.map((p) => (p.id === protestId ? { ...p, notes } : p)));
     await updateProtestNotes(protestId, notes);
+  }
+
+  // CaseProgress (reused from the customer dashboard) already made the write —
+  // this just keeps the modal and the row's status dropdown in sync with it.
+  function handleCaseProgressUpdate(protestId: string, patch: Partial<ProtestRecord>) {
+    setCaseRecord((prev) => (prev && prev.id === protestId ? { ...prev, ...patch } : prev));
+    setProtests((cur) => cur.map((p) => (p.id === protestId ? { ...p, ...patch } : p)));
   }
 
   async function handlePlanChange(userId: string, plan: PlanValue) {
@@ -165,6 +176,7 @@ function AdminPanel() {
                   }
                   onStatusChange={(status) => handleProtestStatusChange(p.id, status)}
                   onNotesChange={(notes) => handleProtestNotesChange(p.id, notes)}
+                  onOpenCase={() => setCaseRecord(p)}
                 />
               );
             })
@@ -197,6 +209,16 @@ function AdminPanel() {
           ))
         )}
       </div>
+
+      {caseRecord && (
+        <AdminCaseProgressModal
+          userId={caseRecord.userId}
+          protest={toProtestRecord(caseRecord)}
+          property={toPropertyRecordStub(caseRecord)}
+          onUpdate={(patch) => handleCaseProgressUpdate(caseRecord.id, patch)}
+          onClose={() => setCaseRecord(null)}
+        />
+      )}
     </div>
   );
 }
@@ -312,6 +334,7 @@ function ProtestRow({
   onToggleExpand,
   onStatusChange,
   onNotesChange,
+  onOpenCase,
 }: {
   record: AdminProtestRecord;
   requesterEmail: string;
@@ -319,6 +342,7 @@ function ProtestRow({
   onToggleExpand: () => void;
   onStatusChange: (status: ProtestStatus) => void;
   onNotesChange: (notes: string) => Promise<void>;
+  onOpenCase: () => void;
 }) {
   const [notes, setNotes] = useState(record.notes ?? "");
   const [savingNotes, setSavingNotes] = useState(false);
@@ -417,6 +441,9 @@ function ProtestRow({
           </select>
           <button onClick={onToggleExpand} className="btn-outline text-sm">
             {expanded ? "Hide details" : "View details"}
+          </button>
+          <button onClick={onOpenCase} className="btn-outline text-sm">
+            Case Progress
           </button>
         </div>
       </div>

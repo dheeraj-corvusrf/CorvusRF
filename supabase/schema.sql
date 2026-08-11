@@ -358,6 +358,20 @@ create policy "Admins can view all evidence items"
   on public.protest_evidence_items for select
   using (public.is_admin());
 
+-- Lets staff run generateCasePrep()/linkEvidenceDocument() (src/lib/protest-case.ts)
+-- on a customer's behalf from the admin panel — inserted/updated rows still carry
+-- the CUSTOMER's own user_id (passed explicitly by the client, not auth.uid()), so
+-- the customer's own "Users can ..." policies above keep working for them too.
+drop policy if exists "Admins can insert evidence items" on public.protest_evidence_items;
+create policy "Admins can insert evidence items"
+  on public.protest_evidence_items for insert
+  with check (public.is_admin());
+
+drop policy if exists "Admins can update all evidence items" on public.protest_evidence_items;
+create policy "Admins can update all evidence items"
+  on public.protest_evidence_items for update
+  using (public.is_admin());
+
 -- Original uploaded documents (appraisal notices, tax bills, etc.), persisted per
 -- property so the dashboard's Documents tab lists real files instead of only the
 -- AI-extracted field values. The file itself lives in the "documents" Storage bucket
@@ -394,6 +408,14 @@ create policy "Admins can view all documents"
   on public.documents for select
   using (public.is_admin());
 
+-- Lets staff index an uploaded file (src/lib/documents.ts's uploadDocument()) on a
+-- customer's behalf — same "row still carries the customer's own user_id" pattern
+-- as the evidence-items admin policies above.
+drop policy if exists "Admins can insert documents" on public.documents;
+create policy "Admins can insert documents"
+  on public.documents for insert
+  with check (public.is_admin());
+
 -- Private bucket: objects are stored at "{user_id}/{property_id}/{filename}" so the
 -- storage.objects policies below can scope access by the first path segment alone.
 insert into storage.buckets (id, name, public)
@@ -406,6 +428,14 @@ create policy "Users can upload their own documents"
   with check (
     bucket_id = 'documents' and (storage.foldername(name))[1] = auth.uid()::text
   );
+
+-- No path restriction (unlike the user policy above) — staff need to write into the
+-- CUSTOMER's own folder, not their own, so the customer can still read it back via
+-- their own "Users can view their own documents" policy below.
+drop policy if exists "Admins can upload any documents" on storage.objects;
+create policy "Admins can upload any documents"
+  on storage.objects for insert
+  with check (bucket_id = 'documents' and public.is_admin());
 
 drop policy if exists "Users can view their own documents" on storage.objects;
 create policy "Users can view their own documents"
