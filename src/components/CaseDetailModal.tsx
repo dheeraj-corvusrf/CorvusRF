@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { ChangeEvent, FormEvent, ReactNode } from "react";
+import type { ChangeEvent, FormEvent } from "react";
 import { toast } from "sonner";
 import type { PropertyRecord } from "@/lib/properties";
 import type { ProtestRecord } from "@/lib/protests";
@@ -19,6 +19,18 @@ import {
   type ProtestCase,
 } from "@/lib/protest-case";
 import { uploadDocument } from "@/lib/documents";
+import { getAuthorization, type AuthorizationRecord } from "@/lib/protest-authorizations";
+import {
+  getNoticeOfProtestDefaults,
+  getAppointmentOfAgentDefaults,
+  buildPdf,
+  downloadPdf,
+  NOTICE_OF_PROTEST_SCHEMA,
+  APPOINTMENT_OF_AGENT_SCHEMA,
+  type FieldValues,
+} from "@/lib/protest-documents";
+import { PdfFormEditor } from "@/components/PdfFormEditor";
+import { Modal } from "@/components/Modal";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export function CaseDetailModal({
@@ -34,8 +46,6 @@ export function CaseDetailModal({
 }) {
   const [caseData, setCaseData] = useState<ProtestCase | null>(null);
   const [loading, setLoading] = useState(true);
-  const [generating, setGenerating] = useState(false);
-  const [uploadingItemId, setUploadingItemId] = useState<string | null>(null);
   const [current, setCurrent] = useState<ProtestRecord>(protest);
 
   function load() {
@@ -48,41 +58,8 @@ export function CaseDetailModal({
 
   useEffect(load, [protest.id]);
 
-  async function handleGenerate() {
-    setGenerating(true);
-    try {
-      await generateCasePrep(protest.id, userId, property);
-      load();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not generate the case plan.");
-    } finally {
-      setGenerating(false);
-    }
-  }
-
-  async function handleUpload(itemId: string, e: ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file) return;
-    setUploadingItemId(itemId);
-    try {
-      const doc = await uploadDocument(userId, property.id, file, "Protest Evidence");
-      await linkEvidenceDocument(itemId, doc.id);
-      load();
-      toast.success("Evidence uploaded.");
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not upload this file.");
-    } finally {
-      setUploadingItemId(null);
-    }
-  }
-
-  const hasAnyPlan = !!caseData && (!!caseData.strategyRecommendation || caseData.evidenceItems.length > 0);
-  const uploadedCount = caseData?.evidenceItems.filter((i) => i.documentId).length ?? 0;
-  const totalCount = caseData?.evidenceItems.length ?? 0;
-
   return (
-    <Modal onClose={onClose}>
+    <Modal onClose={onClose} wide>
       <h3 className="font-serif text-xl font-semibold">Case: {property.address}</h3>
       <p className="text-xs text-muted-foreground">AI-generated from your property's official CAD record.</p>
 
@@ -93,99 +70,19 @@ export function CaseDetailModal({
         </div>
       ) : (
         <>
-          {!hasAnyPlan ? (
-            <div className="mt-4 grid gap-3">
-              <p className="text-sm text-muted-foreground">No case plan yet.</p>
-              <button
-                onClick={handleGenerate}
-                disabled={generating}
-                className="btn-accent w-fit text-sm disabled:opacity-60"
-              >
-                {generating ? "Generating…" : "Generate Case Plan"}
-              </button>
-            </div>
-          ) : (
-            <div className="mt-4 grid gap-5">
-              <section>
-                <h4 className="text-sm font-semibold">Strategy</h4>
-                {caseData?.strategyRecommendation ? (
-                  <div className="mt-1">
-                    <span className="badge-soft">{caseData.strategyRecommendation}</span>
-                    {caseData.strategyConfidencePct != null && (
-                      <span className="ml-2 text-xs text-muted-foreground">
-                        {caseData.strategyConfidencePct}% confidence
-                      </span>
-                    )}
-                    {caseData.strategyRationale && (
-                      <p className="mt-1.5 text-sm text-muted-foreground">{caseData.strategyRationale}</p>
-                    )}
-                  </div>
-                ) : (
-                  <div className="mt-1 flex items-center gap-2">
-                    <span className="text-sm text-muted-foreground">Not available yet.</span>
-                    <button
-                      onClick={handleGenerate}
-                      disabled={generating}
-                      className="text-xs text-accent hover:underline disabled:opacity-60"
-                    >
-                      {generating ? "Retrying…" : "Retry"}
-                    </button>
-                  </div>
-                )}
-              </section>
+          <CasePlanSection
+            userId={userId}
+            property={property}
+            protestId={protest.id}
+            caseData={caseData}
+            onReload={load}
+          />
 
-              <section>
-                <div className="flex items-center justify-between">
-                  <h4 className="text-sm font-semibold">Evidence Checklist</h4>
-                  {totalCount > 0 && (
-                    <span className="text-xs text-muted-foreground">
-                      {uploadedCount} of {totalCount} uploaded
-                    </span>
-                  )}
-                </div>
-                {totalCount > 0 ? (
-                  <div className="mt-2 grid gap-2">
-                    {caseData!.evidenceItems.map((item) => (
-                      <div
-                        key={item.id}
-                        className="flex items-center justify-between gap-2 rounded-md border border-border p-2.5 text-sm"
-                      >
-                        <span className="min-w-0 truncate">{item.label}</span>
-                        {item.documentFileName ? (
-                          <span className="shrink-0 text-xs text-success">✓ {item.documentFileName}</span>
-                        ) : (
-                          <label
-                            className={`shrink-0 btn-outline text-xs py-1 cursor-pointer ${
-                              uploadingItemId === item.id ? "opacity-60 pointer-events-none" : ""
-                            }`}
-                          >
-                            {uploadingItemId === item.id ? "Uploading…" : "Upload"}
-                            <input
-                              type="file"
-                              className="hidden"
-                              accept=".pdf,image/*"
-                              onChange={(e) => handleUpload(item.id, e)}
-                            />
-                          </label>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="mt-1 flex items-center gap-2">
-                    <span className="text-sm text-muted-foreground">Not available yet.</span>
-                    <button
-                      onClick={handleGenerate}
-                      disabled={generating}
-                      className="text-xs text-accent hover:underline disabled:opacity-60"
-                    >
-                      {generating ? "Retrying…" : "Retry"}
-                    </button>
-                  </div>
-                )}
-              </section>
-            </div>
-          )}
+          <DocumentsSection
+            protest={current}
+            property={property}
+            strategyRecommendation={caseData?.strategyRecommendation ?? null}
+          />
 
           <CaseProgress
             protest={current}
@@ -205,7 +102,267 @@ export function CaseDetailModal({
   );
 }
 
-function CaseProgress({
+// Real Texas Comptroller forms (Form 50-132, Form 50-162 — see
+// src/lib/protest-documents.ts), pre-filled from data already on this case.
+// Neither is auto-signed; both need review + a real signature before filing.
+// Strategy + Evidence Checklist + "Generate Case Plan" — shared by the customer
+// modal (CaseDetailModal, above) and the staff modal (AdminCaseProgressModal),
+// same reuse pattern as DocumentsSection/CaseProgress below. `userId` must be the
+// case-owning CUSTOMER's id even when this renders inside the admin panel — both
+// generateCasePrep()'s protest_evidence_items insert and uploadDocument()'s row/
+// storage-path use it directly, and the customer's own RLS policies (unaffected by
+// this component's admin-added INSERT/UPDATE policies) key off that same value.
+export function CasePlanSection({
+  userId,
+  property,
+  protestId,
+  caseData,
+  onReload,
+}: {
+  userId: string;
+  property: PropertyRecord;
+  protestId: string;
+  caseData: ProtestCase | null;
+  onReload: () => void;
+}) {
+  const [generating, setGenerating] = useState(false);
+  const [uploadingItemId, setUploadingItemId] = useState<string | null>(null);
+
+  async function handleGenerate() {
+    setGenerating(true);
+    try {
+      await generateCasePrep(protestId, userId, property);
+      onReload();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not generate the case plan.");
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  async function handleUpload(itemId: string, e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setUploadingItemId(itemId);
+    try {
+      const doc = await uploadDocument(userId, property.id, file, "Protest Evidence");
+      await linkEvidenceDocument(itemId, doc.id);
+      onReload();
+      toast.success("Evidence uploaded.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not upload this file.");
+    } finally {
+      setUploadingItemId(null);
+    }
+  }
+
+  const hasAnyPlan = !!caseData && (!!caseData.strategyRecommendation || caseData.evidenceItems.length > 0);
+  const uploadedCount = caseData?.evidenceItems.filter((i) => i.documentId).length ?? 0;
+  const totalCount = caseData?.evidenceItems.length ?? 0;
+
+  if (!hasAnyPlan) {
+    return (
+      <div className="mt-4 grid gap-3">
+        <p className="text-sm text-muted-foreground">No case plan yet.</p>
+        <button
+          onClick={handleGenerate}
+          disabled={generating}
+          className="btn-accent w-fit text-sm disabled:opacity-60"
+        >
+          {generating ? "Generating…" : "Generate Case Plan"}
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-4 grid gap-5">
+      <section>
+        <h4 className="text-sm font-semibold">Strategy</h4>
+        {caseData?.strategyRecommendation ? (
+          <div className="mt-1">
+            <span className="badge-soft">{caseData.strategyRecommendation}</span>
+            {caseData.strategyConfidencePct != null && (
+              <span className="ml-2 text-xs text-muted-foreground">
+                {caseData.strategyConfidencePct}% confidence
+              </span>
+            )}
+            {caseData.strategyRationale && (
+              <p className="mt-1.5 text-sm text-muted-foreground">{caseData.strategyRationale}</p>
+            )}
+          </div>
+        ) : (
+          <div className="mt-1 flex items-center gap-2">
+            <span className="text-sm text-muted-foreground">Not available yet.</span>
+            <button
+              onClick={handleGenerate}
+              disabled={generating}
+              className="text-xs text-accent hover:underline disabled:opacity-60"
+            >
+              {generating ? "Retrying…" : "Retry"}
+            </button>
+          </div>
+        )}
+      </section>
+
+      <section>
+        <div className="flex items-center justify-between">
+          <h4 className="text-sm font-semibold">Evidence Checklist</h4>
+          {totalCount > 0 && (
+            <span className="text-xs text-muted-foreground">
+              {uploadedCount} of {totalCount} uploaded
+            </span>
+          )}
+        </div>
+        {totalCount > 0 ? (
+          <div className="mt-2 grid gap-2">
+            {caseData!.evidenceItems.map((item) => (
+              <div
+                key={item.id}
+                className="min-w-0 flex items-center justify-between gap-2 rounded-md border border-border p-2.5 text-sm"
+              >
+                <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                {item.documentFileName ? (
+                  <span className="shrink-0 text-xs text-success">✓ {item.documentFileName}</span>
+                ) : (
+                  <label
+                    className={`shrink-0 btn-outline text-xs py-1 cursor-pointer ${
+                      uploadingItemId === item.id ? "opacity-60 pointer-events-none" : ""
+                    }`}
+                  >
+                    {uploadingItemId === item.id ? "Uploading…" : "Upload"}
+                    <input
+                      type="file"
+                      className="hidden"
+                      accept=".pdf,image/*"
+                      onChange={(e) => handleUpload(item.id, e)}
+                    />
+                  </label>
+                )}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="mt-1 flex items-center gap-2">
+            <span className="text-sm text-muted-foreground">Not available yet.</span>
+            <button
+              onClick={handleGenerate}
+              disabled={generating}
+              className="text-xs text-accent hover:underline disabled:opacity-60"
+            >
+              {generating ? "Retrying…" : "Retry"}
+            </button>
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+export function DocumentsSection({
+  protest,
+  property,
+  strategyRecommendation,
+}: {
+  protest: ProtestRecord;
+  property: PropertyRecord;
+  strategyRecommendation: string | null;
+}) {
+  const [authorization, setAuthorization] = useState<AuthorizationRecord | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [editingForm, setEditingForm] = useState<"protest" | "agent" | null>(null);
+  const [values, setValues] = useState<FieldValues>({});
+  const [downloading, setDownloading] = useState(false);
+
+  useEffect(() => {
+    getAuthorization(protest.id)
+      .then(setAuthorization)
+      .catch((err) => console.error(err))
+      .finally(() => setAuthLoading(false));
+  }, [protest.id]);
+
+  function openProtestEditor() {
+    setValues(getNoticeOfProtestDefaults(property, property.taxYear, strategyRecommendation, authorization));
+    setEditingForm("protest");
+  }
+
+  function openAgentEditor() {
+    if (!authorization) return;
+    setValues(getAppointmentOfAgentDefaults(authorization, property));
+    setEditingForm("agent");
+  }
+
+  function handleFieldChange(name: string, value: string | boolean) {
+    setValues((prev) => ({ ...prev, [name]: value }));
+  }
+
+  async function handleDownload() {
+    setDownloading(true);
+    try {
+      const isProtest = editingForm === "protest";
+      const bytes = await buildPdf(
+        isProtest ? "forms/50-132.pdf" : "forms/50-162.pdf",
+        isProtest ? NOTICE_OF_PROTEST_SCHEMA : APPOINTMENT_OF_AGENT_SCHEMA,
+        values,
+      );
+      const filenameBase = property.accountNumber ?? property.id;
+      downloadPdf(bytes, isProtest ? `Notice-of-Protest-${filenameBase}.pdf` : `Appointment-of-Agent-${filenameBase}.pdf`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not generate this document.");
+    } finally {
+      setDownloading(false);
+    }
+  }
+
+  return (
+    <div className="mt-5 border-t border-border pt-5">
+      <h4 className="text-sm font-semibold">Documents</h4>
+      <p className="text-xs text-muted-foreground">
+        Official Texas Comptroller forms, pre-filled from this case. Review or edit every field in-app, then
+        download.
+      </p>
+      <div className="mt-2 flex flex-wrap gap-2">
+        <button onClick={openProtestEditor} className="btn-outline text-xs py-1.5">
+          Review Notice of Protest (Form 50-132)
+        </button>
+        <button
+          onClick={openAgentEditor}
+          disabled={authLoading || !authorization}
+          className="btn-outline text-xs py-1.5 disabled:opacity-60"
+          title={!authLoading && !authorization ? "No signed authorization on file for this case yet" : undefined}
+        >
+          Review Appointment of Agent (Form 50-162)
+        </button>
+      </div>
+
+      {editingForm === "protest" && (
+        <PdfFormEditor
+          title="Notice of Protest (Form 50-132)"
+          sections={NOTICE_OF_PROTEST_SCHEMA}
+          values={values}
+          onChange={handleFieldChange}
+          onDownload={handleDownload}
+          downloading={downloading}
+          onClose={() => setEditingForm(null)}
+        />
+      )}
+      {editingForm === "agent" && (
+        <PdfFormEditor
+          title="Appointment of Agent (Form 50-162)"
+          sections={APPOINTMENT_OF_AGENT_SCHEMA}
+          values={values}
+          onChange={handleFieldChange}
+          onDownload={handleDownload}
+          downloading={downloading}
+          onClose={() => setEditingForm(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+export function CaseProgress({
   protest,
   property,
   caseData,
@@ -563,6 +720,37 @@ function CaseProgress({
               <div className="font-medium">
                 {protest.status === "appealing" ? "Judicial appeal in progress." : "Binding arbitration in progress."}
               </div>
+              {protest.status === "arbitrating" ? (
+                <p className="mt-1.5 text-xs text-muted-foreground">
+                  Texas requires agents to file a Request for Binding Arbitration online, not on paper —
+                  file at{" "}
+                  <a
+                    href="https://www.texas.gov/propertytaxarbitration"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-accent hover:underline"
+                  >
+                    texas.gov/propertytaxarbitration
+                  </a>
+                  . A deposit is required with the request (refunded if the arbitrator's value lands closer
+                  to the owner's opinion of value than the ARB's).
+                </p>
+              ) : (
+                <p className="mt-1.5 text-xs text-muted-foreground">
+                  A judicial appeal is a lawsuit filed in district court (Tax Code Chapter 42), not a
+                  Comptroller form — it typically requires an attorney and isn't something this app files.
+                  See the Comptroller's{" "}
+                  <a
+                    href="https://comptroller.texas.gov/taxes/property-tax/protests/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-accent hover:underline"
+                  >
+                    Appraisal Protests and Appeals
+                  </a>{" "}
+                  overview for background.
+                </p>
+              )}
               {showCloseForm ? (
                 <form onSubmit={submitClose} className="mt-2 flex flex-wrap items-end gap-2">
                   <label className="grid gap-1 text-xs">
@@ -611,15 +799,3 @@ function Field({
   );
 }
 
-function Modal({ children, onClose }: { children: ReactNode; onClose: () => void }) {
-  return (
-    <div
-      className="fixed inset-0 z-50 grid place-items-center p-4 bg-primary/60 backdrop-blur-sm"
-      onClick={onClose}
-    >
-      <div className="card-elev p-6 w-full max-w-lg max-h-[85vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
-        {children}
-      </div>
-    </div>
-  );
-}

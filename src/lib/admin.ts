@@ -1,6 +1,7 @@
 import { supabase } from "./supabase";
 import { invokeEdgeFunction } from "./edge-functions";
-import type { ProtestStatus } from "./protests";
+import type { ArbDecision, EscalationPath, ProtestRecord, ProtestStatus } from "./protests";
+import type { PropertyRecord } from "./properties";
 import { PLAN_OPTIONS, type PlanValue } from "./billing";
 
 // Reads/writes here rely on the admin-only RLS policies in supabase/schema.sql
@@ -92,7 +93,11 @@ export const PROTEST_STATUS_OPTIONS: { value: ProtestStatus; label: string }[] =
   { value: "requested", label: "Requested" },
   { value: "filed", label: "Filed" },
   { value: "under_review", label: "Under Review" },
+  { value: "offer_received", label: "Offer Received" },
   { value: "hearing_scheduled", label: "Hearing Scheduled" },
+  { value: "decision_received", label: "Decision Received" },
+  { value: "appealing", label: "Appealing" },
+  { value: "arbitrating", label: "Arbitrating" },
   { value: "resolved", label: "Resolved" },
 ];
 
@@ -106,12 +111,25 @@ export type AdminProtestRecord = {
   updatedAt: string;
   propertyAddress: string | null;
   propertyCad: string | null;
+  propertyType: string | null;
   protestDeadline: string | null;
   totalValue: number | null;
   landValue: number | null;
   improvementValue: number | null;
   taxYear: number | null;
   accountNumber: string | null;
+  // Case-progress fields (see src/lib/protests.ts and protest-case.ts) — carried
+  // here too so the admin panel can open the same CaseProgress workflow the
+  // customer dashboard uses, without a second fetch.
+  originalValue: number | null;
+  settlementOfferValue: number | null;
+  settlementOfferReceivedAt: string | null;
+  hearingDate: string | null;
+  arbDecision: ArbDecision | null;
+  arbDecisionDate: string | null;
+  finalValue: number | null;
+  escalationPath: EscalationPath | null;
+  closedAt: string | null;
 };
 
 type AdminProtestRow = {
@@ -122,9 +140,19 @@ type AdminProtestRow = {
   notes: string | null;
   requested_at: string;
   updated_at: string;
+  original_value: number | null;
+  settlement_offer_value: number | null;
+  settlement_offer_received_at: string | null;
+  hearing_date: string | null;
+  arb_decision: ArbDecision | null;
+  arb_decision_date: string | null;
+  final_value: number | null;
+  escalation_path: EscalationPath | null;
+  closed_at: string | null;
   properties: {
     address: string;
     cad: string | null;
+    property_type: string | null;
     protest_deadline: string | null;
     total_value: number | null;
     land_value: number | null;
@@ -141,7 +169,7 @@ export async function listAllProtests(): Promise<AdminProtestRecord[]> {
   const { data, error } = await supabase
     .from("protests")
     .select(
-      "id, property_id, user_id, status, notes, requested_at, updated_at, properties(address, cad, protest_deadline, total_value, land_value, improvement_value, tax_year, account_number)",
+      "id, property_id, user_id, status, notes, requested_at, updated_at, original_value, settlement_offer_value, settlement_offer_received_at, hearing_date, arb_decision, arb_decision_date, final_value, escalation_path, closed_at, properties(address, cad, property_type, protest_deadline, total_value, land_value, improvement_value, tax_year, account_number)",
     )
     .order("requested_at", { ascending: false });
   if (error) throw error;
@@ -155,13 +183,70 @@ export async function listAllProtests(): Promise<AdminProtestRecord[]> {
     updatedAt: row.updated_at,
     propertyAddress: row.properties?.address ?? null,
     propertyCad: row.properties?.cad ?? null,
+    propertyType: row.properties?.property_type ?? null,
     protestDeadline: row.properties?.protest_deadline ?? null,
     totalValue: row.properties?.total_value ?? null,
     landValue: row.properties?.land_value ?? null,
     improvementValue: row.properties?.improvement_value ?? null,
     taxYear: row.properties?.tax_year ?? null,
     accountNumber: row.properties?.account_number ?? null,
+    originalValue: row.original_value,
+    settlementOfferValue: row.settlement_offer_value,
+    settlementOfferReceivedAt: row.settlement_offer_received_at,
+    hearingDate: row.hearing_date,
+    arbDecision: row.arb_decision,
+    arbDecisionDate: row.arb_decision_date,
+    finalValue: row.final_value,
+    escalationPath: row.escalation_path,
+    closedAt: row.closed_at,
   }));
+}
+
+// Trivial field renames off data listAllProtests() already fetched — lets the
+// admin panel open the exact same CaseProgress workflow the customer dashboard
+// uses (src/components/CaseDetailModal.tsx) without a second query. Fields
+// CaseProgress/getCaseResults don't touch (ownerName, paymentDueDate, etc.) are
+// stubbed to null since AdminProtestRecord never carries them.
+export function toProtestRecord(record: AdminProtestRecord): ProtestRecord {
+  return {
+    id: record.id,
+    propertyId: record.propertyId,
+    status: record.status,
+    notes: record.notes,
+    requestedAt: record.requestedAt,
+    updatedAt: record.updatedAt,
+    originalValue: record.originalValue,
+    settlementOfferValue: record.settlementOfferValue,
+    settlementOfferReceivedAt: record.settlementOfferReceivedAt,
+    hearingDate: record.hearingDate,
+    arbDecision: record.arbDecision,
+    arbDecisionDate: record.arbDecisionDate,
+    finalValue: record.finalValue,
+    escalationPath: record.escalationPath,
+    closedAt: record.closedAt,
+  };
+}
+
+export function toPropertyRecordStub(record: AdminProtestRecord): PropertyRecord {
+  return {
+    id: record.propertyId,
+    address: record.propertyAddress ?? "",
+    cad: record.propertyCad,
+    accountNumber: record.accountNumber,
+    ownerName: null,
+    propertyType: record.propertyType,
+    landValue: record.landValue,
+    improvementValue: record.improvementValue,
+    totalValue: record.totalValue,
+    taxYear: record.taxYear,
+    protestDeadline: record.protestDeadline,
+    paymentDueDate: null,
+    taxAmountDue: null,
+    paidAt: null,
+    estimatedSavings: null,
+    savingsBasis: null,
+    createdAt: record.requestedAt,
+  };
 }
 
 export async function updateProtestStatus(protestId: string, status: ProtestStatus): Promise<void> {
