@@ -404,36 +404,48 @@ function Intake() {
             </p>
           )}
 
-          {state.valueHistory && state.valueHistory.length > 0 && (
-            <div className="mt-6">
-              <h3 className="text-sm font-semibold">Value History</h3>
-              <ValueHistoryChart history={state.valueHistory} />
-              <div className="mt-2 overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-left text-xs uppercase tracking-wide text-muted-foreground">
-                      <th className="py-1 pr-4">Year</th>
-                      <th className="py-1 pr-4">Land</th>
-                      <th className="py-1 pr-4">Improvement</th>
-                      <th className="py-1 pr-4">Market</th>
-                      <th className="py-1 pr-4">Appraised</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {state.valueHistory.map((v) => (
-                      <tr key={v.year} className="border-t border-border">
-                        <td className="py-1 pr-4">{v.year}</td>
-                        <td className="py-1 pr-4">{currency(v.landValue)}</td>
-                        <td className="py-1 pr-4">{currency(v.improvementValue)}</td>
-                        <td className="py-1 pr-4">{currency(v.marketValue)}</td>
-                        <td className="py-1 pr-4">{currency(v.appraisedValue)}</td>
+          {(() => {
+            // A CAD can return one row per year going back a decade-plus with
+            // every value field null (the year existed in the county's system,
+            // but nothing was published for it) — showing a table that's
+            // entirely dashes isn't useful, so only real rows count, and the
+            // whole section stays hidden unless at least one does.
+            const realHistory = (state.valueHistory ?? []).filter(
+              (v) =>
+                v.landValue != null || v.improvementValue != null || v.marketValue != null || v.appraisedValue != null,
+            );
+            if (realHistory.length === 0) return null;
+            return (
+              <div className="mt-6">
+                <h3 className="text-sm font-semibold">Value History</h3>
+                <ValueHistoryChart history={realHistory} />
+                <div className="mt-2 overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-left text-xs uppercase tracking-wide text-muted-foreground">
+                        <th className="py-1 pr-4">Year</th>
+                        <th className="py-1 pr-4">Land</th>
+                        <th className="py-1 pr-4">Improvement</th>
+                        <th className="py-1 pr-4">Market</th>
+                        <th className="py-1 pr-4">Appraised</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {realHistory.map((v) => (
+                        <tr key={v.year} className="border-t border-border">
+                          <td className="py-1 pr-4">{v.year}</td>
+                          <td className="py-1 pr-4">{currency(v.landValue)}</td>
+                          <td className="py-1 pr-4">{currency(v.improvementValue)}</td>
+                          <td className="py-1 pr-4">{currency(v.marketValue)}</td>
+                          <td className="py-1 pr-4">{currency(v.appraisedValue)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
 
           {state.deeds && state.deeds.length > 0 && (
             <div className="mt-6">
