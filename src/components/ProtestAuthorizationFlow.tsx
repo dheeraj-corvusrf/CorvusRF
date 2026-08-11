@@ -90,6 +90,7 @@ export function ProtestAuthorizationFlow({
       const protest = await requestProtest(userId, property.id, {
         address: property.address,
         userEmail: email,
+        originalValue: property.totalValue,
       });
       await createAuthorization(userId, {
         protestId: protest.id,

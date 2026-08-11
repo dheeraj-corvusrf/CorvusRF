@@ -252,9 +252,8 @@ create table if not exists public.protests (
   updated_at timestamptz not null default now()
 );
 
-alter table public.protests drop constraint if exists protests_status_check;
-alter table public.protests add constraint protests_status_check
-  check (status in ('requested', 'filed', 'under_review', 'hearing_scheduled', 'resolved'));
+-- status check constraint is defined further below, once, after the full set of
+-- possible values (added for case-progress tracking) is established.
 
 alter table public.protests enable row level security;
 
@@ -293,6 +292,35 @@ drop policy if exists "Users can update their own protests" on public.protests;
 create policy "Users can update their own protests"
   on public.protests for update
   using (auth.uid() = user_id);
+
+-- Case progress through settlement/hearing/decision/escalation (see
+-- src/lib/protest-case.ts) — same self-reported precedent as everything else on
+-- this table; there's no live county API, so someone has to enter what actually
+-- happened. original_value is a snapshot taken at request time (not read live off
+-- properties.total_value), since that can change in later years and the case needs
+-- to remember what it actually started from.
+alter table public.protests add column if not exists original_value numeric;
+alter table public.protests add column if not exists settlement_offer_value numeric;
+alter table public.protests add column if not exists settlement_offer_received_at date;
+alter table public.protests add column if not exists hearing_date date;
+alter table public.protests add column if not exists arb_decision text;
+alter table public.protests add column if not exists arb_decision_date date;
+alter table public.protests add column if not exists final_value numeric;
+alter table public.protests add column if not exists escalation_path text;
+alter table public.protests add column if not exists closed_at timestamptz;
+
+alter table public.protests drop constraint if exists protests_arb_decision_check;
+alter table public.protests add constraint protests_arb_decision_check
+  check (arb_decision is null or arb_decision in ('approved', 'partial', 'denied'));
+
+alter table public.protests drop constraint if exists protests_escalation_path_check;
+alter table public.protests add constraint protests_escalation_path_check
+  check (escalation_path is null or escalation_path in ('accept', 'appeal', 'arbitration'));
+
+alter table public.protests drop constraint if exists protests_status_check;
+alter table public.protests add constraint protests_status_check
+  check (status in ('requested', 'filed', 'under_review', 'offer_received',
+    'hearing_scheduled', 'decision_received', 'appealing', 'arbitrating', 'resolved'));
 
 -- Trackable evidence checklist for a protest case — one row per AI-suggested
 -- evidence item, optionally linked to an uploaded document once the user provides

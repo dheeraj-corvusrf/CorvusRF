@@ -1,6 +1,8 @@
 import { supabase } from "./supabase";
 import { getModuleAnalysis, type ModuleAnalysisInput } from "./ai-report-modules";
 import type { PropertyRecord } from "./properties";
+import type { ProtestRecord, ArbDecision } from "./protests";
+import { getEffectiveTaxRate } from "./texas-tax-rates";
 
 // AI case prep for a real protest — persists the same strategy recommendation and
 // evidence checklist the paywalled AI Report page already generates on demand
@@ -152,4 +154,127 @@ export async function linkEvidenceDocument(itemId: string, documentId: string): 
     .update({ document_id: documentId })
     .eq("id", itemId);
   if (error) throw error;
+}
+
+// ---------------------------------------------------------------------------
+// Case progress — settlement offer, hearing, ARB decision, and escalation. All
+// self-reported (see the comment on these columns in schema.sql): there's no
+// live county API, so someone has to enter what actually happened, same
+// precedent as tax_bills.
+// ---------------------------------------------------------------------------
+
+export async function recordSettlementOffer(
+  protestId: string,
+  offer: { value: number; receivedAt: string },
+): Promise<void> {
+  const { error } = await supabase
+    .from("protests")
+    .update({
+      settlement_offer_value: offer.value,
+      settlement_offer_received_at: offer.receivedAt,
+      status: "offer_received",
+    })
+    .eq("id", protestId);
+  if (error) throw error;
+}
+
+export async function acceptSettlement(protestId: string, offerValue: number): Promise<void> {
+  const { error } = await supabase
+    .from("protests")
+    .update({
+      final_value: offerValue,
+      escalation_path: "accept",
+      closed_at: new Date().toISOString(),
+      status: "resolved",
+    })
+    .eq("id", protestId);
+  if (error) throw error;
+}
+
+export async function scheduleHearing(protestId: string, date: string): Promise<void> {
+  const { error } = await supabase
+    .from("protests")
+    .update({ hearing_date: date, status: "hearing_scheduled" })
+    .eq("id", protestId);
+  if (error) throw error;
+}
+
+// Not an AI call — assembled from the case's own already-generated strategy and
+// evidence checklist (see generateCasePrep above), the same real content the user
+// already has, just formatted as hearing talking points.
+export function getHearingPrep(caseData: ProtestCase, propertyAddress: string): string {
+  const lines: string[] = [`Hearing summary — ${propertyAddress}`, ""];
+
+  if (caseData.strategyRecommendation) {
+    lines.push(`Strategy: ${caseData.strategyRecommendation}`);
+    if (caseData.strategyRationale) lines.push(caseData.strategyRationale);
+    lines.push("");
+  }
+
+  if (caseData.evidenceItems.length > 0) {
+    const ready = caseData.evidenceItems.filter((i) => i.documentId);
+    const missing = caseData.evidenceItems.filter((i) => !i.documentId);
+    lines.push("Evidence ready to present:");
+    lines.push(...(ready.length > 0 ? ready.map((i) => `  - ${i.label} (${i.documentFileName})`) : ["  (none uploaded yet)"]));
+    if (missing.length > 0) {
+      lines.push("");
+      lines.push("Not yet gathered:");
+      lines.push(...missing.map((i) => `  - ${i.label}`));
+    }
+  } else {
+    lines.push("No evidence checklist generated for this case yet.");
+  }
+
+  return lines.join("\n");
+}
+
+export async function recordArbDecision(
+  protestId: string,
+  decision: { type: ArbDecision; date: string; finalValue: number },
+): Promise<void> {
+  const resolved = decision.type === "approved";
+  const { error } = await supabase
+    .from("protests")
+    .update({
+      arb_decision: decision.type,
+      arb_decision_date: decision.date,
+      final_value: decision.finalValue,
+      status: resolved ? "resolved" : "decision_received",
+      ...(resolved ? { closed_at: new Date().toISOString(), escalation_path: "accept" } : {}),
+    })
+    .eq("id", protestId);
+  if (error) throw error;
+}
+
+export async function recordEscalation(protestId: string, path: "appeal" | "arbitration"): Promise<void> {
+  const { error } = await supabase
+    .from("protests")
+    .update({ escalation_path: path, status: path === "appeal" ? "appealing" : "arbitrating" })
+    .eq("id", protestId);
+  if (error) throw error;
+}
+
+// Closes out an appeal or arbitration once *that* resolves — doesn't model the
+// appeal/arbitration's own sub-process, just captures that it happened and what
+// the case ultimately settled at.
+export async function closeCase(protestId: string, finalValue: number): Promise<void> {
+  const { error } = await supabase
+    .from("protests")
+    .update({ final_value: finalValue, closed_at: new Date().toISOString(), status: "resolved" })
+    .eq("id", protestId);
+  if (error) throw error;
+}
+
+export type CaseResults = { valueReduction: number; actualSavings: number };
+
+// Real, decision-backed numbers — not the intake-time estimate. Only meaningful
+// once a case has both an original snapshot and a final determined value on file.
+export function getCaseResults(
+  protest: Pick<ProtestRecord, "originalValue" | "finalValue">,
+  property: Pick<PropertyRecord, "cad">,
+): CaseResults | null {
+  if (protest.originalValue == null || protest.finalValue == null) return null;
+  const valueReduction = Math.max(0, protest.originalValue - protest.finalValue);
+  const rate = getEffectiveTaxRate(property.cad);
+  return { valueReduction: Math.round(valueReduction), actualSavings: Math.round(valueReduction * rate) };
 }
