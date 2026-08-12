@@ -5,6 +5,7 @@ import { askRouter } from "@/lib/ask-router";
 import { askAboutDocument } from "@/lib/document-ai";
 import { buildUserContext } from "@/lib/ai-context";
 import { useAuth } from "@/lib/auth";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 
 type ChatMessage = {
   role: "user" | "assistant";
@@ -146,13 +147,18 @@ export function AskAiWidget() {
           </form>
         </div>
       )}
-      <button
-        onClick={() => setOpen((v) => !v)}
-        aria-label={open ? "Close Ask AI" : "Open Ask AI"}
-        className="grid h-14 w-14 place-items-center rounded-full bg-accent text-accent-foreground shadow-lg transition-all hover:opacity-90 hover:scale-105 active:scale-95"
-      >
-        {open ? <X className="h-6 w-6" /> : <Sparkles className="h-6 w-6" />}
-      </button>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            onClick={() => setOpen((v) => !v)}
+            aria-label={open ? "Close Ask AI" : "Open Ask AI"}
+            className="grid h-14 w-14 place-items-center rounded-full bg-accent text-accent-foreground shadow-lg transition-all hover:opacity-90 hover:scale-105 active:scale-95"
+          >
+            {open ? <X className="h-6 w-6" /> : <Sparkles className="h-6 w-6" />}
+          </button>
+        </TooltipTrigger>
+        {!open && <TooltipContent side="left">Ask AI anything</TooltipContent>}
+      </Tooltip>
     </div>
   );
 }

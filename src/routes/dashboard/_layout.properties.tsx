@@ -13,6 +13,7 @@ import { ProtestAuthorizationFlow } from "@/components/ProtestAuthorizationFlow"
 import { PortfolioTabs } from "@/components/PortfolioTabs";
 import { CaseDetailModal } from "@/components/CaseDetailModal";
 import { generateCasePrep } from "@/lib/protest-case";
+import { CopyButton } from "@/components/CopyButton";
 
 export const Route = createFileRoute("/dashboard/_layout/properties")({
   component: Properties,
@@ -136,8 +137,12 @@ function Properties() {
                         <ActionStatusBadge property={p} protests={protests} />
                       </div>
                       <h3 className="font-serif text-xl font-semibold">{p.address}</h3>
-                      <p className="text-sm text-muted-foreground">
-                        {p.propertyType} • Acct {p.accountNumber} • Tax year {p.taxYear}
+                      <p className="text-sm text-muted-foreground inline-flex items-center flex-wrap gap-1">
+                        {p.propertyType} • Acct {p.accountNumber}
+                        {p.accountNumber && (
+                          <CopyButton value={p.accountNumber} label="Account number copied" />
+                        )}
+                        • Tax year {p.taxYear}
                       </p>
                       <AiScoreBadge score={healthScores[p.id]} />
                     </div>

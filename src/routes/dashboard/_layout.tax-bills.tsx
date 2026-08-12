@@ -245,7 +245,7 @@ function TaxBills() {
                     const isPaid = !!bill.paidAt;
                     const hasRefund = bill.refundAmount != null || bill.refundReceivedAt;
                     return (
-                      <div key={bill.id} className="card-elev p-4">
+                      <div key={bill.id} className="card-elev row-hover p-4">
                         <div className="flex items-center justify-between flex-wrap gap-2">
                           <div>
                             <div className="font-medium">

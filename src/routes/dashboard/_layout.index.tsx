@@ -17,6 +17,7 @@ import { getDeadlineNudge } from "@/lib/deadline-nudge";
 import { getHearingNudge } from "@/lib/hearing-nudge";
 import { AnimatedNumber } from "@/components/AnimatedNumber";
 import { useFileDrop } from "@/hooks/use-file-drop";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 
 export const Route = createFileRoute("/dashboard/_layout/")({
   component: Overview,
@@ -430,21 +431,25 @@ function Overview() {
         {activity.length > 0 ? (
           <div className="mt-3 grid min-w-0 gap-2">
             {activity.map((a, i) => (
-              <div key={i} className="flex items-center justify-between gap-2 text-sm min-w-0">
+              <div key={i} className="group row-hover rounded-md flex items-center justify-between gap-2 px-2 py-1 text-sm min-w-0">
                 <span className="shrink-0 text-muted-foreground">{a.label}</span>
                 <span className="truncate min-w-0">{a.detail}</span>
                 <span className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
                   {new Date(a.ts).toLocaleDateString()}
                   {a.propertyId && (
-                    <button
-                      onClick={() => handleDeleteProperty(a.propertyId!)}
-                      disabled={deletingId === a.propertyId}
-                      aria-label="Delete property"
-                      title="Delete property"
-                      className="text-muted-foreground hover:text-destructive disabled:opacity-60"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          onClick={() => handleDeleteProperty(a.propertyId!)}
+                          disabled={deletingId === a.propertyId}
+                          aria-label="Delete property"
+                          className="opacity-100 transition-all hover:scale-110 hover:text-destructive disabled:opacity-60 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100 text-muted-foreground"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent>Delete property</TooltipContent>
+                    </Tooltip>
                   )}
                 </span>
               </div>

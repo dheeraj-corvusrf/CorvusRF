@@ -62,7 +62,7 @@ function Documents() {
         ) : documents.length > 0 ? (
           <div className="grid gap-3">
             {documents.map((doc) => (
-              <div key={doc.id} className="card-elev p-4 flex items-center justify-between flex-wrap gap-2">
+              <div key={doc.id} className="card-elev row-hover p-4 flex items-center justify-between flex-wrap gap-2">
                 <div>
                   <div className="font-medium">{doc.fileName}</div>
                   <div className="text-xs text-muted-foreground">

@@ -137,7 +137,7 @@ function BppAccounts() {
         ) : accounts.length > 0 ? (
           <div className="grid gap-4">
             {accounts.map((a) => (
-              <div key={a.id} className="card-elev p-5 flex items-start justify-between gap-4 flex-wrap">
+              <div key={a.id} className="card-elev row-hover p-5 flex items-start justify-between gap-4 flex-wrap">
                 <div>
                   <h3 className="font-semibold">{a.businessName}</h3>
                   <p className="text-sm text-muted-foreground">

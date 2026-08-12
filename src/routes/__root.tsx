@@ -14,6 +14,7 @@ import { reportLovableError } from "../lib/lovable-error-reporting";
 import { SiteNav, SiteFooter } from "../components/SiteChrome";
 import { AuthProvider, useAuth } from "../lib/auth";
 import { Toaster } from "../components/ui/sonner";
+import { TooltipProvider } from "../components/ui/tooltip";
 import { JourneyTracker } from "../components/JourneyTracker";
 import { AskAiWidget } from "../components/AskAiWidget";
 import { AppShell } from "../components/AppShell";
@@ -130,20 +131,22 @@ function RootComponent() {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
-        <div className="print:hidden">
-          <SiteNav />
-        </div>
-        <main className="min-h-[70vh]">
-          <AppShell>
-            <Outlet />
-          </AppShell>
-        </main>
-        <div className="print:hidden">
-          <SignedInJourney />
-          <SiteFooter />
-        </div>
-        <AskAiWidget />
-        <Toaster />
+        <TooltipProvider delayDuration={200}>
+          <div className="print:hidden">
+            <SiteNav />
+          </div>
+          <main className="min-h-[70vh]">
+            <AppShell>
+              <Outlet />
+            </AppShell>
+          </main>
+          <div className="print:hidden">
+            <SignedInJourney />
+            <SiteFooter />
+          </div>
+          <AskAiWidget />
+          <Toaster />
+        </TooltipProvider>
       </AuthProvider>
     </QueryClientProvider>
   );

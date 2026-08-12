@@ -254,6 +254,17 @@
   }
 }
 
+/* Subtle scan-hover for static list rows (documents, tax bills, admin
+   rows) — deliberately lighter than card-elev's clickable-card hover
+   (no lift/shadow), since these rows aren't click-anywhere targets, just
+   dense lists worth highlighting as you scan down them. No border-radius
+   of its own — call sites already have one (card-elev, or their own
+   rounded-* utility), so this only ever adds the background+transition. */
+@utility row-hover {
+  transition: background-color .15s ease;
+  &:hover { background-color: var(--color-secondary); }
+}
+
 @utility badge-soft {
   display: inline-flex; align-items: center; gap: .35rem;
   padding: 0.25rem 0.6rem;
