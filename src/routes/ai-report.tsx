@@ -302,7 +302,10 @@ function Report() {
             {existingProtest ? (
               <div className="flex items-center gap-3">
                 <span className="badge-soft">Protest {existingProtest.status.replace("_", " ")}</span>
-                <button onClick={() => setShowCase(true)} className="btn-outline text-sm py-1.5">
+                <button
+                  onClick={() => setShowCase(true)}
+                  className="btn-outline border-white/30 text-primary-foreground hover:bg-background/10 text-sm py-1.5"
+                >
                   View Case
                 </button>
               </div>
@@ -335,6 +338,7 @@ function Report() {
               m={m}
               analyzing={analyzing}
               unlocked={hasFullAccess || m.n <= FREE_MODULE_COUNT}
+              hasFullAccess={hasFullAccess}
               onOpen={() => openModule(m)}
             />
           ))}
@@ -473,11 +477,13 @@ function ModuleCard({
   m,
   analyzing,
   unlocked,
+  hasFullAccess,
   onOpen,
 }: {
   m: Module;
   analyzing: boolean;
   unlocked: boolean;
+  hasFullAccess: boolean;
   onOpen: () => void;
 }) {
   const status = analyzing ? "Analyzing" : m.status;
@@ -493,13 +499,15 @@ function ModuleCard({
       <p className="mt-2 text-sm text-muted-foreground">{m.question}</p>
       <div className={`mt-3 text-sm ${!unlocked ? "locked-blur" : ""}`}>{m.teaser}</div>
       <div className="mt-4 flex items-center justify-between gap-2">
-        {unlocked ? (
+        {hasFullAccess ? (
+          <span className="text-xs font-medium text-success">Included</span>
+        ) : unlocked ? (
           <span className="text-xs font-medium text-success">Free preview</span>
         ) : (
           <span className="text-xs text-muted-foreground">Requires subscription</span>
         )}
         <button onClick={onOpen} className="btn-outline text-sm py-2">
-          {unlocked ? "View preview" : "Subscribe to unlock"}
+          {hasFullAccess ? "View report" : unlocked ? "View preview" : "Subscribe to unlock"}
         </button>
       </div>
     </div>
