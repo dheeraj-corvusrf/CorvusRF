@@ -4,6 +4,14 @@ on:
   push:
     branches: [dev]
   workflow_dispatch:
+    inputs:
+      site_base:
+        description: "Base path to build for (which URL this deploy targets)"
+        type: choice
+        default: "/"
+        options:
+          - "/" # corvusre.com (custom domain)
+          - "/CorvusRF/" # dheeraj-corvusrf.github.io/CorvusRF/ (project site)
 
 permissions:
   contents: read
@@ -50,6 +58,10 @@ jobs:
 
       - run: npm run build
         env:
+          # Defaults to "/" (corvusre.com) on a normal push; a manual
+          # workflow_dispatch run can pick "/CorvusRF/" instead to rebuild
+          # for the old project-site URL — see vite.config.ts.
+          SITE_BASE: ${{ github.event.inputs.site_base || '/' }}
           # Supabase's anon/publishable key is meant to be public (it ends up in the
           # client bundle regardless) — real access control comes from the Row Level
           # Security policies in supabase/schema.sql, not from keeping this secret.
