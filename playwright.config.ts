@@ -13,13 +13,13 @@ export default defineConfig({
   retries: process.env.CI ? 1 : 0,
   reporter: "list",
   use: {
-    baseURL: "http://localhost:8080/CorvusRF/",
+    baseURL: "http://localhost:8080/",
     trace: "on-first-retry",
   },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
   webServer: {
     command: "npm run dev",
-    url: "http://localhost:8080/CorvusRF/",
+    url: "http://localhost:8080/",
     reuseExistingServer: !process.env.CI,
     timeout: 60_000,
   },

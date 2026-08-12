@@ -31,21 +31,27 @@ const CAPS = [
 
 function Page() {
   return (
-    <div className="relative overflow-hidden min-h-[70vh]">
-      <HeroBackground blurred />
-      <div className="container-page py-16">
-        <div className="max-w-3xl">
-          <span className="badge-soft">Platform</span>
-          <h1 className="mt-3 text-4xl md:text-5xl font-semibold">
-            One platform. One property record. One savings journey.
-          </h1>
-          <p className="mt-4 text-lg text-muted-foreground">
-            Property protest, BPP rendition, tax bill tracking, payment tracking, and savings —
-            all connected through one owner profile, one property record, one document library,
-            one deadline engine, and one dashboard.
-          </p>
+    <div>
+      {/* Bounded to a hero-band height — see how-it-works.tsx for why this
+          isn't min-h-[70vh] wrapping the whole page. */}
+      <div className="relative overflow-hidden min-h-[380px]">
+        <HeroBackground blurred />
+        <div className="container-page pt-16">
+          <div className="max-w-3xl">
+            <span className="badge-soft">Platform</span>
+            <h1 className="mt-3 text-4xl md:text-5xl font-semibold">
+              One platform. One property record. One savings journey.
+            </h1>
+            <p className="mt-4 text-lg text-muted-foreground">
+              Property protest, BPP rendition, tax bill tracking, payment tracking, and savings —
+              all connected through one owner profile, one property record, one document library,
+              one deadline engine, and one dashboard.
+            </p>
+          </div>
         </div>
+      </div>
 
+      <div className="container-page pb-16">
         <div className="mt-10 grid gap-5 md:grid-cols-2 lg:grid-cols-4">
           {CAPS.map(([t, d], i) => (
             <ScrollReveal key={t} delay={i * 60}>

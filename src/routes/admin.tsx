@@ -30,6 +30,7 @@ import { currency } from "@/lib/intake-store";
 import { AddressAutocomplete } from "@/components/AddressAutocomplete";
 import { AdminCaseProgressModal } from "@/components/AdminCaseProgressModal";
 import { Skeleton } from "@/components/ui/skeleton";
+import { CopyButton } from "@/components/CopyButton";
 
 export const Route = createFileRoute("/admin")({
   head: () => ({
@@ -422,7 +423,7 @@ function ProtestRow({
   }
 
   return (
-    <div className="card-elev p-4" style={{ animationDelay: `${delayMs}ms` }}>
+    <div className="card-elev row-hover p-4" style={{ animationDelay: `${delayMs}ms` }}>
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
           <div className="font-medium">{record.propertyAddress ?? "Property removed"}</div>
@@ -452,11 +453,26 @@ function ProtestRow({
         </div>
       </div>
 
-      {expanded && (
+      {/* CSS grid-rows collapse: the wrapper's row size animates between 0fr
+          and 1fr instead of the content mounting/unmounting instantly, so
+          both opening AND closing are smooth. Content stays mounted (the
+          lazy document fetch above is still gated on `expanded` itself, not
+          on JSX mount) and is just clipped to zero height when collapsed. */}
+      <div
+        className="grid transition-[grid-template-rows] duration-300 ease-out"
+        style={{ gridTemplateRows: expanded ? "1fr" : "0fr" }}
+        aria-hidden={!expanded}
+      >
+        <div className="min-h-0 overflow-hidden">
         <div className="mt-4 border-t border-border pt-4 grid gap-4">
           <div className="grid gap-1 text-sm text-muted-foreground sm:grid-cols-2">
             {record.propertyCad && <div>CAD: {record.propertyCad}</div>}
-            {record.accountNumber && <div>Account #: {record.accountNumber}</div>}
+            {record.accountNumber && (
+              <div className="inline-flex items-center gap-1">
+                Account #: {record.accountNumber}
+                <CopyButton value={record.accountNumber} label="Account number copied" />
+              </div>
+            )}
             {record.taxYear && <div>Tax year: {record.taxYear}</div>}
             {record.totalValue != null && <div>Total value: {currency(record.totalValue)}</div>}
           </div>
@@ -530,7 +546,8 @@ function ProtestRow({
             )}
           </div>
         </div>
-      )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -555,7 +572,7 @@ function UserRow({
   delayMs?: number;
 }) {
   return (
-    <div className="card-elev p-6" style={{ animationDelay: `${delayMs}ms` }}>
+    <div className="card-elev row-hover p-6" style={{ animationDelay: `${delayMs}ms` }}>
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <h3 className="font-serif text-lg font-semibold">
@@ -600,7 +617,17 @@ function UserRow({
           )}
         </div>
       </div>
-      {expanded && <UserProperties userId={record.id} />}
+      {/* UserProperties fetches fresh on every mount (no lazy-fetch guard
+          like ProtestRow's documents check), so this stays a real
+          mount/unmount rather than the always-mounted grid-rows collapse
+          used above — that would mean every row fetches on render
+          regardless of whether it's expanded. Animates in on expand;
+          collapse is instant. */}
+      {expanded && (
+        <div className="animate-in fade-in slide-in-from-top-2 duration-300">
+          <UserProperties userId={record.id} />
+        </div>
+      )}
     </div>
   );
 }

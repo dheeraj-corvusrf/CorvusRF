@@ -6,8 +6,16 @@
 // You can pass additional config via defineConfig({ vite: { ... }, etc... }) if needed.
 import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 
-// Served at https://dheeraj-corvusrf.github.io/CorvusRF/ (GitHub Pages project site).
-const base = "/CorvusRF/";
+// Not hardcoded on purpose — this app has moved between two GitHub Pages
+// targets that need different base paths: the custom domain
+// (https://corvusre.com/) needs "/", the old project-site URL
+// (https://dheeraj-corvusrf.github.io/CorvusRF/) needs "/CorvusRF/" since a
+// project site serves everything under a subpath matching the repo name. Set
+// SITE_BASE in the environment to switch which one a build targets;
+// .github/workflows/deploy.yml's workflow_dispatch input does this for a
+// manual deploy, and it defaults to "/" (corvusre.com) for the normal
+// push-triggered deploy and for local `npm run dev`/`npm run build`.
+const base = process.env.SITE_BASE || "/";
 
 export default defineConfig({
   vite: { base },

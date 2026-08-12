@@ -32,21 +32,31 @@ const STEPS = [
 
 function HowItWorks() {
   return (
-    <div className="relative overflow-hidden min-h-[70vh]">
-      <HeroBackground blurred />
-      <div className="container-page py-16">
-        <div className="max-w-3xl">
-          <span className="badge-soft">How it works</span>
-          <h1 className="mt-3 text-4xl md:text-5xl font-semibold">
-            AI checks what humans usually miss.
-          </h1>
-          <p className="mt-4 text-lg text-muted-foreground">
-            County records, comps, land value, improvement value, site issues, zoning, income,
-            prior‑year values, BPP assets, depreciation, deadlines, hearings, tax bills,
-            payments, refunds, and final savings — all connected through one property record.
-          </p>
+    <div>
+      {/* Bounded to a hero-band height (not min-h-[70vh] wrapping the whole
+          page) — the decorative HeroBackground sizes itself to match this
+          exact wrapper, so letting the wrapper stretch to fit ALL of the
+          page's content (cards, CTA) below made the field/sun graphic
+          bleed down into the CTA banner and footer instead of staying a
+          hero-only backdrop. */}
+      <div className="relative overflow-hidden min-h-[380px]">
+        <HeroBackground blurred />
+        <div className="container-page pt-16">
+          <div className="max-w-3xl">
+            <span className="badge-soft">How it works</span>
+            <h1 className="mt-3 text-4xl md:text-5xl font-semibold">
+              AI checks what humans usually miss.
+            </h1>
+            <p className="mt-4 text-lg text-muted-foreground">
+              County records, comps, land value, improvement value, site issues, zoning, income,
+              prior‑year values, BPP assets, depreciation, deadlines, hearings, tax bills,
+              payments, refunds, and final savings — all connected through one property record.
+            </p>
+          </div>
         </div>
+      </div>
 
+      <div className="container-page pb-16">
         <ol className="mt-12 grid gap-5 md:grid-cols-2">
           {STEPS.map((s, i) => (
             <li key={s.n}>

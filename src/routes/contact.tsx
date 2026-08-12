@@ -67,15 +67,21 @@ function Contact() {
   }
 
   return (
-    <div className="relative overflow-hidden min-h-[70vh]">
-      <HeroBackground blurred />
-      <div className="container-page py-16 max-w-2xl">
-        <span className="badge-soft">Contact</span>
-        <h1 className="mt-3 text-4xl md:text-5xl font-semibold">Talk to a human.</h1>
-        <p className="mt-4 text-lg text-muted-foreground">
-          Managed protests, portfolios, and BPP for multiple entities — we'll help you get started.
-        </p>
+    <div>
+      {/* Bounded to a hero-band height — see how-it-works.tsx for why this
+          isn't min-h-[70vh] wrapping the whole page. */}
+      <div className="relative overflow-hidden min-h-[380px]">
+        <HeroBackground blurred />
+        <div className="container-page pt-16 max-w-2xl">
+          <span className="badge-soft">Contact</span>
+          <h1 className="mt-3 text-4xl md:text-5xl font-semibold">Talk to a human.</h1>
+          <p className="mt-4 text-lg text-muted-foreground">
+            Managed protests, portfolios, and BPP for multiple entities — we'll help you get started.
+          </p>
+        </div>
+      </div>
 
+      <div className="container-page pb-16 max-w-2xl">
         {sent ? (
           <div className="mt-8 card-elev p-6">
             <h3 className="font-semibold text-lg">Thanks — we'll be in touch.</h3>
