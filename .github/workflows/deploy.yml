@@ -29,6 +29,25 @@ jobs:
 
       - run: npm ci
 
+      # Unit + integration (Vitest) — pure money-math and mocked-Supabase
+      # wrapper functions, no real network/browser needed. A failure here
+      # blocks the deploy, same as a failed build would.
+      - run: npm run test
+
+      # E2E (Playwright, guest-only subset) — flows that need no sign-in and
+      # write no persistent Supabase rows, so they're safe to run against the
+      # real Supabase project on every push. Authenticated flows (protest
+      # authorization, Stripe checkout) live in e2e/authenticated and are run
+      # locally against a seeded test account for now — see
+      # e2e/authenticated/helpers.ts.
+      - run: npx playwright install --with-deps chromium
+
+      - run: npm run test:e2e
+        env:
+          VITE_SUPABASE_URL: https://iotzuhuajbsxxuccuihn.supabase.co
+          VITE_SUPABASE_ANON_KEY: sb_publishable_RpyqtM6EeGiT7qc3FyN5Iw_vm0aiuM3
+          VITE_WEB3FORMS_ACCESS_KEY: 5a66f800-1264-49a2-9696-2839afd02485
+
       - run: npm run build
         env:
           # Supabase's anon/publishable key is meant to be public (it ends up in the
