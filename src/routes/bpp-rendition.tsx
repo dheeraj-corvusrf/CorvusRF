@@ -26,19 +26,26 @@ function Page() {
     ["County rules", "Hidden County Rule Engine handles filing requirements."],
   ];
   return (
-    <div className="relative overflow-hidden min-h-[70vh]">
-      <HeroBackground blurred />
-      <div className="container-page py-16">
-        <div className="max-w-3xl">
-          <span className="badge-soft">BPP Rendition</span>
-          <h1 className="mt-3 text-4xl md:text-5xl font-semibold">
-            BPP rendition without the paperwork.
-          </h1>
-          <p className="mt-4 text-lg text-muted-foreground">
-            Upload a prior rendition or start with a template. AI extracts assets, applies
-            county depreciation, and prepares the filing. CorvusRF files and defends it.
-          </p>
+    <div>
+      {/* Bounded to a hero-band height — see how-it-works.tsx for why this
+          isn't min-h-[70vh] wrapping the whole page. */}
+      <div className="relative overflow-hidden min-h-[380px]">
+        <HeroBackground blurred />
+        <div className="container-page pt-16">
+          <div className="max-w-3xl">
+            <span className="badge-soft">BPP Rendition</span>
+            <h1 className="mt-3 text-4xl md:text-5xl font-semibold">
+              BPP rendition without the paperwork.
+            </h1>
+            <p className="mt-4 text-lg text-muted-foreground">
+              Upload a prior rendition or start with a template. AI extracts assets, applies
+              county depreciation, and prepares the filing. CorvusRF files and defends it.
+            </p>
+          </div>
         </div>
+      </div>
+
+      <div className="container-page pb-16">
         <div className="mt-10 grid gap-5 md:grid-cols-2">
           {items.map(([t, d], i) => (
             <ScrollReveal key={t} delay={i * 80}>

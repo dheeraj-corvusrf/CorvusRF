@@ -145,18 +145,27 @@ function SignIn() {
   }
 
   return (
-    <div className="relative overflow-hidden min-h-[70vh]">
-      <HeroBackground blurred />
-      <div className="container-page py-16 max-w-md">
-      <span className="badge-soft">{mode === "signin" ? "Sign In" : "Create Account"}</span>
-      <h1 className="mt-3 font-serif text-3xl font-semibold">
-        {mode === "signin" ? "Welcome back." : "Create your CorvusRF account."}
-      </h1>
-      <p className="mt-2 text-muted-foreground">
-        {mode === "signin"
-          ? "Your properties, protests, deadlines, and savings — all in one place."
-          : "Save your property, analysis, documents, and preview history."}
-      </p>
+    <div>
+      {/* Bounded to a hero-band height — see how-it-works.tsx for why this
+          isn't min-h-[70vh] wrapping the whole page (the signup form's
+          extra fields push this one well past 70vh, confirmed via
+          screenshot). */}
+      <div className="relative overflow-hidden min-h-[380px]">
+        <HeroBackground blurred />
+        <div className="container-page pt-16 max-w-md">
+          <span className="badge-soft">{mode === "signin" ? "Sign In" : "Create Account"}</span>
+          <h1 className="mt-3 font-serif text-3xl font-semibold">
+            {mode === "signin" ? "Welcome back." : "Create your CorvusRF account."}
+          </h1>
+          <p className="mt-2 text-muted-foreground">
+            {mode === "signin"
+              ? "Your properties, protests, deadlines, and savings — all in one place."
+              : "Save your property, analysis, documents, and preview history."}
+          </p>
+        </div>
+      </div>
+
+      <div className="container-page pb-16 max-w-md">
       <form onSubmit={onSubmit} className="mt-8 card-elev p-6 grid gap-4">
         {mode === "signup" && (
           <div className="grid gap-4 sm:grid-cols-2">
