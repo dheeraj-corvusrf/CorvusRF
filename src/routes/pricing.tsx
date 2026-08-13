@@ -2,7 +2,6 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
-import { HeroBackground } from "@/components/HeroBackground";
 import { ScrollReveal } from "@/components/ScrollReveal";
 import {
   startCheckout,
@@ -184,19 +183,14 @@ function Page() {
 
   return (
     <div>
-      {/* Bounded to a hero-band height — see how-it-works.tsx for why this
-          isn't min-h-[70vh] wrapping the whole page. */}
-      <div className="relative overflow-hidden min-h-[380px]">
-        <HeroBackground blurred />
-        <div className="container-page pt-16">
-          <div className="max-w-3xl">
-            <span className="badge-soft">Pricing</span>
-            <h1 className="mt-3 text-4xl md:text-5xl font-semibold">Simple, per-property pricing.</h1>
-            <p className="mt-4 text-lg text-muted-foreground">
-              Start free. Pick Owner-Managed to do it yourself with AI, or CorvusRF-Managed to have our
-              staff file and represent you. Priced per property, billed monthly.
-            </p>
-          </div>
+      <div className="container-page pt-16">
+        <div className="max-w-3xl">
+          <span className="badge-soft">Pricing</span>
+          <h1 className="mt-3 text-4xl md:text-5xl font-semibold">Simple, per-property pricing.</h1>
+          <p className="mt-4 text-lg text-muted-foreground">
+            Start free. Pick Owner-Managed to do it yourself with AI, or CorvusRF-Managed to have our
+            staff file and represent you. Priced per property, billed monthly.
+          </p>
         </div>
       </div>
 
