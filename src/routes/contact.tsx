@@ -1,7 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { toast } from "sonner";
-import { HeroBackground } from "@/components/HeroBackground";
+import { Phone } from "lucide-react";
+
+const PHONE_DISPLAY = "(469) 501-9362";
+const PHONE_TEL = "+14695019362";
 
 export const Route = createFileRoute("/contact")({
   head: () => ({
@@ -68,20 +71,30 @@ function Contact() {
 
   return (
     <div>
-      {/* Bounded to a hero-band height — see how-it-works.tsx for why this
-          isn't min-h-[70vh] wrapping the whole page. */}
-      <div className="relative overflow-hidden min-h-[380px]">
-        <HeroBackground blurred />
-        <div className="container-page pt-16 max-w-2xl">
-          <span className="badge-soft">Contact</span>
-          <h1 className="mt-3 text-4xl md:text-5xl font-semibold">Talk to a human.</h1>
-          <p className="mt-4 text-lg text-muted-foreground">
-            Managed protests, portfolios, and BPP for multiple entities — we'll help you get started.
-          </p>
-        </div>
+      <div className="container-page pt-16 max-w-2xl">
+        <span className="badge-soft">Contact</span>
+        <h1 className="mt-3 text-4xl md:text-5xl font-semibold">Talk to a human.</h1>
+        <p className="mt-4 text-lg text-muted-foreground">
+          Managed protests, portfolios, and BPP for multiple entities — we'll help you get started.
+        </p>
       </div>
 
       <div className="container-page pb-16 max-w-2xl">
+        <a
+          href={`tel:${PHONE_TEL}`}
+          className="card-elev mb-8 flex items-center justify-between gap-4 p-6 transition-all hover:-translate-y-0.5 hover:shadow-elev"
+        >
+          <div className="flex items-center gap-4">
+            <span className="flex h-11 w-11 items-center justify-center rounded-full bg-accent/15 text-accent">
+              <Phone className="h-5 w-5" />
+            </span>
+            <div>
+              <h3 className="font-semibold">Prefer to talk now?</h3>
+              <p className="text-sm text-muted-foreground">Call us at {PHONE_DISPLAY}</p>
+            </div>
+          </div>
+          <span className="btn-primary btn-primary-hover shrink-0">Call us</span>
+        </a>
         {sent ? (
           <div className="mt-8 card-elev p-6">
             <h3 className="font-semibold text-lg">Thanks — we'll be in touch.</h3>
