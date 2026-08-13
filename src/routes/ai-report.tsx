@@ -1049,6 +1049,18 @@ function Field({ label, value, bold }: { label: string; value?: string; bold?: b
 }
 
 function Modal({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
+  // Local duplicate of @/components/Modal (kept separate here since this one's
+  // content already renders its own inline "Close" button, unlike the shared
+  // component's icon-button header) — still needs the same scroll lock, since
+  // nothing else stops the page behind it from scrolling too.
+  useEffect(() => {
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previous;
+    };
+  }, []);
+
   return (
     <div
       className="fixed inset-0 z-50 grid place-items-center p-4 bg-primary/60 backdrop-blur-sm print:hidden"

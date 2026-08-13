@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
@@ -20,6 +20,20 @@ export function Modal({
   onClose: () => void;
   wide?: boolean;
 }) {
+  // Without this, the page behind the modal keeps scrolling along with it —
+  // there's nothing else stopping wheel/touch input from reaching the body
+  // underneath the fixed overlay. Restores whatever overflow value was already
+  // on body (rather than assuming "") so nesting one Modal inside another (see
+  // the portal comment below) doesn't have the inner modal's cleanup
+  // incorrectly re-enable scroll while the outer one is still open.
+  useEffect(() => {
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previous;
+    };
+  }, []);
+
   return createPortal(
     <div
       className="fixed inset-0 z-50 grid place-items-center p-4 bg-primary/60 backdrop-blur-sm backdrop-fade-in"
