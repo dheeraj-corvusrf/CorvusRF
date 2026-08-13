@@ -43,6 +43,7 @@ function protest(overrides: Partial<ProtestRecord> = {}): ProtestRecord {
     finalValue: null,
     escalationPath: null,
     closedAt: null,
+    taxYear: null,
     ...overrides,
   };
 }

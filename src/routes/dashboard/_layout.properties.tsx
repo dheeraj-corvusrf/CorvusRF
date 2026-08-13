@@ -19,6 +19,8 @@ export const Route = createFileRoute("/dashboard/_layout/properties")({
   component: Properties,
 });
 
+const CURRENT_YEAR = new Date().getFullYear();
+
 const STATUS_LABEL: Record<ProtestStatus, string> = {
   requested: "Requested",
   filed: "Filed",
@@ -124,6 +126,13 @@ function Properties() {
           <div className="grid gap-4">
             {sortedProperties.map((p, i) => {
               const existingProtest = protests.find((pr) => pr.propertyId === p.id);
+              // A resolved protest from a prior tax year shouldn't permanently block
+              // filing again — only offer re-filing once the case is actually closed
+              // and a newer tax year has come around (never for an in-progress case).
+              const canReFile =
+                existingProtest?.status === "resolved" &&
+                existingProtest.taxYear != null &&
+                existingProtest.taxYear < CURRENT_YEAR;
               return (
                 <div
                   key={p.id}
@@ -161,10 +170,21 @@ function Properties() {
                     </Link>
                     {existingProtest ? (
                       <>
-                        <span className="badge-soft">Protest {STATUS_LABEL[existingProtest.status]}</span>
+                        <span className="badge-soft">
+                          Protest {STATUS_LABEL[existingProtest.status]}
+                          {existingProtest.taxYear ? ` (${existingProtest.taxYear})` : ""}
+                        </span>
                         <button onClick={() => setCaseProperty(p)} className="btn-outline">
                           View Case
                         </button>
+                        {canReFile && (
+                          <button
+                            onClick={() => setAuthorizingProperty(p)}
+                            className="btn-primary btn-primary-hover"
+                          >
+                            Re-file for {CURRENT_YEAR}
+                          </button>
+                        )}
                       </>
                     ) : (
                       <button

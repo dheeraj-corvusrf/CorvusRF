@@ -224,6 +224,12 @@ export function toProtestRecord(record: AdminProtestRecord): ProtestRecord {
     finalValue: record.finalValue,
     escalationPath: record.escalationPath,
     closedAt: record.closedAt,
+    // Not selected by listAllProtests() (which joins properties.tax_year for
+    // display under this same field name — a different concept, the property's
+    // current tax year, not this specific protest's filing year). Stubbed like the
+    // other fields CaseProgress doesn't touch — the admin's CaseDetailModal has no
+    // re-filing UI, so this is never read there.
+    taxYear: null,
   };
 }
 

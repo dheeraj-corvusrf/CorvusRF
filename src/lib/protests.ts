@@ -31,6 +31,7 @@ export type ProtestRecord = {
   finalValue: number | null;
   escalationPath: EscalationPath | null;
   closedAt: string | null;
+  taxYear: number | null;
 };
 
 type ProtestRow = {
@@ -49,10 +50,11 @@ type ProtestRow = {
   final_value: number | null;
   escalation_path: EscalationPath | null;
   closed_at: string | null;
+  tax_year: number | null;
 };
 
 const SELECT_COLUMNS =
-  "id, property_id, status, notes, requested_at, updated_at, original_value, settlement_offer_value, settlement_offer_received_at, hearing_date, arb_decision, arb_decision_date, final_value, escalation_path, closed_at";
+  "id, property_id, status, notes, requested_at, updated_at, original_value, settlement_offer_value, settlement_offer_received_at, hearing_date, arb_decision, arb_decision_date, final_value, escalation_path, closed_at, tax_year";
 
 function fromRow(row: ProtestRow): ProtestRecord {
   return {
@@ -71,6 +73,7 @@ function fromRow(row: ProtestRow): ProtestRecord {
     finalValue: row.final_value,
     escalationPath: row.escalation_path,
     closedAt: row.closed_at,
+    taxYear: row.tax_year,
   };
 }
 
@@ -83,11 +86,16 @@ function fromRow(row: ProtestRow): ProtestRecord {
 export async function requestProtest(
   userId: string,
   propertyId: string,
-  details?: { address?: string; userEmail?: string; originalValue?: number | null },
+  details?: { address?: string; userEmail?: string; originalValue?: number | null; taxYear?: number | null },
 ): Promise<ProtestRecord> {
   const { data, error } = await supabase
     .from("protests")
-    .insert({ property_id: propertyId, user_id: userId, original_value: details?.originalValue ?? null })
+    .insert({
+      property_id: propertyId,
+      user_id: userId,
+      original_value: details?.originalValue ?? null,
+      tax_year: details?.taxYear ?? null,
+    })
     .select(SELECT_COLUMNS)
     .single();
   if (error) throw error;
