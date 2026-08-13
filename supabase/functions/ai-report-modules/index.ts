@@ -27,6 +27,11 @@ type ModulesInput = {
   improvementValue?: number;
   totalValue?: number;
   taxYear?: number;
+  // Only read for moduleId "improvement" — property photos/documents as base64 data
+  // URLs, already fetched client-side from a signed URL only the owning user could
+  // obtain (same trust boundary as classify-document, which also accepts arbitrary
+  // uploaded file bytes with no auth check).
+  evidenceImages?: { mimeType?: string; dataUrl?: string }[];
 };
 
 const STRATEGIES = ["Market Value", "Unequal Appraisal", "Condition-Based Reduction", "Combined Approach"];
@@ -140,11 +145,39 @@ Deno.serve(async (req: Request) => {
       .filter(Boolean)
       .join("\n");
 
-    const system = `${PREAMBLE}\n\n${spec.instruction}\n\nReturn ONLY a JSON object with exactly this shape:\n${spec.schema}`;
+    // Evidence images are only meaningful for the improvement-condition module —
+    // filtered to real image/PDF data URLs and capped defensively even though the
+    // client already caps at 4 (defense in depth, not trusting client-side limits).
+    const evidenceParts =
+      input.moduleId === "improvement" && Array.isArray(input.evidenceImages)
+        ? input.evidenceImages
+            .filter(
+              (e): e is { mimeType: string; dataUrl: string } =>
+                !!e.mimeType &&
+                !!e.dataUrl &&
+                (e.mimeType.startsWith("image/") || e.mimeType === "application/pdf"),
+            )
+            .slice(0, 4)
+            .map((e) => ({
+              inline_data: { mime_type: e.mimeType, data: e.dataUrl.split(",", 2)[1] ?? "" },
+            }))
+        : [];
+
+    let instruction = spec.instruction;
+    if (evidenceParts.length > 0) {
+      instruction +=
+        " Photos and/or documents of the property's actual condition are attached below as " +
+        "images — base your assessment specifically on what is visible or stated in them " +
+        "(e.g. visible wear, deferred maintenance, damage, renovation quality), citing concrete " +
+        "observations, rather than only general guidance. If something isn't visible or stated " +
+        "in the attachments, say so rather than guessing.";
+    }
+
+    const system = `${PREAMBLE}\n\n${instruction}\n\nReturn ONLY a JSON object with exactly this shape:\n${spec.schema}`;
 
     const body = {
       systemInstruction: { parts: [{ text: system }] },
-      contents: [{ role: "user", parts: [{ text: record }] }],
+      contents: [{ role: "user", parts: [{ text: record }, ...evidenceParts] }],
       generationConfig: { responseMimeType: "application/json" },
     };
 

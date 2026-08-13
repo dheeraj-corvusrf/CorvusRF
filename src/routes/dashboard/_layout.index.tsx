@@ -4,9 +4,11 @@ import { toast } from "sonner";
 import { Plus, Briefcase, Upload, Sparkles, ArrowUpRight, Trash2, AlertTriangle } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Cell, LabelList, ResponsiveContainer, PieChart, Pie } from "recharts";
 import { useAuth } from "@/lib/auth";
-import { currency, resetIntake, classifyAndStoreDocument } from "@/lib/intake-store";
+import { currency, resetIntake, classifyAndStoreDocument, updateIntake } from "@/lib/intake-store";
 import { listProperties, deleteProperty, type PropertyRecord } from "@/lib/properties";
 import { useSavingsBackfill } from "@/hooks/use-savings-backfill";
+import { useHealthScoreBackfill } from "@/hooks/use-health-score-backfill";
+import { listHealthScores, type PropertyAiScore } from "@/lib/property-scores";
 import { getEffectiveTaxRate, getBaseReductionPct, classifyPropertyCategory } from "@/lib/texas-tax-rates";
 import { listBppAccounts, type BppAccountRecord } from "@/lib/bpp-accounts";
 import { listDocuments, type DocumentRecord } from "@/lib/documents";
@@ -44,6 +46,7 @@ function Overview() {
   const [bppAccounts, setBppAccounts] = useState<BppAccountRecord[]>([]);
   const [documents, setDocuments] = useState<DocumentRecord[]>([]);
   const [protests, setProtests] = useState<ProtestRecord[]>([]);
+  const [healthScores, setHealthScores] = useState<Record<string, PropertyAiScore>>({});
   const [loaded, setLoaded] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [askQuery, setAskQuery] = useState("");
@@ -61,18 +64,37 @@ function Overview() {
       listBppAccounts(user.id),
       listDocuments(user.id),
       listProtests(user.id),
+      listHealthScores(user.id),
     ])
-      .then(([props, bpp, docs, prot]) => {
+      .then(([props, bpp, docs, prot, scores]) => {
         setProperties(props);
         setBppAccounts(bpp);
         setDocuments(docs);
         setProtests(prot);
+        setHealthScores(scores);
       })
       .catch((err) => console.error(err))
       .finally(() => setLoaded(true));
   }, [user]);
 
   useSavingsBackfill(properties, setProperties);
+  useHealthScoreBackfill(properties, healthScores, setHealthScores);
+
+  function openAiReport(p: PropertyRecord) {
+    updateIntake({
+      address: p.address,
+      cad: p.cad ?? undefined,
+      accountNumber: p.accountNumber ?? undefined,
+      ownerName: p.ownerName ?? undefined,
+      propertyType: p.propertyType ?? undefined,
+      landValue: p.landValue ?? undefined,
+      improvementValue: p.improvementValue ?? undefined,
+      totalValue: p.totalValue ?? undefined,
+      taxYear: p.taxYear ?? undefined,
+      confirmed: true,
+    });
+    nav({ to: "/ai-report" });
+  }
 
   const addressFor = (propertyId: string) =>
     properties.find((p) => p.id === propertyId)?.address ?? "Property removed";
@@ -388,6 +410,13 @@ function Overview() {
         </div>
       )}
 
+      {properties.length > 0 && (
+        <div className="card-elev p-5 min-w-0">
+          <h3 className="font-semibold">Top Protest Opportunities</h3>
+          <TopOpportunities properties={properties} healthScores={healthScores} onOpenReport={openAiReport} />
+        </div>
+      )}
+
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <div className="card-elev p-5 min-w-0">
           <h3 className="font-semibold">Cases & AI Recommendations</h3>
@@ -543,6 +572,61 @@ function PortfolioValueChart({ properties }: { properties: PropertyRecord[] }) {
         </Bar>
       </BarChart>
     </ResponsiveContainer>
+  );
+}
+
+// Ranks properties by their AI "Protest Opportunity" score (the same score shown
+// per-property on /dashboard/properties as AiScoreBadge) so a multi-property owner
+// sees which properties look like the strongest opportunities first, instead of
+// reviewing each one individually. Properties with no score yet (backfilling in the
+// background — see useHealthScoreBackfill) simply don't appear until one exists.
+function TopOpportunities({
+  properties,
+  healthScores,
+  onOpenReport,
+}: {
+  properties: PropertyRecord[];
+  healthScores: Record<string, PropertyAiScore>;
+  onOpenReport: (p: PropertyRecord) => void;
+}) {
+  const ranked = properties
+    .filter((p) => healthScores[p.id])
+    .sort((a, b) => healthScores[b.id].score - healthScores[a.id].score)
+    .slice(0, 5);
+
+  if (ranked.length === 0) {
+    return (
+      <p className="mt-2 text-sm text-muted-foreground">
+        No scored properties yet — AI scores appear shortly after you add a property.
+      </p>
+    );
+  }
+
+  return (
+    <div className="mt-3 grid gap-3">
+      {ranked.map((p) => {
+        const score = healthScores[p.id];
+        return (
+          <div
+            key={p.id}
+            className="row-hover rounded-md flex items-center justify-between gap-3 px-2 py-2 min-w-0"
+          >
+            <div className="min-w-0">
+              <div className="truncate text-sm font-medium">{p.address}</div>
+              <p className="text-xs text-accent">
+                AI Score: {score.score}/100 — {score.summary}
+              </p>
+            </div>
+            <button
+              onClick={() => onOpenReport(p)}
+              className="btn-outline shrink-0 text-xs py-1.5"
+            >
+              View AI Report
+            </button>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 

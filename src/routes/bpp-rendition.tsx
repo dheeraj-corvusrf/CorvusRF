@@ -1,5 +1,4 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { HeroBackground } from "@/components/HeroBackground";
 import { ScrollReveal } from "@/components/ScrollReveal";
 
 export const Route = createFileRoute("/bpp-rendition")({
@@ -27,21 +26,16 @@ function Page() {
   ];
   return (
     <div>
-      {/* Bounded to a hero-band height — see how-it-works.tsx for why this
-          isn't min-h-[70vh] wrapping the whole page. */}
-      <div className="relative overflow-hidden min-h-[380px]">
-        <HeroBackground blurred />
-        <div className="container-page pt-16">
-          <div className="max-w-3xl">
-            <span className="badge-soft">BPP Rendition</span>
-            <h1 className="mt-3 text-4xl md:text-5xl font-semibold">
-              BPP rendition without the paperwork.
-            </h1>
-            <p className="mt-4 text-lg text-muted-foreground">
-              Upload a prior rendition or start with a template. AI extracts assets, applies
-              county depreciation, and prepares the filing. CorvusRF files and defends it.
-            </p>
-          </div>
+      <div className="container-page pt-16">
+        <div className="max-w-3xl">
+          <span className="badge-soft">BPP Rendition</span>
+          <h1 className="mt-3 text-4xl md:text-5xl font-semibold">
+            BPP rendition without the paperwork.
+          </h1>
+          <p className="mt-4 text-lg text-muted-foreground">
+            Upload a prior rendition or start with a template. AI extracts assets, applies
+            county depreciation, and prepares the filing. CorvusRF files and defends it.
+          </p>
         </div>
       </div>
 

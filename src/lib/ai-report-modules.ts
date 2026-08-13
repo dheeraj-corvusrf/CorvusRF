@@ -8,6 +8,10 @@ export type ModuleAnalysisInput = {
   improvementValue?: number;
   totalValue?: number;
   taxYear?: number;
+  // Only read by the "improvement" module — property photos/documents (as base64
+  // data URLs) that ground its guidance in what's actually visible/stated instead of
+  // only general guidance. See src/routes/ai-report.tsx.
+  evidenceImages?: { mimeType: string; dataUrl: string }[];
 };
 
 export type BatchModuleId =

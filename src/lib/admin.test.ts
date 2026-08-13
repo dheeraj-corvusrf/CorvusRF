@@ -52,6 +52,7 @@ describe("toProtestRecord", () => {
       finalValue: null,
       escalationPath: null,
       closedAt: null,
+      taxYear: null,
     });
   });
 });

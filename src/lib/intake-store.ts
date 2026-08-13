@@ -143,7 +143,10 @@ export const UPLOAD_LIMITS = {
   maxPages: 5,
 };
 
-function fileToDataUrl(file: File): Promise<string> {
+// Takes Blob (not just File) so callers can also convert a fetched document blob —
+// see src/routes/ai-report.tsx's evidence-upload flow, which fetches an already
+// -uploaded document back from its signed URL rather than holding onto the original File.
+export function fileToDataUrl(file: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const r = new FileReader();
     r.onload = () => resolve(String(r.result));

@@ -1,8 +1,9 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 import { CheckCircle2, AlertTriangle, HelpCircle } from "lucide-react";
 import { RadialBarChart, RadialBar, PolarAngleAxis, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Cell, LabelList } from "recharts";
-import { readIntake, currency, type IntakeState } from "@/lib/intake-store";
+import { readIntake, currency, UPLOAD_LIMITS, fileToDataUrl, type IntakeState } from "@/lib/intake-store";
 import { MODULES, type Module } from "@/lib/modules";
 import { useAuth } from "@/lib/auth";
 import { getMyBilling } from "@/lib/billing";
@@ -14,6 +15,7 @@ import { CompsMap } from "@/components/CompsMap";
 import { findExistingProperty, addProperty, type PropertyRecord } from "@/lib/properties";
 import { listProtests, type ProtestRecord } from "@/lib/protests";
 import { generateCasePrep } from "@/lib/protest-case";
+import { uploadDocument, listDocuments, getDocumentUrl, EVIDENCE_DOCUMENT_TYPE, type DocumentRecord } from "@/lib/documents";
 import { ProtestAuthorizationFlow } from "@/components/ProtestAuthorizationFlow";
 import { CaseDetailModal } from "@/components/CaseDetailModal";
 import { AnimatedNumber } from "@/components/AnimatedNumber";
@@ -70,6 +72,11 @@ function Report() {
   const [existingProtest, setExistingProtest] = useState<ProtestRecord | null>(null);
   const [authorizing, setAuthorizing] = useState(false);
   const [showCase, setShowCase] = useState(false);
+  // Evidence (photos/repair estimates/appraisals) the user has uploaded for this
+  // property, fed into the Improvement Condition module's analysis — see
+  // handleUploadEvidence() and loadModule() below.
+  const [evidenceDocs, setEvidenceDocs] = useState<DocumentRecord[]>([]);
+  const [uploadingEvidence, setUploadingEvidence] = useState(false);
 
   useEffect(() => {
     const s = readIntake();
@@ -99,37 +106,98 @@ function Report() {
       .catch((err) => console.error("Could not resolve this property for protest filing:", err));
   }, [user, state.address, state.cad, state.accountNumber]);
 
-  async function startProtest() {
-    if (!user) return;
-    let property = resolvedProperty;
-    if (!property) {
-      try {
-        property = await addProperty(user.id, {
-          address: state.address ?? "",
-          cad: state.cad,
-          accountNumber: state.accountNumber,
-          ownerName: state.ownerName,
-          propertyType: state.propertyType,
-          landValue: state.landValue,
-          improvementValue: state.improvementValue,
-          totalValue: state.totalValue,
-          taxYear: state.taxYear,
-        });
-        setResolvedProperty(property);
-      } catch (err) {
-        console.error("Could not save this property before filing:", err);
-        return;
-      }
+  useEffect(() => {
+    if (!user || !resolvedProperty) return;
+    listDocuments(user.id)
+      .then((docs) =>
+        setEvidenceDocs(
+          docs.filter(
+            (d) => d.propertyId === resolvedProperty.id && d.documentType === EVIDENCE_DOCUMENT_TYPE,
+          ),
+        ),
+      )
+      .catch((err) => console.error("Could not load uploaded evidence for this property:", err));
+  }, [user, resolvedProperty]);
+
+  // Shared by startProtest (below) and handleUploadEvidence — resolves the real
+  // saved PropertyRecord this report is for, creating it on first use if the user
+  // hasn't saved it yet. Both actions need a real property_id to attach to.
+  async function ensureProperty(): Promise<PropertyRecord | null> {
+    if (!user) return null;
+    if (resolvedProperty) return resolvedProperty;
+    try {
+      const property = await addProperty(user.id, {
+        address: state.address ?? "",
+        cad: state.cad,
+        accountNumber: state.accountNumber,
+        ownerName: state.ownerName,
+        propertyType: state.propertyType,
+        landValue: state.landValue,
+        improvementValue: state.improvementValue,
+        totalValue: state.totalValue,
+        taxYear: state.taxYear,
+      });
+      setResolvedProperty(property);
+      return property;
+    } catch (err) {
+      console.error("Could not save this property:", err);
+      return null;
     }
+  }
+
+  async function startProtest() {
+    const property = await ensureProperty();
+    if (!property) return;
     setAuthorizing(true);
   }
 
-  function loadModule(id: string) {
+  const MAX_EVIDENCE_FILES = 4;
+
+  // Takes a plain File[] rather than the FileList straight off an <input> — FileList
+  // is a live view of the input, so if the caller clears input.value right after
+  // selecting (to allow re-picking the same file later), the FileList empties out
+  // before this async function gets around to reading it. Converting to an array in
+  // the onChange handler itself, before the input is cleared, avoids that.
+  async function handleUploadEvidence(files: File[]) {
+    if (!user) return;
+    const property = await ensureProperty();
+    if (!property) {
+      toast.error("Could not save this property. Please try again.");
+      return;
+    }
+    const room = MAX_EVIDENCE_FILES - evidenceDocs.length;
+    if (room <= 0) {
+      toast.error(`You can upload up to ${MAX_EVIDENCE_FILES} evidence files per property.`);
+      return;
+    }
+    const toUpload = files.slice(0, room);
+    setUploadingEvidence(true);
+    try {
+      const uploaded: DocumentRecord[] = [];
+      for (const file of toUpload) {
+        if (file.size > UPLOAD_LIMITS.maxFileBytes) {
+          toast.error(`${file.name} exceeds ${Math.round(UPLOAD_LIMITS.maxFileBytes / (1024 * 1024))} MB.`);
+          continue;
+        }
+        uploaded.push(await uploadDocument(user.id, property.id, file, EVIDENCE_DOCUMENT_TYPE));
+      }
+      if (uploaded.length > 0) {
+        setEvidenceDocs((prev) => [...prev, ...uploaded]);
+        toast.success(`Added ${uploaded.length} evidence file${uploaded.length === 1 ? "" : "s"}.`);
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not upload evidence.");
+    } finally {
+      setUploadingEvidence(false);
+    }
+  }
+
+  function loadModule(id: string, opts?: { force?: boolean }) {
     // No AI call backs this module anymore — it renders straight from the
     // deterministic `estimated` value (see estimateSavings() above).
     if (id === "savings") return;
     const existing = moduleData[id];
-    if ((existing && (existing.loading || existing.data)) || !state.totalValue) return;
+    if ((existing && (existing.loading || (existing.data && !opts?.force))) || !state.totalValue) return;
     setModuleData((prev) => ({ ...prev, [id]: { data: null, loading: true, error: null } }));
     const input = {
       address: state.address,
@@ -140,8 +208,30 @@ function Report() {
       totalValue: state.totalValue,
       taxYear: state.taxYear,
     };
-    const promise = id === "health" ? getHealthScore(input) : getModuleAnalysis(id as BatchModuleId, input);
-    promise
+
+    async function run() {
+      if (id === "health") return getHealthScore(input);
+      // Improvement Condition reads uploaded evidence (photos/repair estimates/
+      // appraisals) back from storage and attaches it so the AI grounds its
+      // guidance in what's actually shown rather than only general advice — see
+      // handleUploadEvidence() above and ai-report-modules/index.ts's evidence
+      // handling. Capped to the 4 most recent, mirroring the server-side cap.
+      if (id === "improvement" && evidenceDocs.length > 0) {
+        const recent = evidenceDocs.slice(-4);
+        const evidenceImages = await Promise.all(
+          recent.map(async (doc) => {
+            const url = await getDocumentUrl(doc.storagePath);
+            const blob = await fetch(url).then((r) => r.blob());
+            const dataUrl = await fileToDataUrl(blob);
+            return { mimeType: blob.type || "image/jpeg", dataUrl };
+          }),
+        );
+        return getModuleAnalysis("improvement", { ...input, evidenceImages });
+      }
+      return getModuleAnalysis(id as BatchModuleId, input);
+    }
+
+    run()
       .then((data) => setModuleData((prev) => ({ ...prev, [id]: { data, loading: false, error: null } })))
       .catch((err) =>
         setModuleData((prev) => ({
@@ -380,6 +470,11 @@ function Report() {
                 moduleState={moduleData[m.id]}
                 compsMap={compsMap}
                 onRetry={() => {}}
+                allowEvidenceUpload={false}
+                evidenceDocs={evidenceDocs}
+                uploadingEvidence={false}
+                onUploadEvidence={() => {}}
+                onForceReload={() => {}}
               />
             </div>
           ));
@@ -407,6 +502,11 @@ function Report() {
             moduleState={moduleData[openModel.id]}
             compsMap={compsMap}
             onRetry={() => loadModule(openModel.id)}
+            allowEvidenceUpload
+            evidenceDocs={evidenceDocs}
+            uploadingEvidence={uploadingEvidence}
+            onUploadEvidence={handleUploadEvidence}
+            onForceReload={() => loadModule(openModel.id, { force: true })}
           />
           <div className="mt-6 flex gap-2 justify-end">
             <button onClick={() => setOpenId(null)} className="btn-outline">
@@ -534,6 +634,11 @@ function ModulePreviewBody({
   moduleState,
   compsMap,
   onRetry,
+  allowEvidenceUpload,
+  evidenceDocs,
+  uploadingEvidence,
+  onUploadEvidence,
+  onForceReload,
 }: {
   m: Module;
   estimated: { reduction: number; savings: number; rationale: string | null };
@@ -541,6 +646,11 @@ function ModulePreviewBody({
   moduleState: ModuleAsyncState | undefined;
   compsMap: { data: CompsResult | null; loading: boolean };
   onRetry: () => void;
+  allowEvidenceUpload: boolean;
+  evidenceDocs: DocumentRecord[];
+  uploadingEvidence: boolean;
+  onUploadEvidence: (files: File[]) => void;
+  onForceReload: () => void;
 }) {
   if (m.requiresUserData) {
     return (
@@ -695,6 +805,46 @@ function ModulePreviewBody({
               </Chip>
             ))}
           </div>
+          {allowEvidenceUpload && (
+            <div className="mt-4 border-t border-border/60 pt-4 print:hidden">
+              <div className="text-sm font-medium">Add Evidence</div>
+              <p className="text-xs text-muted-foreground">
+                Property photos, repair estimates, or appraisals — AI will cite specific details
+                from what you upload instead of only general guidance.
+              </p>
+              {evidenceDocs.length > 0 && (
+                <ul className="mt-2 grid gap-1 text-xs text-muted-foreground">
+                  {evidenceDocs.map((doc) => (
+                    <li key={doc.id}>{doc.fileName}</li>
+                  ))}
+                </ul>
+              )}
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <label
+                  className={`btn-outline text-sm cursor-pointer ${uploadingEvidence ? "pointer-events-none opacity-60" : ""}`}
+                >
+                  {uploadingEvidence ? "Uploading…" : "Upload Evidence"}
+                  <input
+                    type="file"
+                    accept="image/*,.pdf"
+                    multiple
+                    className="hidden"
+                    disabled={uploadingEvidence}
+                    onChange={(e) => {
+                      const selected = e.target.files ? Array.from(e.target.files) : [];
+                      e.target.value = "";
+                      if (selected.length > 0) onUploadEvidence(selected);
+                    }}
+                  />
+                </label>
+                {evidenceDocs.length > 0 && (
+                  <button disabled={loading} onClick={onForceReload} className="btn-outline text-sm disabled:opacity-60">
+                    Regenerate with Evidence
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       );
     }

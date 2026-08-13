@@ -309,6 +309,14 @@ alter table public.protests add column if not exists final_value numeric;
 alter table public.protests add column if not exists escalation_path text;
 alter table public.protests add column if not exists closed_at timestamptz;
 
+-- Which tax year this filing covers — lets a property have one protest row per
+-- year instead of one ever, so a resolved prior-year case doesn't block filing
+-- again for a new year (see src/routes/dashboard/_layout.properties.tsx's
+-- "Re-file for {year}" flow). Nullable/unbackfilled on purpose: every lookup of
+-- "the" protest for a property already resolves to the most recent row (ordered
+-- by requested_at desc), so older rows without a year don't need one.
+alter table public.protests add column if not exists tax_year integer;
+
 alter table public.protests drop constraint if exists protests_arb_decision_check;
 alter table public.protests add constraint protests_arb_decision_check
   check (arb_decision is null or arb_decision in ('approved', 'partial', 'denied'));

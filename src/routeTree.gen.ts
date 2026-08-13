@@ -29,6 +29,7 @@ import { Route as DashboardLayoutRouteImport } from './routes/dashboard/_layout'
 import { Route as DashboardLayoutIndexRouteImport } from './routes/dashboard/_layout.index'
 import { Route as DashboardLayoutBillingRouteImport } from './routes/dashboard/_layout.billing'
 import { Route as DashboardLayoutBppAccountsRouteImport } from './routes/dashboard/_layout.bpp-accounts'
+import { Route as DashboardLayoutCalendarRouteImport } from './routes/dashboard/_layout.calendar'
 import { Route as DashboardLayoutDeadlinesRouteImport } from './routes/dashboard/_layout.deadlines'
 import { Route as DashboardLayoutDocumentsRouteImport } from './routes/dashboard/_layout.documents'
 import { Route as DashboardLayoutPropertiesRouteImport } from './routes/dashboard/_layout.properties'
@@ -136,6 +137,11 @@ const DashboardLayoutBppAccountsRoute =
     path: '/bpp-accounts',
     getParentRoute: () => DashboardLayoutRoute,
   } as any)
+const DashboardLayoutCalendarRoute = DashboardLayoutCalendarRouteImport.update({
+  id: '/calendar',
+  path: '/calendar',
+  getParentRoute: () => DashboardLayoutRoute,
+} as any)
 const DashboardLayoutDeadlinesRoute =
   DashboardLayoutDeadlinesRouteImport.update({
     id: '/deadlines',
@@ -185,6 +191,7 @@ export interface FileRoutesByFullPath {
   '/dashboard': typeof DashboardLayoutRouteWithChildren
   '/dashboard/billing': typeof DashboardLayoutBillingRoute
   '/dashboard/bpp-accounts': typeof DashboardLayoutBppAccountsRoute
+  '/dashboard/calendar': typeof DashboardLayoutCalendarRoute
   '/dashboard/deadlines': typeof DashboardLayoutDeadlinesRoute
   '/dashboard/documents': typeof DashboardLayoutDocumentsRoute
   '/dashboard/properties': typeof DashboardLayoutPropertiesRoute
@@ -211,6 +218,7 @@ export interface FileRoutesByTo {
   '/tax-payment': typeof TaxPaymentRoute
   '/dashboard/billing': typeof DashboardLayoutBillingRoute
   '/dashboard/bpp-accounts': typeof DashboardLayoutBppAccountsRoute
+  '/dashboard/calendar': typeof DashboardLayoutCalendarRoute
   '/dashboard/deadlines': typeof DashboardLayoutDeadlinesRoute
   '/dashboard/documents': typeof DashboardLayoutDocumentsRoute
   '/dashboard/properties': typeof DashboardLayoutPropertiesRoute
@@ -239,6 +247,7 @@ export interface FileRoutesById {
   '/dashboard/_layout': typeof DashboardLayoutRouteWithChildren
   '/dashboard/_layout/billing': typeof DashboardLayoutBillingRoute
   '/dashboard/_layout/bpp-accounts': typeof DashboardLayoutBppAccountsRoute
+  '/dashboard/_layout/calendar': typeof DashboardLayoutCalendarRoute
   '/dashboard/_layout/deadlines': typeof DashboardLayoutDeadlinesRoute
   '/dashboard/_layout/documents': typeof DashboardLayoutDocumentsRoute
   '/dashboard/_layout/properties': typeof DashboardLayoutPropertiesRoute
@@ -268,6 +277,7 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/dashboard/billing'
     | '/dashboard/bpp-accounts'
+    | '/dashboard/calendar'
     | '/dashboard/deadlines'
     | '/dashboard/documents'
     | '/dashboard/properties'
@@ -294,6 +304,7 @@ export interface FileRouteTypes {
     | '/tax-payment'
     | '/dashboard/billing'
     | '/dashboard/bpp-accounts'
+    | '/dashboard/calendar'
     | '/dashboard/deadlines'
     | '/dashboard/documents'
     | '/dashboard/properties'
@@ -321,6 +332,7 @@ export interface FileRouteTypes {
     | '/dashboard/_layout'
     | '/dashboard/_layout/billing'
     | '/dashboard/_layout/bpp-accounts'
+    | '/dashboard/_layout/calendar'
     | '/dashboard/_layout/deadlines'
     | '/dashboard/_layout/documents'
     | '/dashboard/_layout/properties'
@@ -491,6 +503,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DashboardLayoutBppAccountsRouteImport
       parentRoute: typeof DashboardLayoutRoute
     }
+    '/dashboard/_layout/calendar': {
+      id: '/dashboard/_layout/calendar'
+      path: '/calendar'
+      fullPath: '/dashboard/calendar'
+      preLoaderRoute: typeof DashboardLayoutCalendarRouteImport
+      parentRoute: typeof DashboardLayoutRoute
+    }
     '/dashboard/_layout/deadlines': {
       id: '/dashboard/_layout/deadlines'
       path: '/deadlines'
@@ -532,6 +551,7 @@ declare module '@tanstack/react-router' {
 interface DashboardLayoutRouteChildren {
   DashboardLayoutBillingRoute: typeof DashboardLayoutBillingRoute
   DashboardLayoutBppAccountsRoute: typeof DashboardLayoutBppAccountsRoute
+  DashboardLayoutCalendarRoute: typeof DashboardLayoutCalendarRoute
   DashboardLayoutDeadlinesRoute: typeof DashboardLayoutDeadlinesRoute
   DashboardLayoutDocumentsRoute: typeof DashboardLayoutDocumentsRoute
   DashboardLayoutPropertiesRoute: typeof DashboardLayoutPropertiesRoute
@@ -543,6 +563,7 @@ interface DashboardLayoutRouteChildren {
 const DashboardLayoutRouteChildren: DashboardLayoutRouteChildren = {
   DashboardLayoutBillingRoute: DashboardLayoutBillingRoute,
   DashboardLayoutBppAccountsRoute: DashboardLayoutBppAccountsRoute,
+  DashboardLayoutCalendarRoute: DashboardLayoutCalendarRoute,
   DashboardLayoutDeadlinesRoute: DashboardLayoutDeadlinesRoute,
   DashboardLayoutDocumentsRoute: DashboardLayoutDocumentsRoute,
   DashboardLayoutPropertiesRoute: DashboardLayoutPropertiesRoute,
