@@ -1,4 +1,0 @@
-User-agent: *
-Allow: /
-
-Sitemap: https://dheeraj-corvusrf.github.io/CorvusRF/sitemap.xml

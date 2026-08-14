@@ -6,12 +6,12 @@ on:
   workflow_dispatch:
     inputs:
       site_base:
-        description: "Base path to build for (which URL this deploy targets)"
+        description: "Base path to build the CorvusPT app under (which URL this deploy targets)"
         type: choice
-        default: "/"
+        default: "/corvuspt/"
         options:
-          - "/" # corvusre.com (custom domain)
-          - "/CorvusRF/" # dheeraj-corvusrf.github.io/CorvusRF/ (project site)
+          - "/corvuspt/" # corvusre.com/corvuspt/ (custom domain, under the CorvusRE hub)
+          - "/CorvusRF/" # dheeraj-corvusrf.github.io/CorvusRF/ (old project site, pre-hub)
 
 permissions:
   contents: read
@@ -72,10 +72,11 @@ jobs:
 
       - run: npm run build
         env:
-          # Defaults to "/" (corvusre.com) on a normal push; a manual
-          # workflow_dispatch run can pick "/CorvusRF/" instead to rebuild
-          # for the old project-site URL — see vite.config.ts.
-          SITE_BASE: ${{ github.event.inputs.site_base || '/' }}
+          # Defaults to "/corvuspt/" (corvusre.com/corvuspt/, under the CorvusRE
+          # hub) on a normal push; a manual workflow_dispatch run can pick
+          # "/CorvusRF/" instead to rebuild for the old, hub-less project-site
+          # URL — see vite.config.ts.
+          SITE_BASE: ${{ github.event.inputs.site_base || '/corvuspt/' }}
           # Supabase's anon/publishable key is meant to be public (it ends up in the
           # client bundle regardless) — real access control comes from the Row Level
           # Security policies in supabase/schema.sql, not from keeping this secret.
@@ -84,7 +85,31 @@ jobs:
           # Web3Forms access keys are meant to be public/client-side by design.
           VITE_WEB3FORMS_ACCESS_KEY: 5a66f800-1264-49a2-9696-2839afd02485
 
+      # The CorvusRE hub (hub/) is a handful of plain static pages with no app
+      # logic — see hub/hub.css's own comment for why that's a deliberate
+      # simplification rather than a second framework build. It lives at the
+      # site root; the CorvusPT app (just built, at whatever path SITE_BASE
+      # pointed it to) gets copied in alongside it, so one artifact serves
+      # both. Skipped for the legacy "/CorvusRF/" project-site target, which
+      # predates the hub and has never had one.
+      - name: Assemble hub + app into one site
+        if: ${{ github.event.inputs.site_base != '/CorvusRF/' }}
+        run: |
+          mkdir -p site
+          cp -r hub/. site/
+          base="${{ github.event.inputs.site_base || '/corvuspt/' }}"
+          subdir="${base#/}"
+          subdir="${subdir%/}"
+          mkdir -p "site/$subdir"
+          cp -r dist/client/. "site/$subdir/"
+
       - uses: actions/upload-pages-artifact@v3
+        if: ${{ github.event.inputs.site_base != '/CorvusRF/' }}
+        with:
+          path: site
+
+      - uses: actions/upload-pages-artifact@v3
+        if: ${{ github.event.inputs.site_base == '/CorvusRF/' }}
         with:
           path: dist/client
 

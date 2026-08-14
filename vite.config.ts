@@ -26,6 +26,13 @@ export default defineConfig({
     // GitHub Pages only serves static files, so every route is prerendered to HTML at
     // build time instead of relying on a live SSR server.
     prerender: { enabled: true, crawlLinks: true },
+    // Vite's own `base` (above) only covers asset URLs — the prerender crawler reads
+    // this separate router.basepath to know what path prefix to request pages under
+    // (see @tanstack/start-plugin-core's prerender.js: `withBase(page.path, routerBasePath)`
+    // where routerBasePath comes from here, not from vite.base). Without this, a
+    // non-root SITE_BASE builds assets at the right path but prerendering itself 404s
+    // on every route.
+    router: { basepath: base },
   },
   // GitHub Pages can't run server code (Workers/Node); disable the Nitro server build
   // entirely so `vite build` emits a purely static site.
