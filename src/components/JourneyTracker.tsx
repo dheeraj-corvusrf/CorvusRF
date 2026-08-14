@@ -243,7 +243,7 @@ function JourneyBlock({
   return (
     <div className={first ? "mt-3" : "mt-8 border-t border-border pt-8"}>
       <div className="flex items-start justify-between flex-wrap gap-2">
-        <div>
+        <div className="min-w-0 flex-1">
           <h2 className="font-serif text-xl font-semibold">
             {allDone ? "All steps complete" : `Step ${currentStep + 1} of ${TOTAL_STEPS}: ${STEP_LABELS[currentStep]}`}
           </h2>
