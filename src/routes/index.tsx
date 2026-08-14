@@ -16,6 +16,7 @@ import { AnimatedSteps } from "@/components/AnimatedSteps";
 import { ScrollReveal } from "@/components/ScrollReveal";
 import { HouseIllustration } from "@/assets/illustrations/house";
 import { useFileDrop } from "@/hooks/use-file-drop";
+import { ICON_COLORS } from "@/lib/icon-colors";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -181,7 +182,7 @@ function Home() {
       <div className="mt-12 grid gap-8 md:grid-cols-3">
         {PROCESS_STEPS.map((step, i) => (
           <ScrollReveal key={step.title} delay={i * 150} className="text-center">
-            <span className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-accent/15 text-accent">
+            <span className={`mx-auto grid h-14 w-14 place-items-center rounded-full ${step.color.bg} ${step.color.text}`}>
               <step.icon className="h-6 w-6" />
             </span>
             <h3 className="mt-4 font-serif text-lg font-semibold">{step.title}</h3>
@@ -244,17 +245,20 @@ const PROCESS_STEPS = [
     title: "Tell us about your property",
     description: "Enter your address or upload a notice — AI matches your county's official record.",
     icon: HomeIcon,
+    color: ICON_COLORS[0], // blue — start
   },
   {
     title: "AI reviews your case",
     description:
       "Ten AI modules analyze value, comps, and evidence, while CorvusRF staff handle filing and the county.",
     icon: Sparkles,
+    color: ICON_COLORS[1], // violet — AI at work
   },
   {
     title: "Track your savings",
     description: "One dashboard for deadlines, payments, refunds, and savings — always up to date.",
     icon: TrendingDown,
+    color: ICON_COLORS[5], // green — done/positive
   },
 ] as const;
 
@@ -264,24 +268,28 @@ const SAVE_FEATURES = [
     description: "AI-backed evidence and CorvusRF staff filing to challenge an overvalued assessment.",
     icon: Scale,
     to: "/property-protest",
+    color: ICON_COLORS[0],
   },
   {
     title: "BPP Rendition",
     description: "Business personal property accounts tracked and rendered correctly, every year.",
     icon: Briefcase,
     to: "/bpp-rendition",
+    color: ICON_COLORS[1],
   },
   {
     title: "Tax Payment Tracking",
     description: "Know what's due, when, and what's already been paid — for every property you own.",
     icon: Receipt,
     to: "/tax-payment",
+    color: ICON_COLORS[2],
   },
   {
     title: "Property Tax Management",
     description: "One place for deadlines, documents, and savings across your whole portfolio.",
     icon: PiggyBank,
     to: "/property-tax-management",
+    color: ICON_COLORS[3],
   },
 ] as const;
 
@@ -295,7 +303,7 @@ function FeatureCard({
   return (
     <ScrollReveal delay={delay}>
       <Link to={feature.to} className="card-elev flex gap-4 p-5 hover:bg-secondary/40">
-        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-accent/15 text-accent">
+        <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-lg ${feature.color.bg} ${feature.color.text}`}>
           <feature.icon className="h-5 w-5" />
         </span>
         <div>
