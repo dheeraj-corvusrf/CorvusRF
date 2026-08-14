@@ -19,6 +19,7 @@ import { uploadDocument, listDocuments, getDocumentUrl, EVIDENCE_DOCUMENT_TYPE, 
 import { ProtestAuthorizationFlow } from "@/components/ProtestAuthorizationFlow";
 import { CaseDetailModal } from "@/components/CaseDetailModal";
 import { AnimatedNumber } from "@/components/AnimatedNumber";
+import { ValueHistorySection } from "@/components/ValueHistorySection";
 
 type ModuleAsyncState = {
   data: unknown;
@@ -136,6 +137,7 @@ function Report() {
         improvementValue: state.improvementValue,
         totalValue: state.totalValue,
         taxYear: state.taxYear,
+        valueHistory: state.valueHistory,
       });
       setResolvedProperty(property);
       return property;
@@ -352,6 +354,7 @@ function Report() {
             <Field label="Improvement" value={currency(state.improvementValue)} />
             <Field label="Total" value={currency(state.totalValue)} bold />
           </dl>
+          <ValueHistorySection history={state.valueHistory ?? []} />
         </div>
         <div className="card-elev overflow-hidden">
           <iframe
@@ -365,7 +368,7 @@ function Report() {
 
       {/* Analysis banner */}
       <section className="mt-6 card-elev p-5 flex flex-wrap items-center justify-between gap-3 bg-primary text-primary-foreground">
-        <div>
+        <div className="min-w-0 flex-1">
           <p className="text-sm text-primary-foreground/80">
             {analyzing ? "AI is analyzing your property..." : "AI analysis completed."}
           </p>
@@ -375,7 +378,7 @@ function Report() {
               : `Estimated tax savings this year: ${currency(estimated.savings)}`}
           </p>
         </div>
-        <div className="print:hidden text-right text-sm">
+        <div className="print:hidden text-right text-sm shrink-0">
           {hasFullAccess ? (
             <div className="text-primary-foreground/70 text-xs">AI Report subscription active</div>
           ) : (

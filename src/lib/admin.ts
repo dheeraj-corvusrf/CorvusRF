@@ -252,6 +252,10 @@ export function toPropertyRecordStub(record: AdminProtestRecord): PropertyRecord
     estimatedSavings: null,
     savingsBasis: null,
     createdAt: record.requestedAt,
+    // Not selected by listAllProtests() — the admin panel's case-progress view has
+    // no value-history chart, so this is never read there (same posture as the
+    // other admin-unrelated fields stubbed above).
+    valueHistory: null,
   };
 }
 

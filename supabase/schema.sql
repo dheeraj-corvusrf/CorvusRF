@@ -208,6 +208,16 @@ alter table public.properties add column if not exists savings_basis text;
 alter table public.properties drop constraint if exists properties_savings_basis_check;
 alter table public.properties add constraint properties_savings_basis_check check (savings_basis in ('comps', 'formula', 'ai', 'baseline'));
 
+-- Real CAD-sourced year-over-year value history (land/improvement/market/appraised
+-- per year — see src/lib/cad-lookup.ts's CadValueHistoryEntry), one JSON-stringified
+-- entry per array element (this schema has no jsonb columns; text[] matches the
+-- existing property_ai_scores.factors precedent for "a handful of structured values
+-- on one row"). Previously only ever lived in session storage during intake and was
+-- lost the moment the user left that screen — persisted so it survives to be shown
+-- again later, and so estimateSavings()'s value-trend adjustment (texas-tax-rates.ts)
+-- still has data to work with on a return visit, not just the first one.
+alter table public.properties add column if not exists value_history text[];
+
 -- Business Personal Property tax accounts — a distinct entity from real property
 -- (public.properties): a business can render BPP for a location without owning the
 -- real estate it sits in, so this isn't just a property with a type filter.

@@ -137,6 +137,7 @@ function DocumentReview() {
           protestDeadline: eff.protestDeadline ?? undefined,
           paymentDueDate: eff.paymentDueDate ?? undefined,
           taxAmountDue: eff.taxAmountDue ?? undefined,
+          valueHistory: next.valueHistory,
         });
         toast.success("Property added to your dashboard.");
 

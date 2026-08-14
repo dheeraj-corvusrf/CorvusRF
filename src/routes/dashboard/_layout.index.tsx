@@ -91,6 +91,7 @@ function Overview() {
       improvementValue: p.improvementValue ?? undefined,
       totalValue: p.totalValue ?? undefined,
       taxYear: p.taxYear ?? undefined,
+      valueHistory: p.valueHistory ?? undefined,
       confirmed: true,
     });
     nav({ to: "/ai-report" });
