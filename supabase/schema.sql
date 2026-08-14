@@ -163,6 +163,39 @@ create policy "Admins can delete any property"
   on public.properties for delete
   using (public.is_admin());
 
+-- Records who on staff did what in the admin panel (plan changes, admin-access
+-- grants, user creation/deletion, protest status/notes edits) and when — none of
+-- that was logged anywhere before. actor_id/target_user_id are nullable (set null
+-- on delete) so a row stays readable after the account it refers to is gone;
+-- actor_email/target_email are denormalized snapshots for the same reason. No
+-- jsonb (this schema has none) — detail is a short free-form description, matching
+-- how much structure every other "what happened" field here carries.
+create table if not exists public.admin_audit_log (
+  id uuid primary key default gen_random_uuid(),
+  actor_id uuid references auth.users (id) on delete set null,
+  actor_email text not null,
+  action text not null,
+  target_user_id uuid references auth.users (id) on delete set null,
+  target_email text,
+  detail text,
+  created_at timestamptz not null default now()
+);
+
+alter table public.admin_audit_log enable row level security;
+
+drop policy if exists "Admins can view the audit log" on public.admin_audit_log;
+create policy "Admins can view the audit log"
+  on public.admin_audit_log for select
+  using (public.is_admin());
+
+-- actor_id = auth.uid() (on top of is_admin()) so an admin can only ever log
+-- themselves as the actor, never write an entry attributing an action to a
+-- different admin.
+drop policy if exists "Admins can log their own actions" on public.admin_audit_log;
+create policy "Admins can log their own actions"
+  on public.admin_audit_log for insert
+  with check (public.is_admin() and actor_id = auth.uid());
+
 -- Stripe billing: the webhook (supabase/functions/stripe-webhook) writes plan and
 -- these two ids; the admin panel's manual plan dropdown still works unchanged since
 -- it edits the same `plan` column.

@@ -16,6 +16,7 @@ import {
   getCaseSummary,
   toProtestRecord,
   toPropertyRecordStub,
+  listAdminAuditLog,
   PLAN_OPTIONS,
   PROTEST_STATUS_OPTIONS,
   type AdminUserRecord,
@@ -23,6 +24,7 @@ import {
   type AdminProtestRecord,
   type AdminDocumentRecord,
   type CaseSummaryResult,
+  type AdminAuditEntry,
 } from "@/lib/admin";
 import type { ProtestRecord, ProtestStatus } from "@/lib/protests";
 import { listProperties, addProperty, deleteProperty, type PropertyRecord } from "@/lib/properties";
@@ -53,6 +55,9 @@ function AdminPanel() {
   const [expandedProtestId, setExpandedProtestId] = useState<string | null>(null);
   const [caseRecord, setCaseRecord] = useState<AdminProtestRecord | null>(null);
 
+  const [auditLog, setAuditLog] = useState<AdminAuditEntry[]>([]);
+  const [auditLogLoading, setAuditLogLoading] = useState(true);
+
   useEffect(() => {
     if (loading) return;
     if (!user) {
@@ -78,14 +83,28 @@ function AdminPanel() {
       .then(setProtests)
       .catch((err) => console.error(err))
       .finally(() => setProtestsLoading(false));
+    refreshAuditLog();
   }, [isAdmin]);
+
+  function refreshAuditLog() {
+    listAdminAuditLog()
+      .then(setAuditLog)
+      .catch((err) => console.error(err))
+      .finally(() => setAuditLogLoading(false));
+  }
 
   async function handleProtestStatusChange(protestId: string, status: ProtestStatus) {
     const prev = protests;
+    const record = protests.find((p) => p.id === protestId);
+    const requester = users.find((u) => u.id === record?.userId);
     setProtests((cur) => cur.map((p) => (p.id === protestId ? { ...p, status } : p)));
     try {
-      await updateProtestStatus(protestId, status);
+      await updateProtestStatus(protestId, status, {
+        propertyAddress: record?.propertyAddress,
+        requesterEmail: requester?.email,
+      });
       toast.success("Protest status updated.");
+      refreshAuditLog();
     } catch (err) {
       setProtests(prev);
       toast.error(err instanceof Error ? err.message : "Could not update protest status.");
@@ -93,8 +112,14 @@ function AdminPanel() {
   }
 
   async function handleProtestNotesChange(protestId: string, notes: string) {
+    const record = protests.find((p) => p.id === protestId);
+    const requester = users.find((u) => u.id === record?.userId);
     setProtests((cur) => cur.map((p) => (p.id === protestId ? { ...p, notes } : p)));
-    await updateProtestNotes(protestId, notes);
+    await updateProtestNotes(protestId, notes, {
+      propertyAddress: record?.propertyAddress,
+      requesterEmail: requester?.email,
+    });
+    refreshAuditLog();
   }
 
   // CaseProgress (reused from the customer dashboard) already made the write —
@@ -105,20 +130,27 @@ function AdminPanel() {
   }
 
   async function handlePlanChange(userId: string, plan: PlanValue) {
+    const target = users.find((u) => u.id === userId);
     setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, plan } : u)));
     try {
-      await updateUserPlan(userId, plan);
+      await updateUserPlan(userId, plan, {
+        targetEmail: target?.email,
+        previousPlan: target?.plan,
+      });
       toast.success("Plan updated.");
+      refreshAuditLog();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not update plan.");
     }
   }
 
   async function handleToggleAdmin(userId: string, makeAdmin: boolean) {
+    const target = users.find((u) => u.id === userId);
     setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, isAdmin: makeAdmin } : u)));
     try {
-      await updateUserAdminStatus(userId, makeAdmin);
+      await updateUserAdminStatus(userId, makeAdmin, { targetEmail: target?.email });
       toast.success(makeAdmin ? "User is now an admin." : "Admin access removed.");
+      refreshAuditLog();
     } catch (err) {
       setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, isAdmin: !makeAdmin } : u)));
       toast.error(err instanceof Error ? err.message : "Could not update admin status.");
@@ -137,6 +169,7 @@ function AdminPanel() {
       await deleteUserAccount(userId);
       setUsers((prev) => prev.filter((u) => u.id !== userId));
       toast.success("User deleted.");
+      refreshAuditLog();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not delete user.");
     }
@@ -150,7 +183,12 @@ function AdminPanel() {
       <h1 className="mt-2 font-serif text-3xl font-semibold">All Users</h1>
       <p className="text-muted-foreground">Manage every user, their properties, and their plan.</p>
 
-      <AddUserForm onCreated={(u) => setUsers((prev) => [u, ...prev])} />
+      <AddUserForm
+        onCreated={(u) => {
+          setUsers((prev) => [u, ...prev]);
+          refreshAuditLog();
+        }}
+      />
 
       <section className="mt-10">
         <h2 className="font-serif text-xl font-semibold">Protest Requests</h2>
@@ -158,30 +196,42 @@ function AdminPanel() {
           Real requests from users clicking "Request Protest Filing" on their dashboard. Update
           status as staff progress each one.
         </p>
-        <div className="mt-4 grid gap-3">
+        <div className="mt-4 grid gap-6">
           {protestsLoading ? (
             <PropertyRowSkeleton />
           ) : protests.length === 0 ? (
             <p className="text-sm text-muted-foreground">No protest requests yet.</p>
           ) : (
-            protests.map((p, i) => {
-              const requester = users.find((u) => u.id === p.userId);
-              return (
-                <ProtestRow
-                  key={p.id}
-                  record={p}
-                  requesterEmail={requester?.email ?? p.userId}
-                  expanded={expandedProtestId === p.id}
-                  onToggleExpand={() =>
-                    setExpandedProtestId(expandedProtestId === p.id ? null : p.id)
-                  }
-                  onStatusChange={(status) => handleProtestStatusChange(p.id, status)}
-                  onNotesChange={(notes) => handleProtestNotesChange(p.id, notes)}
-                  onOpenCase={() => setCaseRecord(p)}
-                  delayMs={Math.min(i * 40, 320)}
-                />
-              );
-            })
+            groupProtestsByYear(protests).map((group) => (
+              <div key={group.year ?? "unknown"}>
+                <h3 className="text-sm font-semibold text-muted-foreground">
+                  {group.year ? `Tax Year ${group.year}` : "Year not on file"}
+                  <span className="ml-2 font-normal">
+                    ({group.records.length} request{group.records.length === 1 ? "" : "s"})
+                  </span>
+                </h3>
+                <div className="mt-3 grid gap-3">
+                  {group.records.map((p, i) => {
+                    const requester = users.find((u) => u.id === p.userId);
+                    return (
+                      <ProtestRow
+                        key={p.id}
+                        record={p}
+                        requesterEmail={requester?.email ?? p.userId}
+                        expanded={expandedProtestId === p.id}
+                        onToggleExpand={() =>
+                          setExpandedProtestId(expandedProtestId === p.id ? null : p.id)
+                        }
+                        onStatusChange={(status) => handleProtestStatusChange(p.id, status)}
+                        onNotesChange={(notes) => handleProtestNotesChange(p.id, notes)}
+                        onOpenCase={() => setCaseRecord(p)}
+                        delayMs={Math.min(i * 40, 320)}
+                      />
+                    );
+                  })}
+                </div>
+              </div>
+            ))
           )}
         </div>
       </section>
@@ -213,6 +263,23 @@ function AdminPanel() {
         )}
       </div>
 
+      <section className="mt-10">
+        <h2 className="font-serif text-xl font-semibold">Activity Log</h2>
+        <p className="text-sm text-muted-foreground">
+          Who on staff did what — plan changes, admin access, invites, deletions, and protest edits.
+          Most recent 50.
+        </p>
+        <div className="mt-4 grid gap-2">
+          {auditLogLoading ? (
+            <PropertyRowSkeleton />
+          ) : auditLog.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No admin activity logged yet.</p>
+          ) : (
+            auditLog.map((entry) => <AuditLogRow key={entry.id} entry={entry} />)
+          )}
+        </div>
+      </section>
+
       {caseRecord && (
         <AdminCaseProgressModal
           userId={caseRecord.userId}
@@ -229,7 +296,6 @@ function AdminPanel() {
 function AddUserForm({ onCreated }: { onCreated: (u: AdminUserRecord) => void }) {
   const [open, setOpen] = useState(false);
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [phone, setPhone] = useState("");
@@ -241,19 +307,18 @@ function AddUserForm({ onCreated }: { onCreated: (u: AdminUserRecord) => void })
     setError(null);
     setSubmitting(true);
     try {
-      await createUserAccount({ email, password, firstName, lastName, phone });
+      await createUserAccount({ email, firstName, lastName, phone });
       const updated = await listAllUsers();
       const created = updated.find((u) => u.email === email);
       if (created) onCreated(created);
-      toast.success("User created.");
+      toast.success("Invite sent.");
       setOpen(false);
       setEmail("");
-      setPassword("");
       setFirstName("");
       setLastName("");
       setPhone("");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not create user.");
+      setError(err instanceof Error ? err.message : "Could not send the invite.");
     } finally {
       setSubmitting(false);
     }
@@ -262,7 +327,7 @@ function AddUserForm({ onCreated }: { onCreated: (u: AdminUserRecord) => void })
   if (!open) {
     return (
       <button onClick={() => setOpen(true)} className="btn-primary btn-primary-hover mt-6">
-        Add User
+        Invite User
       </button>
     );
   }
@@ -306,21 +371,14 @@ function AddUserForm({ onCreated }: { onCreated: (u: AdminUserRecord) => void })
           className="rounded-md border border-input bg-background px-3 py-2"
         />
       </label>
-      <label className="grid gap-1 text-sm">
-        <span className="font-medium">Password</span>
-        <input
-          required
-          type="password"
-          minLength={6}
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          className="rounded-md border border-input bg-background px-3 py-2"
-        />
-      </label>
+      <p className="sm:col-span-2 text-xs text-muted-foreground">
+        We'll email them a link to confirm their address and set their own password — you never
+        choose or see it.
+      </p>
       {error && <p className="sm:col-span-2 text-sm text-destructive">{error}</p>}
       <div className="sm:col-span-2 flex gap-2">
         <button disabled={submitting} className="btn-primary btn-primary-hover disabled:opacity-60">
-          {submitting ? "Creating…" : "Create User"}
+          {submitting ? "Sending…" : "Send Invite"}
         </button>
         <button type="button" onClick={() => setOpen(false)} className="btn-outline">
           Cancel
@@ -328,6 +386,30 @@ function AddUserForm({ onCreated }: { onCreated: (u: AdminUserRecord) => void })
       </div>
     </form>
   );
+}
+
+// Groups by the protest's own filing year (AdminProtestRecord.protestFilingYear —
+// see the field's doc comment in src/lib/admin.ts for why that's not the same as
+// the property's current tax_year), newest year first, with an "unknown" bucket
+// for pre-tax_year-column requests trailing at the end. Within a group, requests
+// stay in listAllProtests()'s own order (requested_at descending).
+function groupProtestsByYear(
+  protests: AdminProtestRecord[],
+): { year: number | null; records: AdminProtestRecord[] }[] {
+  const byYear = new Map<number | null, AdminProtestRecord[]>();
+  for (const p of protests) {
+    const year = p.protestFilingYear;
+    const bucket = byYear.get(year);
+    if (bucket) bucket.push(p);
+    else byYear.set(year, [p]);
+  }
+  return [...byYear.entries()]
+    .sort(([a], [b]) => {
+      if (a === null) return 1;
+      if (b === null) return -1;
+      return b - a;
+    })
+    .map(([year, records]) => ({ year, records }));
 }
 
 function ProtestRow({
@@ -749,6 +831,31 @@ function PropertyRowSkeleton() {
         <Skeleton className="h-3 w-32" />
       </div>
       <Skeleton className="h-3 w-10" />
+    </div>
+  );
+}
+
+const AUDIT_ACTION_LABELS: Record<string, string> = {
+  create_user: "Invited user",
+  delete_user: "Deleted user",
+  update_plan: "Changed plan",
+  update_admin_status: "Changed admin access",
+  update_protest_status: "Updated protest status",
+  update_protest_notes: "Updated protest notes",
+};
+
+function AuditLogRow({ entry }: { entry: AdminAuditEntry }) {
+  return (
+    <div className="flex items-start justify-between gap-2 rounded-md bg-secondary/40 px-3 py-2 text-sm">
+      <div className="min-w-0 flex-1">
+        <span className="font-medium">{AUDIT_ACTION_LABELS[entry.action] ?? entry.action}</span>
+        {entry.targetEmail && <span className="text-muted-foreground"> — {entry.targetEmail}</span>}
+        {entry.detail && <div className="text-xs text-muted-foreground">{entry.detail}</div>}
+      </div>
+      <div className="shrink-0 text-right text-xs text-muted-foreground">
+        <div>{entry.actorEmail}</div>
+        <div>{new Date(entry.createdAt).toLocaleString()}</div>
+      </div>
     </div>
   );
 }

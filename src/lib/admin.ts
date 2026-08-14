@@ -65,14 +65,97 @@ export async function listAllUsers(): Promise<AdminUserRecord[]> {
   return (data as ProfileRow[]).map(fromRow);
 }
 
-export async function updateUserPlan(userId: string, plan: PlanValue): Promise<void> {
-  const { error } = await supabase.from("profiles").update({ plan }).eq("id", userId);
-  if (error) throw error;
+export type AdminAuditEntry = {
+  id: string;
+  actorEmail: string;
+  action: string;
+  targetEmail: string | null;
+  detail: string | null;
+  createdAt: string;
+};
+
+type AdminAuditRow = {
+  id: string;
+  actor_email: string;
+  action: string;
+  target_email: string | null;
+  detail: string | null;
+  created_at: string;
+};
+
+// Best-effort: a logging failure shouldn't roll back or surface an error for an
+// admin action that itself already succeeded — see the try/catch below and the
+// matching posture in admin-create-user/admin-delete-user's own inserts.
+async function logAdminAction(input: {
+  action: string;
+  targetUserId?: string | null;
+  targetEmail?: string | null;
+  detail?: string | null;
+}): Promise<void> {
+  try {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return;
+    const { error } = await supabase.from("admin_audit_log").insert({
+      actor_id: user.id,
+      actor_email: user.email ?? "",
+      action: input.action,
+      target_user_id: input.targetUserId ?? null,
+      target_email: input.targetEmail ?? null,
+      detail: input.detail ?? null,
+    });
+    if (error) console.error("admin_audit_log insert failed:", error);
+  } catch (err) {
+    console.error("admin_audit_log insert failed:", err);
+  }
 }
 
-export async function updateUserAdminStatus(userId: string, isAdmin: boolean): Promise<void> {
+export async function listAdminAuditLog(limit = 50): Promise<AdminAuditEntry[]> {
+  const { data, error } = await supabase
+    .from("admin_audit_log")
+    .select("id, actor_email, action, target_email, detail, created_at")
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return (data as AdminAuditRow[]).map((row) => ({
+    id: row.id,
+    actorEmail: row.actor_email,
+    action: row.action,
+    targetEmail: row.target_email,
+    detail: row.detail,
+    createdAt: row.created_at,
+  }));
+}
+
+export async function updateUserPlan(
+  userId: string,
+  plan: PlanValue,
+  context?: { targetEmail?: string; previousPlan?: PlanValue },
+): Promise<void> {
+  const { error } = await supabase.from("profiles").update({ plan }).eq("id", userId);
+  if (error) throw error;
+  await logAdminAction({
+    action: "update_plan",
+    targetUserId: userId,
+    targetEmail: context?.targetEmail,
+    detail: context?.previousPlan ? `${context.previousPlan} → ${plan}` : `set to ${plan}`,
+  });
+}
+
+export async function updateUserAdminStatus(
+  userId: string,
+  isAdmin: boolean,
+  context?: { targetEmail?: string },
+): Promise<void> {
   const { error } = await supabase.from("profiles").update({ is_admin: isAdmin }).eq("id", userId);
   if (error) throw error;
+  await logAdminAction({
+    action: "update_admin_status",
+    targetUserId: userId,
+    targetEmail: context?.targetEmail,
+    detail: isAdmin ? "granted admin access" : "removed admin access",
+  });
 }
 
 export async function deleteUserAccount(userId: string): Promise<void> {
@@ -81,7 +164,6 @@ export async function deleteUserAccount(userId: string): Promise<void> {
 
 export async function createUserAccount(input: {
   email: string;
-  password: string;
   firstName: string;
   lastName: string;
   phone: string;
@@ -118,6 +200,13 @@ export type AdminProtestRecord = {
   improvementValue: number | null;
   taxYear: number | null;
   accountNumber: string | null;
+  // The tax year this specific protest was filed for (protests.tax_year), distinct
+  // from `taxYear` above (the property's current tax year). A property re-filed in
+  // multiple years (see "Re-file for {year}" on the dashboard) has one protest row
+  // per year, so grouping the admin queue by year needs this, not the property's
+  // single current value. Falls back to the property's tax year for protest rows
+  // created before this column existed and were never backfilled.
+  protestFilingYear: number | null;
   // Case-progress fields (see src/lib/protests.ts and protest-case.ts) — carried
   // here too so the admin panel can open the same CaseProgress workflow the
   // customer dashboard uses, without a second fetch.
@@ -149,6 +238,7 @@ type AdminProtestRow = {
   final_value: number | null;
   escalation_path: EscalationPath | null;
   closed_at: string | null;
+  tax_year: number | null;
   properties: {
     address: string;
     cad: string | null;
@@ -169,7 +259,7 @@ export async function listAllProtests(): Promise<AdminProtestRecord[]> {
   const { data, error } = await supabase
     .from("protests")
     .select(
-      "id, property_id, user_id, status, notes, requested_at, updated_at, original_value, settlement_offer_value, settlement_offer_received_at, hearing_date, arb_decision, arb_decision_date, final_value, escalation_path, closed_at, properties(address, cad, property_type, protest_deadline, total_value, land_value, improvement_value, tax_year, account_number)",
+      "id, property_id, user_id, status, notes, requested_at, updated_at, original_value, settlement_offer_value, settlement_offer_received_at, hearing_date, arb_decision, arb_decision_date, final_value, escalation_path, closed_at, tax_year, properties(address, cad, property_type, protest_deadline, total_value, land_value, improvement_value, tax_year, account_number)",
     )
     .order("requested_at", { ascending: false });
   if (error) throw error;
@@ -190,6 +280,7 @@ export async function listAllProtests(): Promise<AdminProtestRecord[]> {
     improvementValue: row.properties?.improvement_value ?? null,
     taxYear: row.properties?.tax_year ?? null,
     accountNumber: row.properties?.account_number ?? null,
+    protestFilingYear: row.tax_year ?? row.properties?.tax_year ?? null,
     originalValue: row.original_value,
     settlementOfferValue: row.settlement_offer_value,
     settlementOfferReceivedAt: row.settlement_offer_received_at,
@@ -224,12 +315,7 @@ export function toProtestRecord(record: AdminProtestRecord): ProtestRecord {
     finalValue: record.finalValue,
     escalationPath: record.escalationPath,
     closedAt: record.closedAt,
-    // Not selected by listAllProtests() (which joins properties.tax_year for
-    // display under this same field name — a different concept, the property's
-    // current tax year, not this specific protest's filing year). Stubbed like the
-    // other fields CaseProgress doesn't touch — the admin's CaseDetailModal has no
-    // re-filing UI, so this is never read there.
-    taxYear: null,
+    taxYear: record.protestFilingYear,
   };
 }
 
@@ -259,20 +345,38 @@ export function toPropertyRecordStub(record: AdminProtestRecord): PropertyRecord
   };
 }
 
-export async function updateProtestStatus(protestId: string, status: ProtestStatus): Promise<void> {
+export async function updateProtestStatus(
+  protestId: string,
+  status: ProtestStatus,
+  context?: { propertyAddress?: string | null; requesterEmail?: string },
+): Promise<void> {
   const { error } = await supabase
     .from("protests")
     .update({ status, updated_at: new Date().toISOString() })
     .eq("id", protestId);
   if (error) throw error;
+  await logAdminAction({
+    action: "update_protest_status",
+    targetEmail: context?.requesterEmail,
+    detail: `${context?.propertyAddress ?? "protest"}: status → ${status}`,
+  });
 }
 
-export async function updateProtestNotes(protestId: string, notes: string): Promise<void> {
+export async function updateProtestNotes(
+  protestId: string,
+  notes: string,
+  context?: { propertyAddress?: string | null; requesterEmail?: string },
+): Promise<void> {
   const { error } = await supabase
     .from("protests")
     .update({ notes, updated_at: new Date().toISOString() })
     .eq("id", protestId);
   if (error) throw error;
+  await logAdminAction({
+    action: "update_protest_notes",
+    targetEmail: context?.requesterEmail,
+    detail: `${context?.propertyAddress ?? "protest"}: notes updated`,
+  });
 }
 
 export type AdminDocumentRecord = {
