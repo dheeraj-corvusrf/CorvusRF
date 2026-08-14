@@ -42,12 +42,9 @@ jobs:
       # blocks the deploy, same as a failed build would.
       - run: npm run test
 
-      # E2E (Playwright, guest-only subset) — flows that need no sign-in and
-      # write no persistent Supabase rows, so they're safe to run against the
-      # real Supabase project on every push. Authenticated flows (protest
-      # authorization, Stripe checkout) live in e2e/authenticated and are run
-      # locally against a seeded test account for now — see
-      # e2e/authenticated/helpers.ts.
+      # E2E (Playwright, guest subset) — flows that need no sign-in and write
+      # no persistent Supabase rows, so they're safe to run against the real
+      # Supabase project on every push.
       - run: npx playwright install --with-deps chromium
 
       - run: npm run test:e2e
@@ -55,6 +52,23 @@ jobs:
           VITE_SUPABASE_URL: https://iotzuhuajbsxxuccuihn.supabase.co
           VITE_SUPABASE_ANON_KEY: sb_publishable_RpyqtM6EeGiT7qc3FyN5Iw_vm0aiuM3
           VITE_WEB3FORMS_ACCESS_KEY: 5a66f800-1264-49a2-9696-2839afd02485
+
+      # E2E (Playwright, authenticated subset) — protest authorization and the
+      # Stripe checkout redirect. Runs against a dedicated, permanent test
+      # account (crf-ci-e2e-test@example.com, not a real customer) whose
+      # credentials live in the E2E_TEST_EMAIL/E2E_TEST_PASSWORD repo secrets.
+      # protest-authorization.spec.ts deletes the protest row it creates every
+      # run (see e2e/authenticated/helpers.ts's cleanupLatestProtest), so the
+      # real admin queue staff work from never accumulates CI-seeded rows.
+      # checkout-redirect.spec.ts only creates a Stripe Checkout *session*
+      # against test-mode price IDs — it stops before any payment completes.
+      - run: npm run test:e2e:auth
+        env:
+          VITE_SUPABASE_URL: https://iotzuhuajbsxxuccuihn.supabase.co
+          VITE_SUPABASE_ANON_KEY: sb_publishable_RpyqtM6EeGiT7qc3FyN5Iw_vm0aiuM3
+          VITE_WEB3FORMS_ACCESS_KEY: 5a66f800-1264-49a2-9696-2839afd02485
+          E2E_TEST_EMAIL: ${{ secrets.E2E_TEST_EMAIL }}
+          E2E_TEST_PASSWORD: ${{ secrets.E2E_TEST_PASSWORD }}
 
       - run: npm run build
         env:

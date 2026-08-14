@@ -360,6 +360,15 @@ alter table public.protests add column if not exists closed_at timestamptz;
 -- by requested_at desc), so older rows without a year don't need one.
 alter table public.protests add column if not exists tax_year integer;
 
+-- No delete UI exists for protests today — this exists so the authenticated E2E
+-- suite (e2e/authenticated/protest-authorization.spec.ts, run in CI on every push
+-- to dev) can clean up the real protest row it creates each run, instead of
+-- leaving CI-seeded rows piling up in the real admin queue staff work from.
+drop policy if exists "Users can delete their own protests" on public.protests;
+create policy "Users can delete their own protests"
+  on public.protests for delete
+  using (auth.uid() = user_id);
+
 alter table public.protests drop constraint if exists protests_arb_decision_check;
 alter table public.protests add constraint protests_arb_decision_check
   check (arb_decision is null or arb_decision in ('approved', 'partial', 'denied'));

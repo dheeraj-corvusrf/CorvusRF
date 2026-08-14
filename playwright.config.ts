@@ -1,11 +1,11 @@
 import { defineConfig, devices } from "@playwright/test";
 
-// Only e2e/guest is wired into CI (see deploy.yml) — those specs need no
-// sign-in and write no persistent Supabase rows (intake state lives in
-// browser state until a user actually saves a property), so they're safe
-// to run against the real Supabase project on every push. e2e/authenticated
-// needs a seeded test account and is run locally/manually for now — see the
-// README note at the top of that folder.
+// Both e2e/guest and e2e/authenticated are wired into CI (see deploy.yml).
+// e2e/guest needs no sign-in and writes no persistent Supabase rows (intake
+// state lives in browser state until a user actually saves a property), so
+// it's safe to run against the real Supabase project on every push.
+// e2e/authenticated runs against a dedicated, permanent test account and
+// cleans up after itself — see e2e/authenticated/helpers.ts.
 export default defineConfig({
   testDir: "./e2e",
   fullyParallel: true,
