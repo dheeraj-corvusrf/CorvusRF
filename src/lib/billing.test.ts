@@ -63,12 +63,17 @@ describe("startCheckout", () => {
     window.location = originalLocation;
   });
 
-  it("calls create-checkout-session with the tier/quantity and redirects to the returned URL", async () => {
+  it("calls create-checkout-session with the tier/quantity/base-path-aware redirect paths and redirects to the returned URL", async () => {
     mockInvoke.mockResolvedValue({ url: "https://checkout.stripe.com/session/abc" });
 
     await startCheckout("owner_managed", 2);
 
-    expect(mockInvoke).toHaveBeenCalledWith("create-checkout-session", { tier: "owner_managed", quantity: 2 });
+    expect(mockInvoke).toHaveBeenCalledWith("create-checkout-session", {
+      tier: "owner_managed",
+      quantity: 2,
+      successPath: `${import.meta.env.BASE_URL}dashboard?checkout=success`,
+      cancelPath: `${import.meta.env.BASE_URL}pricing`,
+    });
     expect(window.location.href).toBe("https://checkout.stripe.com/session/abc");
   });
 
@@ -90,7 +95,9 @@ describe("openBillingPortal", () => {
 
     await openBillingPortal();
 
-    expect(mockInvoke).toHaveBeenCalledWith("create-billing-portal-session", {});
+    expect(mockInvoke).toHaveBeenCalledWith("create-billing-portal-session", {
+      returnPath: `${import.meta.env.BASE_URL}dashboard`,
+    });
     expect(window.location.href).toBe("https://billing.stripe.com/portal/abc");
   });
 });

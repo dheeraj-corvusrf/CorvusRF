@@ -18,7 +18,7 @@ Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   try {
-    const { email, firstName, lastName, phone } = await req.json();
+    const { email, firstName, lastName, phone, redirectPath } = await req.json();
     if (!email) {
       return new Response(JSON.stringify({ error: "email required" }), {
         status: 400,
@@ -66,14 +66,24 @@ Deno.serve(async (req: Request) => {
     // (rather than createUser with an admin-chosen password) sends Supabase's
     // built-in invite email with a one-time link — the new user sets their own
     // password, the admin never sees or picks it for them. redirectTo sends that
-    // link to /reset-password, which already handles "set a new password for
+    // link to reset-password, which already handles "set a new password for
     // whatever session this link just established" for both recovery and invite.
+    //
+    // redirectPath comes from the calling admin's own browser (via
+    // import.meta.env.BASE_URL, same pattern as billing.ts) since this edge
+    // function has no way to know the app's base path on its own — guessing/
+    // hardcoding it here is exactly how the Stripe redirect URLs went stale once
+    // already when the base path last changed.
     const origin = req.headers.get("origin") ?? Deno.env.get("SUPABASE_URL")!;
+    const safeRedirectPath =
+      typeof redirectPath === "string" && redirectPath.startsWith("/") && !redirectPath.startsWith("//")
+        ? redirectPath
+        : "/reset-password";
     const { data: created, error: createErr } = await adminClient.auth.admin.inviteUserByEmail(
       email,
       {
         data: { first_name: firstName, last_name: lastName, phone },
-        redirectTo: new URL("/reset-password", origin).toString(),
+        redirectTo: new URL(safeRedirectPath, origin).toString(),
       },
     );
     if (createErr) throw createErr;

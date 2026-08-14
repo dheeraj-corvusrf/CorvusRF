@@ -168,7 +168,10 @@ export async function createUserAccount(input: {
   lastName: string;
   phone: string;
 }): Promise<void> {
-  await invokeEdgeFunction("admin-create-user", input);
+  await invokeEdgeFunction("admin-create-user", {
+    ...input,
+    redirectPath: `${import.meta.env.BASE_URL}reset-password`,
+  });
 }
 
 export const PROTEST_STATUS_OPTIONS: { value: ProtestStatus; label: string }[] = [

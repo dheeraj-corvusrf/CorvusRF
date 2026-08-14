@@ -52,16 +52,28 @@ export async function startCheckout(
   tier: "owner_managed" | "corvusrf_managed",
   quantity: number,
 ): Promise<void> {
+  // Stripe redirects back to a path the edge function can't know on its own (it
+  // runs server-side, with no view of Vite's base path) — the client computes it
+  // via import.meta.env.BASE_URL, same pattern already used in
+  // forgot-password.tsx's redirectTo, and passes it along instead of the edge
+  // function guessing/hardcoding it (which is exactly how this one went stale
+  // pointing at a pre-custom-domain path).
+  const basePath = import.meta.env.BASE_URL;
   const { url } = await invokeEdgeFunction<{ url: string }>("create-checkout-session", {
     tier,
     quantity,
+    successPath: `${basePath}dashboard?checkout=success`,
+    cancelPath: `${basePath}pricing`,
   });
   if (!url) throw new Error("Stripe did not return a checkout URL. Please try again.");
   window.location.href = url;
 }
 
 export async function openBillingPortal(): Promise<void> {
-  const { url } = await invokeEdgeFunction<{ url: string }>("create-billing-portal-session", {});
+  const basePath = import.meta.env.BASE_URL;
+  const { url } = await invokeEdgeFunction<{ url: string }>("create-billing-portal-session", {
+    returnPath: `${basePath}dashboard`,
+  });
   if (!url) throw new Error("Stripe did not return a billing portal URL. Please try again.");
   window.location.href = url;
 }
