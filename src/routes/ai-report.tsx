@@ -20,6 +20,7 @@ import { ProtestAuthorizationFlow } from "@/components/ProtestAuthorizationFlow"
 import { CaseDetailModal } from "@/components/CaseDetailModal";
 import { AnimatedNumber } from "@/components/AnimatedNumber";
 import { ValueHistorySection } from "@/components/ValueHistorySection";
+import { Modal } from "@/components/Modal";
 
 type ModuleAsyncState = {
   data: unknown;
@@ -487,15 +488,7 @@ function Report() {
       {/* Preview modal */}
       {openModel && (
         <Modal onClose={() => setOpenId(null)}>
-          <div className="flex items-center justify-between">
-            <span className="badge-soft">{hasFullAccess ? "Unlocked" : "Free Preview"}</span>
-            <button
-              onClick={() => setOpenId(null)}
-              className="text-sm text-muted-foreground hover:text-foreground"
-            >
-              Close
-            </button>
-          </div>
+          <span className="badge-soft">{hasFullAccess ? "Unlocked" : "Free Preview"}</span>
           <h3 className="mt-2 font-serif text-2xl font-semibold">{openModel.title}</h3>
           <p className="text-muted-foreground">{openModel.question}</p>
           <ModulePreviewBody
@@ -593,9 +586,14 @@ function ModuleCard({
   return (
     <div className="card-elev p-5 flex flex-col">
       <div className="flex items-start justify-between gap-2">
-        <div>
-          <div className="text-xs text-muted-foreground">Module {m.n}</div>
-          <h3 className="font-semibold">{m.title}</h3>
+        <div className="flex items-start gap-3 min-w-0">
+          <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg ${m.color.bg} ${m.color.text}`}>
+            <m.icon className="h-4 w-4" />
+          </span>
+          <div className="min-w-0">
+            <div className="text-xs text-muted-foreground">Module {m.n}</div>
+            <h3 className="font-semibold">{m.title}</h3>
+          </div>
         </div>
         <StatusChip status={status} />
       </div>
@@ -1051,27 +1049,3 @@ function Field({ label, value, bold }: { label: string; value?: string; bold?: b
   );
 }
 
-function Modal({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
-  // Local duplicate of @/components/Modal (kept separate here since this one's
-  // content already renders its own inline "Close" button, unlike the shared
-  // component's icon-button header) — still needs the same scroll lock, since
-  // nothing else stops the page behind it from scrolling too.
-  useEffect(() => {
-    const previous = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = previous;
-    };
-  }, []);
-
-  return (
-    <div
-      className="fixed inset-0 z-50 grid place-items-center p-4 bg-primary/60 backdrop-blur-sm print:hidden"
-      onClick={onClose}
-    >
-      <div className="card-elev p-6 w-full max-w-lg" onClick={(e) => e.stopPropagation()}>
-        {children}
-      </div>
-    </div>
-  );
-}

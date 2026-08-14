@@ -34,11 +34,33 @@ export function Modal({
     };
   }, []);
 
+  // Real keyboard-dismiss path (previously the only way to close was mouse: the
+  // backdrop click below, or tabbing all the way to the X button) — Escape is the
+  // conventional, expected way to close any modal/dialog.
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+
   return createPortal(
+    // The backdrop itself is a deliberate exception to jsx-a11y's interactive-element
+    // rules: it's a purely decorative dismiss convenience for mouse users, not the
+    // only way to close this modal — real keyboard access is the Escape handler above
+    // plus the focusable Close button below, both of which work regardless of the
+    // backdrop. Adding a role/tabindex here would instead make the backdrop itself a
+    // confusing, meaningless stop in the tab order.
+    // eslint-disable-next-line jsx-a11y/no-static-element-interactions, jsx-a11y/click-events-have-key-events
     <div
-      className="fixed inset-0 z-50 grid place-items-center p-4 bg-primary/60 backdrop-blur-sm backdrop-fade-in"
+      className="fixed inset-0 z-50 grid place-items-center p-4 bg-primary/60 backdrop-blur-sm backdrop-fade-in print:hidden"
       onClick={onClose}
     >
+      {/* Stops a click inside the modal content from bubbling up to the backdrop's
+          onClose above — not a real interactive element, just propagation
+          management, hence the same justified exception. */}
+      {/* eslint-disable-next-line jsx-a11y/no-static-element-interactions, jsx-a11y/click-events-have-key-events */}
       <div
         className={`relative overflow-hidden card-elev ${wide ? "w-[75vw] max-w-[75vw]" : "w-full max-w-lg"}`}
         onClick={(e) => e.stopPropagation()}
