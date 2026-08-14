@@ -14,6 +14,7 @@ import { PortfolioTabs } from "@/components/PortfolioTabs";
 import { CaseDetailModal } from "@/components/CaseDetailModal";
 import { generateCasePrep } from "@/lib/protest-case";
 import { CopyButton } from "@/components/CopyButton";
+import { ImportPropertiesModal } from "@/components/ImportPropertiesModal";
 
 export const Route = createFileRoute("/dashboard/_layout/properties")({
   component: Properties,
@@ -44,6 +45,7 @@ function Properties() {
   const [healthScores, setHealthScores] = useState<Record<string, PropertyAiScore>>({});
   const [authorizingProperty, setAuthorizingProperty] = useState<PropertyRecord | null>(null);
   const [caseProperty, setCaseProperty] = useState<PropertyRecord | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
 
   useEffect(() => {
     if (!user) return;
@@ -107,10 +109,27 @@ function Properties() {
     <div>
       <div className="flex flex-wrap items-end justify-between gap-4">
         <h1 className="font-serif text-2xl font-semibold">My Properties</h1>
-        <Link to="/intake" onClick={() => resetIntake()} className="btn-primary btn-primary-hover">
-          Add another property
-        </Link>
+        <div className="flex gap-2">
+          <button type="button" onClick={() => setImportOpen(true)} className="btn-outline">
+            Import CSV
+          </button>
+          <Link
+            to="/intake"
+            onClick={() => resetIntake()}
+            className="btn-primary btn-primary-hover"
+          >
+            Add another property
+          </Link>
+        </div>
       </div>
+
+      {importOpen && user && (
+        <ImportPropertiesModal
+          userId={user.id}
+          onImported={(imported) => setProperties((prev) => [...imported, ...prev])}
+          onClose={() => setImportOpen(false)}
+        />
+      )}
 
       <div className="mt-4">
         <PortfolioTabs />
