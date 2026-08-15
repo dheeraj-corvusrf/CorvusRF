@@ -163,6 +163,39 @@ create policy "Admins can delete any property"
   on public.properties for delete
   using (public.is_admin());
 
+-- Records who on staff did what in the admin panel (plan changes, admin-access
+-- grants, user creation/deletion, protest status/notes edits) and when — none of
+-- that was logged anywhere before. actor_id/target_user_id are nullable (set null
+-- on delete) so a row stays readable after the account it refers to is gone;
+-- actor_email/target_email are denormalized snapshots for the same reason. No
+-- jsonb (this schema has none) — detail is a short free-form description, matching
+-- how much structure every other "what happened" field here carries.
+create table if not exists public.admin_audit_log (
+  id uuid primary key default gen_random_uuid(),
+  actor_id uuid references auth.users (id) on delete set null,
+  actor_email text not null,
+  action text not null,
+  target_user_id uuid references auth.users (id) on delete set null,
+  target_email text,
+  detail text,
+  created_at timestamptz not null default now()
+);
+
+alter table public.admin_audit_log enable row level security;
+
+drop policy if exists "Admins can view the audit log" on public.admin_audit_log;
+create policy "Admins can view the audit log"
+  on public.admin_audit_log for select
+  using (public.is_admin());
+
+-- actor_id = auth.uid() (on top of is_admin()) so an admin can only ever log
+-- themselves as the actor, never write an entry attributing an action to a
+-- different admin.
+drop policy if exists "Admins can log their own actions" on public.admin_audit_log;
+create policy "Admins can log their own actions"
+  on public.admin_audit_log for insert
+  with check (public.is_admin() and actor_id = auth.uid());
+
 -- Stripe billing: the webhook (supabase/functions/stripe-webhook) writes plan and
 -- these two ids; the admin panel's manual plan dropdown still works unchanged since
 -- it edits the same `plan` column.
@@ -207,6 +240,16 @@ alter table public.properties add column if not exists estimated_savings numeric
 alter table public.properties add column if not exists savings_basis text;
 alter table public.properties drop constraint if exists properties_savings_basis_check;
 alter table public.properties add constraint properties_savings_basis_check check (savings_basis in ('comps', 'formula', 'ai', 'baseline'));
+
+-- Real CAD-sourced year-over-year value history (land/improvement/market/appraised
+-- per year — see src/lib/cad-lookup.ts's CadValueHistoryEntry), one JSON-stringified
+-- entry per array element (this schema has no jsonb columns; text[] matches the
+-- existing property_ai_scores.factors precedent for "a handful of structured values
+-- on one row"). Previously only ever lived in session storage during intake and was
+-- lost the moment the user left that screen — persisted so it survives to be shown
+-- again later, and so estimateSavings()'s value-trend adjustment (texas-tax-rates.ts)
+-- still has data to work with on a return visit, not just the first one.
+alter table public.properties add column if not exists value_history text[];
 
 -- Business Personal Property tax accounts — a distinct entity from real property
 -- (public.properties): a business can render BPP for a location without owning the
@@ -316,6 +359,15 @@ alter table public.protests add column if not exists closed_at timestamptz;
 -- "the" protest for a property already resolves to the most recent row (ordered
 -- by requested_at desc), so older rows without a year don't need one.
 alter table public.protests add column if not exists tax_year integer;
+
+-- No delete UI exists for protests today — this exists so the authenticated E2E
+-- suite (e2e/authenticated/protest-authorization.spec.ts, run in CI on every push
+-- to dev) can clean up the real protest row it creates each run, instead of
+-- leaving CI-seeded rows piling up in the real admin queue staff work from.
+drop policy if exists "Users can delete their own protests" on public.protests;
+create policy "Users can delete their own protests"
+  on public.protests for delete
+  using (auth.uid() = user_id);
 
 alter table public.protests drop constraint if exists protests_arb_decision_check;
 alter table public.protests add constraint protests_arb_decision_check

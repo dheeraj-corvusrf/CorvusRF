@@ -21,6 +21,7 @@ import { useAuth } from "@/lib/auth";
 import { addProperty } from "@/lib/properties";
 import { uploadDocument } from "@/lib/documents";
 import { addTaxBill, recordRefund } from "@/lib/tax-bills";
+import { Modal } from "@/components/Modal";
 
 export const Route = createFileRoute("/document-review")({
   head: () => ({
@@ -137,6 +138,7 @@ function DocumentReview() {
           protestDeadline: eff.protestDeadline ?? undefined,
           paymentDueDate: eff.paymentDueDate ?? undefined,
           taxAmountDue: eff.taxAmountDue ?? undefined,
+          valueHistory: next.valueHistory,
         });
         toast.success("Property added to your dashboard.");
 
@@ -780,17 +782,8 @@ function AskModal({ onClose, ask }: { onClose: () => void; ask: (q: string) => P
   const [err, setErr] = useState<string | null>(null);
 
   return (
-    <div
-      className="fixed inset-0 z-50 grid place-items-center p-4 bg-primary/60 backdrop-blur-sm"
-      onClick={onClose}
-    >
-      <div className="card-elev p-6 w-full max-w-lg" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between">
-          <h3 className="font-serif text-xl font-semibold">Ask AI about this document</h3>
-          <button onClick={onClose} className="text-sm text-muted-foreground hover:text-foreground">
-            Close
-          </button>
-        </div>
+    <Modal onClose={onClose}>
+        <h3 className="font-serif text-xl font-semibold">Ask AI about this document</h3>
         <form
           onSubmit={async (e) => {
             e.preventDefault();
@@ -826,7 +819,6 @@ function AskModal({ onClose, ask }: { onClose: () => void; ask: (q: string) => P
         {a && (
           <div className="mt-4 rounded-md bg-secondary/60 p-3 text-sm whitespace-pre-wrap">{a}</div>
         )}
-      </div>
-    </div>
+    </Modal>
   );
 }

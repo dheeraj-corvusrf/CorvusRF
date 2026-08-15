@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 
 type Props = {
   value: string;
@@ -125,6 +125,7 @@ export function AddressAutocomplete({
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const listboxId = useId();
 
   useEffect(() => {
     return () => {
@@ -215,14 +216,21 @@ export function AddressAutocomplete({
         role="combobox"
         aria-expanded={open}
         aria-autocomplete="list"
+        aria-controls={listboxId}
         autoComplete="off"
       />
       {open && (
-        <ul className="absolute z-20 mt-1 w-full max-h-64 overflow-auto rounded-md border border-border bg-background text-sm text-foreground shadow-elev">
+        <ul
+          id={listboxId}
+          role="listbox"
+          className="absolute z-20 mt-1 w-full max-h-64 overflow-auto rounded-md border border-border bg-background text-sm text-foreground shadow-elev"
+        >
           {suggestions.map((s, i) => (
-            <li key={s.id}>
+            <li key={s.id} role="presentation">
               <button
                 type="button"
+                role="option"
+                aria-selected={i === activeIndex}
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => selectSuggestion(s)}
                 className={`block w-full px-4 py-2 text-left ${

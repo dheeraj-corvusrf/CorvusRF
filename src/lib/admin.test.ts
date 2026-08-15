@@ -19,6 +19,7 @@ function adminRecord(overrides: Partial<AdminProtestRecord> = {}): AdminProtestR
     improvementValue: 300000,
     taxYear: 2024,
     accountNumber: "ACC-1",
+    protestFilingYear: 2024,
     originalValue: 400000,
     settlementOfferValue: null,
     settlementOfferReceivedAt: null,
@@ -52,8 +53,14 @@ describe("toProtestRecord", () => {
       finalValue: null,
       escalationPath: null,
       closedAt: null,
-      taxYear: null,
+      taxYear: 2024,
     });
+  });
+
+  it("uses the protest's own filing year, not the property's current tax year", () => {
+    const record = adminRecord({ taxYear: 2026, protestFilingYear: 2024 });
+    const result = toProtestRecord(record);
+    expect(result.taxYear).toBe(2024);
   });
 });
 

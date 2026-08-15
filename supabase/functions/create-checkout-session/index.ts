@@ -19,13 +19,23 @@ Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   try {
-    const { tier, quantity } = (await req.json()) as { tier?: Tier; quantity?: number };
+    const { tier, quantity, successPath, cancelPath } = (await req.json()) as {
+      tier?: Tier;
+      quantity?: number;
+      successPath?: string;
+      cancelPath?: string;
+    };
     if (tier !== "owner_managed" && tier !== "corvusrf_managed") {
       return new Response(JSON.stringify({ error: "tier must be owner_managed or corvusrf_managed" }), {
         status: 400,
         headers: corsHeaders,
       });
     }
+    // Only ever appended to a server-validated origin below, never used as a whole
+    // URL — but requiring a leading "/" (not "//", which a browser would treat as
+    // protocol-relative) keeps this from being coaxed into pointing off-origin.
+    const safePath = (p: string | undefined, fallback: string) =>
+      p && p.startsWith("/") && !p.startsWith("//") ? p : fallback;
     const qty = Number.isInteger(quantity) && (quantity as number) > 0 ? (quantity as number) : 1;
 
     const secretKey = Deno.env.get("STRIPE_SECRET_KEY");
@@ -79,8 +89,8 @@ Deno.serve(async (req: Request) => {
       customer_email: profile?.stripe_customer_id ? undefined : (user.email ?? undefined),
       subscription_data: { metadata: { tier } },
       metadata: { tier },
-      success_url: `${origin}/CorvusRF/dashboard?checkout=success`,
-      cancel_url: `${origin}/CorvusRF/pricing`,
+      success_url: `${origin}${safePath(successPath, "/dashboard?checkout=success")}`,
+      cancel_url: `${origin}${safePath(cancelPath, "/pricing")}`,
     });
 
     if (!session.url) throw new Error("Stripe did not return a Checkout URL");

@@ -1,5 +1,16 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import {
+  Scale,
+  Briefcase,
+  Receipt,
+  CreditCard,
+  RefreshCcw,
+  FileText,
+  CalendarClock,
+  TrendingDown,
+} from "lucide-react";
 import { ScrollReveal } from "@/components/ScrollReveal";
+import { ICON_COLORS } from "@/lib/icon-colors";
 
 export const Route = createFileRoute("/property-tax-management")({
   head: () => ({
@@ -18,14 +29,14 @@ export const Route = createFileRoute("/property-tax-management")({
 });
 
 const CAPS = [
-  ["Real Property Protest", "AI comps, evidence, and CorvusRF-filed protest."],
-  ["BPP Rendition & Protest", "Business-type templates, asset categories, and depreciation."],
-  ["Tax Bill Tracking", "Every county bill, every account, one dashboard."],
-  ["Payment Tracking", "Never miss a payment or discount deadline."],
-  ["Refund Tracking", "Follow refund status from settlement to check."],
-  ["Evidence Library", "AI-extracted, tagged, and packaged for hearings."],
-  ["Deadline Engine", "County-aware deadlines with reminders and escalations."],
-  ["Annual Savings Report", "Year‑over‑year savings, ROI, and next-year strategy."],
+  { title: "Real Property Protest", description: "AI comps, evidence, and CorvusRF-filed protest.", icon: Scale },
+  { title: "BPP Rendition & Protest", description: "Business-type templates, asset categories, and depreciation.", icon: Briefcase },
+  { title: "Tax Bill Tracking", description: "Every county bill, every account, one dashboard.", icon: Receipt },
+  { title: "Payment Tracking", description: "Never miss a payment or discount deadline.", icon: CreditCard },
+  { title: "Refund Tracking", description: "Follow refund status from settlement to check.", icon: RefreshCcw },
+  { title: "Evidence Library", description: "AI-extracted, tagged, and packaged for hearings.", icon: FileText },
+  { title: "Deadline Engine", description: "County-aware deadlines with reminders and escalations.", icon: CalendarClock },
+  { title: "Annual Savings Report", description: "Year‑over‑year savings, ROI, and next-year strategy.", icon: TrendingDown },
 ];
 
 function Page() {
@@ -47,19 +58,20 @@ function Page() {
 
       <div className="container-page pb-16">
         <div className="mt-10 grid gap-5 md:grid-cols-2 lg:grid-cols-4">
-          {CAPS.map(([t, d], i) => (
-            <ScrollReveal key={t} delay={i * 60}>
-              <div className="card-elev p-5 h-full transition-all hover:-translate-y-0.5 hover:shadow-elev">
-                <div className="h-9 w-9 rounded-md bg-accent/20 text-accent flex items-center justify-center">
-                  <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M5 13l4 4L19 7" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
+          {CAPS.map((cap, i) => {
+            const color = ICON_COLORS[i % ICON_COLORS.length];
+            return (
+              <ScrollReveal key={cap.title} delay={i * 60}>
+                <div className="card-elev p-5 h-full transition-all hover:-translate-y-0.5 hover:shadow-elev">
+                  <div className={`h-9 w-9 rounded-md flex items-center justify-center ${color.bg} ${color.text}`}>
+                    <cap.icon className="h-5 w-5" />
+                  </div>
+                  <h3 className="mt-3 font-semibold">{cap.title}</h3>
+                  <p className="mt-1 text-sm text-muted-foreground">{cap.description}</p>
                 </div>
-                <h3 className="mt-3 font-semibold">{t}</h3>
-                <p className="mt-1 text-sm text-muted-foreground">{d}</p>
-              </div>
-            </ScrollReveal>
-          ))}
+              </ScrollReveal>
+            );
+          })}
         </div>
 
         <div className="mt-12 flex flex-wrap gap-3">

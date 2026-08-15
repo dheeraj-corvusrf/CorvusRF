@@ -19,6 +19,8 @@ import { uploadDocument, listDocuments, getDocumentUrl, EVIDENCE_DOCUMENT_TYPE, 
 import { ProtestAuthorizationFlow } from "@/components/ProtestAuthorizationFlow";
 import { CaseDetailModal } from "@/components/CaseDetailModal";
 import { AnimatedNumber } from "@/components/AnimatedNumber";
+import { ValueHistorySection } from "@/components/ValueHistorySection";
+import { Modal } from "@/components/Modal";
 
 type ModuleAsyncState = {
   data: unknown;
@@ -136,6 +138,7 @@ function Report() {
         improvementValue: state.improvementValue,
         totalValue: state.totalValue,
         taxYear: state.taxYear,
+        valueHistory: state.valueHistory,
       });
       setResolvedProperty(property);
       return property;
@@ -352,6 +355,7 @@ function Report() {
             <Field label="Improvement" value={currency(state.improvementValue)} />
             <Field label="Total" value={currency(state.totalValue)} bold />
           </dl>
+          <ValueHistorySection history={state.valueHistory ?? []} />
         </div>
         <div className="card-elev overflow-hidden">
           <iframe
@@ -365,7 +369,7 @@ function Report() {
 
       {/* Analysis banner */}
       <section className="mt-6 card-elev p-5 flex flex-wrap items-center justify-between gap-3 bg-primary text-primary-foreground">
-        <div>
+        <div className="min-w-0 flex-1">
           <p className="text-sm text-primary-foreground/80">
             {analyzing ? "AI is analyzing your property..." : "AI analysis completed."}
           </p>
@@ -375,7 +379,7 @@ function Report() {
               : `Estimated tax savings this year: ${currency(estimated.savings)}`}
           </p>
         </div>
-        <div className="print:hidden text-right text-sm">
+        <div className="print:hidden text-right text-sm shrink-0">
           {hasFullAccess ? (
             <div className="text-primary-foreground/70 text-xs">AI Report subscription active</div>
           ) : (
@@ -484,15 +488,7 @@ function Report() {
       {/* Preview modal */}
       {openModel && (
         <Modal onClose={() => setOpenId(null)}>
-          <div className="flex items-center justify-between">
-            <span className="badge-soft">{hasFullAccess ? "Unlocked" : "Free Preview"}</span>
-            <button
-              onClick={() => setOpenId(null)}
-              className="text-sm text-muted-foreground hover:text-foreground"
-            >
-              Close
-            </button>
-          </div>
+          <span className="badge-soft">{hasFullAccess ? "Unlocked" : "Free Preview"}</span>
           <h3 className="mt-2 font-serif text-2xl font-semibold">{openModel.title}</h3>
           <p className="text-muted-foreground">{openModel.question}</p>
           <ModulePreviewBody
@@ -590,9 +586,14 @@ function ModuleCard({
   return (
     <div className="card-elev p-5 flex flex-col">
       <div className="flex items-start justify-between gap-2">
-        <div>
-          <div className="text-xs text-muted-foreground">Module {m.n}</div>
-          <h3 className="font-semibold">{m.title}</h3>
+        <div className="flex items-start gap-3 min-w-0">
+          <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg ${m.color.bg} ${m.color.text}`}>
+            <m.icon className="h-4 w-4" />
+          </span>
+          <div className="min-w-0">
+            <div className="text-xs text-muted-foreground">Module {m.n}</div>
+            <h3 className="font-semibold">{m.title}</h3>
+          </div>
         </div>
         <StatusChip status={status} />
       </div>
@@ -1048,15 +1049,3 @@ function Field({ label, value, bold }: { label: string; value?: string; bold?: b
   );
 }
 
-function Modal({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
-  return (
-    <div
-      className="fixed inset-0 z-50 grid place-items-center p-4 bg-primary/60 backdrop-blur-sm print:hidden"
-      onClick={onClose}
-    >
-      <div className="card-elev p-6 w-full max-w-lg" onClick={(e) => e.stopPropagation()}>
-        {children}
-      </div>
-    </div>
-  );
-}

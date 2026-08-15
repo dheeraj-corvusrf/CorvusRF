@@ -68,8 +68,25 @@ Deno.serve(async (req: Request) => {
       });
     }
 
+    // Captured before deleting — target_email in the audit log needs to survive
+    // the row it's describing being gone a moment later.
+    const { data: targetProfile } = await adminClient
+      .from("profiles")
+      .select("email")
+      .eq("id", userId)
+      .maybeSingle();
+
     const { error: deleteErr } = await adminClient.auth.admin.deleteUser(userId);
     if (deleteErr) throw deleteErr;
+
+    const { error: auditErr } = await adminClient.from("admin_audit_log").insert({
+      actor_id: user.id,
+      actor_email: user.email ?? "",
+      action: "delete_user",
+      target_user_id: null,
+      target_email: targetProfile?.email ?? null,
+    });
+    if (auditErr) console.error("admin_audit_log insert failed:", auditErr);
 
     return new Response(JSON.stringify({ ok: true }), { status: 200, headers: corsHeaders });
   } catch (err) {

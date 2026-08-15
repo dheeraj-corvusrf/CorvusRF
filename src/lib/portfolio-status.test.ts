@@ -22,6 +22,7 @@ function property(overrides: Partial<PropertyRecord> = {}): PropertyRecord {
     estimatedSavings: null,
     savingsBasis: null,
     createdAt: "2024-01-01T00:00:00Z",
+    valueHistory: null,
     ...overrides,
   };
 }

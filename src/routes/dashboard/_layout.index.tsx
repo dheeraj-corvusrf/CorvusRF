@@ -1,7 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Plus, Briefcase, Upload, Sparkles, ArrowUpRight, Trash2, AlertTriangle } from "lucide-react";
+import { Plus, Briefcase, Upload, Sparkles, ArrowUpRight, Trash2, AlertTriangle, Building2, FileText, Scale, TrendingDown, type LucideIcon } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Cell, LabelList, ResponsiveContainer, PieChart, Pie } from "recharts";
 import { useAuth } from "@/lib/auth";
 import { currency, resetIntake, classifyAndStoreDocument, updateIntake } from "@/lib/intake-store";
@@ -19,6 +19,7 @@ import { getDeadlineNudge } from "@/lib/deadline-nudge";
 import { getHearingNudge } from "@/lib/hearing-nudge";
 import { AnimatedNumber } from "@/components/AnimatedNumber";
 import { useFileDrop } from "@/hooks/use-file-drop";
+import { ICON_COLORS } from "@/lib/icon-colors";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 
 export const Route = createFileRoute("/dashboard/_layout/")({
@@ -91,6 +92,7 @@ function Overview() {
       improvementValue: p.improvementValue ?? undefined,
       totalValue: p.totalValue ?? undefined,
       taxYear: p.taxYear ?? undefined,
+      valueHistory: p.valueHistory ?? undefined,
       confirmed: true,
     });
     nav({ to: "/ai-report" });
@@ -322,7 +324,7 @@ function Overview() {
           onClick={() => resetIntake()}
           className="card-elev p-4 transition-all hover:-translate-y-0.5 hover:bg-secondary/40 hover:shadow-elev"
         >
-          <span className="grid h-9 w-9 place-items-center rounded-lg bg-accent/15 text-accent">
+          <span className={`grid h-9 w-9 place-items-center rounded-lg ${ICON_COLORS[0].bg} ${ICON_COLORS[0].text}`}>
             <Plus className="h-4 w-4" />
           </span>
           <div className="mt-3 flex items-center gap-1 font-medium">
@@ -338,7 +340,7 @@ function Overview() {
           className="card-elev p-4 transition-all hover:-translate-y-0.5 hover:bg-secondary/40 hover:shadow-elev"
           style={{ animationDelay: "60ms" }}
         >
-          <span className="grid h-9 w-9 place-items-center rounded-lg bg-accent/15 text-accent">
+          <span className={`grid h-9 w-9 place-items-center rounded-lg ${ICON_COLORS[1].bg} ${ICON_COLORS[1].text}`}>
             <Briefcase className="h-4 w-4" />
           </span>
           <div className="mt-3 flex items-center gap-1 font-medium">
@@ -354,7 +356,7 @@ function Overview() {
           style={{ animationDelay: "120ms" }}
           {...noticeDropHandlers}
         >
-          <span className="grid h-9 w-9 place-items-center rounded-lg bg-accent/15 text-accent">
+          <span className={`grid h-9 w-9 place-items-center rounded-lg ${ICON_COLORS[2].bg} ${ICON_COLORS[2].text}`}>
             <Upload className="h-4 w-4" />
           </span>
           <div className="mt-3 font-medium">
@@ -380,7 +382,7 @@ function Overview() {
           className="card-elev p-4 transition-all hover:-translate-y-0.5 hover:shadow-elev"
           style={{ animationDelay: "180ms" }}
         >
-          <span className="grid h-9 w-9 place-items-center rounded-lg bg-accent/15 text-accent">
+          <span className={`grid h-9 w-9 place-items-center rounded-lg ${ICON_COLORS[4].bg} ${ICON_COLORS[4].text}`}>
             <Sparkles className="h-4 w-4" />
           </span>
           <div className="mt-3 font-medium">Ask AI</div>
@@ -396,11 +398,11 @@ function Overview() {
 
       {/* Stats */}
       <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-5">
-        <StatCard label="Properties" value={loaded ? properties.length : null} to="/dashboard/properties" delayMs={0} />
-        <StatCard label="BPP Accounts" value={loaded ? bppAccounts.length : null} to="/dashboard/bpp-accounts" delayMs={40} />
-        <StatCard label="Documents" value={loaded ? documents.length : null} to="/dashboard/documents" delayMs={80} />
-        <StatCard label="Cases" value={loaded ? protests.length : null} to="/dashboard/properties" delayMs={120} />
-        <StatCard label="Est. Savings" value={loaded ? estimatedSavings : null} format={currency} delayMs={160} />
+        <StatCard label="Properties" value={loaded ? properties.length : null} to="/dashboard/properties" delayMs={0} icon={Building2} color={ICON_COLORS[0]} />
+        <StatCard label="BPP Accounts" value={loaded ? bppAccounts.length : null} to="/dashboard/bpp-accounts" delayMs={40} icon={Briefcase} color={ICON_COLORS[1]} />
+        <StatCard label="Documents" value={loaded ? documents.length : null} to="/dashboard/documents" delayMs={80} icon={FileText} color={ICON_COLORS[2]} />
+        <StatCard label="Cases" value={loaded ? protests.length : null} to="/dashboard/properties" delayMs={120} icon={Scale} color={ICON_COLORS[4]} />
+        <StatCard label="Est. Savings" value={loaded ? estimatedSavings : null} format={currency} delayMs={160} icon={TrendingDown} color={ICON_COLORS[5]} />
       </div>
 
       {properties.length > 0 && (
@@ -498,16 +500,23 @@ function StatCard({
   to,
   format,
   delayMs = 0,
+  icon: Icon,
+  color = ICON_COLORS[0],
 }: {
   label: string;
   value: number | null;
   to?: "/dashboard/properties" | "/dashboard/bpp-accounts" | "/dashboard/documents";
   format?: (n: number) => string;
   delayMs?: number;
+  icon: LucideIcon;
+  color?: (typeof ICON_COLORS)[number];
 }) {
   const content = (
     <>
-      <div className="text-xs text-muted-foreground">{label}</div>
+      <span className={`grid h-8 w-8 place-items-center rounded-lg ${color.bg} ${color.text}`}>
+        <Icon className="h-4 w-4" />
+      </span>
+      <div className="mt-2 text-xs text-muted-foreground">{label}</div>
       <div className="mt-1 font-serif text-2xl font-semibold">
         {value === null ? "…" : <AnimatedNumber value={value} format={format} />}
       </div>

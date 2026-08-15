@@ -234,7 +234,8 @@ function Page() {
         </div>
       )}
 
-      <div className="mt-6 grid gap-5 md:grid-cols-3">
+      <div className={`mt-6 grid gap-5 ${alreadySubscribed ? "md:grid-cols-2" : "md:grid-cols-3"}`}>
+        {!alreadySubscribed && (
         <ScrollReveal>
         <div className="card-elev p-6 flex flex-col h-full transition-all hover:-translate-y-0.5 hover:shadow-elev">
           <div className="badge-soft self-start">No account required</div>
@@ -262,13 +263,16 @@ function Page() {
           </div>
         </div>
         </ScrollReveal>
+        )}
 
-        {PAID_PLANS.map((p, i) => (
+        {PAID_PLANS.map((p, i) => {
+          const isWhiteGlove = p.tier === "corvusrf_managed";
+          return (
           <ScrollReveal key={p.tier} delay={(i + 1) * 100}>
           <div
-            className={`card-elev p-6 flex flex-col h-full transition-all hover:-translate-y-0.5 hover:shadow-elev ${p.highlight ? "ring-2 ring-accent" : ""}`}
+            className={`card-elev p-6 flex flex-col h-full transition-all hover:-translate-y-0.5 hover:shadow-elev ${p.highlight ? "ring-2 ring-accent" : isWhiteGlove ? "ring-2 ring-warning/60" : ""}`}
           >
-            <div className="badge-soft self-start">{p.tag}</div>
+            <div className={isWhiteGlove ? "badge-soft-warning self-start" : "badge-soft self-start"}>{p.tag}</div>
             <h3 className="mt-3 font-serif text-2xl">{p.name}</h3>
             <div className="mt-2 flex items-baseline gap-1">
               <span className="text-4xl font-semibold">{p.price}</span>
@@ -277,7 +281,7 @@ function Page() {
             <ul className="mt-4 space-y-2 text-sm">
               {p.features.map((f) => (
                 <li key={f} className="flex gap-2">
-                  <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-accent" />
+                  <span className={`mt-1.5 h-1.5 w-1.5 rounded-full ${isWhiteGlove ? "bg-warning" : "bg-accent"}`} />
                   {f}
                 </li>
               ))}
@@ -337,7 +341,8 @@ function Page() {
             </div>
           </div>
           </ScrollReveal>
-        ))}
+          );
+        })}
       </div>
       </div>
     </div>

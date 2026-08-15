@@ -13,7 +13,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test e2e/guest",
-    "test:e2e:auth": "playwright test e2e/authenticated"
+    "test:e2e:auth": "playwright test e2e/authenticated --workers=1"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
@@ -84,6 +84,7 @@
     "@vitejs/plugin-react": "^5.2.0",
     "eslint": "^9.32.0",
     "eslint-config-prettier": "^10.1.1",
+    "eslint-plugin-jsx-a11y": "^6.10.2",
     "eslint-plugin-prettier": "^5.2.6",
     "eslint-plugin-react-hooks": "^5.2.0",
     "eslint-plugin-react-refresh": "^0.4.20",

@@ -1,3 +1,18 @@
+import {
+  Activity,
+  Target,
+  BarChart3,
+  MapPin,
+  Wrench,
+  Building2,
+  DollarSign,
+  FileText,
+  TrendingDown,
+  Award,
+  type LucideIcon,
+} from "lucide-react";
+import { ICON_COLORS, type IconColor } from "./icon-colors";
+
 export type Module = {
   id: string;
   n: number;
@@ -6,6 +21,8 @@ export type Module = {
   status: "Analyzing" | "Completed" | "Additional Data Needed";
   teaser: string;
   requiresUserData?: boolean;
+  icon: LucideIcon;
+  color: IconColor;
 };
 
 export const MODULES: Module[] = [
@@ -16,6 +33,8 @@ export const MODULES: Module[] = [
     question: "Should I protest my property?",
     status: "Completed",
     teaser: "AI-generated protest opportunity score based on your property's official CAD valuation record.",
+    icon: Activity,
+    color: ICON_COLORS[0],
   },
   {
     id: "strategy",
@@ -24,6 +43,8 @@ export const MODULES: Module[] = [
     question: "What is the best strategy to reduce my property taxes?",
     status: "Completed",
     teaser: "AI-recommended approach — market value, unequal appraisal, or condition-based reduction — for your CAD record.",
+    icon: Target,
+    color: ICON_COLORS[1],
   },
   {
     id: "comps",
@@ -32,6 +53,8 @@ export const MODULES: Module[] = [
     question: "How does my property compare with similar nearby commercial properties?",
     status: "Completed",
     teaser: "AI guidance on what comparable-sale and equity evidence to gather for this property type and county.",
+    icon: BarChart3,
+    color: ICON_COLORS[2],
   },
   {
     id: "site",
@@ -40,6 +63,8 @@ export const MODULES: Module[] = [
     question: "Are there land or site-related issues that could support a lower valuation?",
     status: "Completed",
     teaser: "AI checklist of site factors — access, drainage, easements — worth documenting for this property type.",
+    icon: MapPin,
+    color: ICON_COLORS[3],
   },
   {
     id: "improvement",
@@ -48,6 +73,8 @@ export const MODULES: Module[] = [
     question: "Is the building being valued fairly based on its age and condition?",
     status: "Completed",
     teaser: "AI checklist of condition and functional-obsolescence factors worth documenting for this property.",
+    icon: Wrench,
+    color: ICON_COLORS[4],
   },
   {
     id: "zoning",
@@ -56,6 +83,8 @@ export const MODULES: Module[] = [
     question: "Is the property being assessed under the correct zoning and classification?",
     status: "Completed",
     teaser: "AI assessment of whether your CAD classification appears consistent with the stated property type.",
+    icon: Building2,
+    color: ICON_COLORS[5],
   },
   {
     id: "income",
@@ -65,6 +94,8 @@ export const MODULES: Module[] = [
     status: "Additional Data Needed",
     teaser: "Requires P&L, rent roll, or operating statement to complete.",
     requiresUserData: true,
+    icon: DollarSign,
+    color: ICON_COLORS[6],
   },
   {
     id: "evidence",
@@ -73,6 +104,8 @@ export const MODULES: Module[] = [
     question: "What evidence may provide the strongest support for a protest?",
     status: "Completed",
     teaser: "AI-prioritized evidence checklist for your protest packet.",
+    icon: FileText,
+    color: ICON_COLORS[0],
   },
   {
     id: "savings",
@@ -81,6 +114,8 @@ export const MODULES: Module[] = [
     question: "How much could I potentially save, and is filing a protest worthwhile?",
     status: "Completed",
     teaser: "Modeled from real comparable properties or published Texas protest-outcome data, at your county's real effective tax rate — not an AI guess.",
+    icon: TrendingDown,
+    color: ICON_COLORS[1],
   },
   {
     id: "executive",
@@ -89,5 +124,7 @@ export const MODULES: Module[] = [
     question: "What is the final AI recommendation and what should I do next?",
     status: "Completed",
     teaser: "AI executive summary with a recommended next step, synthesized from the other modules.",
+    icon: Award,
+    color: ICON_COLORS[2],
   },
 ];
