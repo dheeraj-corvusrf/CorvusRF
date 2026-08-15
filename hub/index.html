@@ -88,13 +88,23 @@
     </svg>
 
     <section class="hero">
+      <div class="hero-band" aria-hidden="true"></div>
       <div class="container-page">
         <span class="badge-soft">
           <span style="height:0.375rem;width:0.375rem;border-radius:999px;background:var(--accent);display:inline-block"></span>
           Corvus Real Estate
         </span>
-        <h1>One home for every Corvus product.</h1>
-        <p>Real estate and finance, built product by product. Pick a section below to get started.</p>
+        <h1>Property Tax. Real Estate. Finance.</h1>
+        <p>Every Corvus product, one home. Search a product below, or pick a section to get started.</p>
+        <form class="hero-search" role="search" onsubmit="return corvusHubSearch(event)">
+          <label for="hub-search" class="sr-only">Search Corvus products</label>
+          <input id="hub-search" type="text" placeholder="Search CorvusPT, CorvusBSL, CorvusD&amp;P…" autocomplete="off" />
+          <button type="submit" aria-label="Search">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" />
+            </svg>
+          </button>
+        </form>
       </div>
     </section>
 
@@ -107,9 +117,9 @@
       </div>
     </section>
 
-    <section class="container-page">
+    <section class="container-page" id="sections">
       <div class="grid-sections">
-        <a class="card" href="/corvuspt/">
+        <a class="card" href="/corvuspt/" data-search="corvuspt property tax protest bpp">
           <div class="row top">
             <span class="icon-circle icon-accent" aria-hidden="true">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -129,7 +139,7 @@
           <span class="btn-primary" style="margin-top:0.5rem;width:fit-content">Open CorvusPT</span>
         </a>
 
-        <a class="card" href="/corvusbsl/">
+        <a class="card" href="/corvusbsl/" data-search="corvusbsl buy sell lease bsl">
           <div class="row top">
             <span class="icon-circle icon-violet" aria-hidden="true">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -143,7 +153,7 @@
           <p>Buy, Sell, Lease.</p>
         </a>
 
-        <a class="card" href="/corvusdp/">
+        <a class="card" href="/corvusdp/" data-search="corvusd&amp;p d&amp;p dp">
           <div class="row top">
             <span class="icon-circle icon-teal" aria-hidden="true">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -156,7 +166,7 @@
           <p>Details coming soon.</p>
         </a>
 
-        <a class="card" href="/corvusco/">
+        <a class="card" href="/corvusco/" data-search="corvusco co">
           <div class="row top">
             <span class="icon-circle icon-pink" aria-hidden="true">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -169,7 +179,7 @@
           <p>Details coming soon.</p>
         </a>
 
-        <a class="card" href="/corvusrf/">
+        <a class="card" href="/corvusrf/" data-search="corvusrf rf">
           <div class="row top">
             <span class="icon-circle icon-sky" aria-hidden="true">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -190,6 +200,28 @@
       &copy; <span id="year"></span> CorvusRE.
     </div>
   </footer>
-  <script>document.getElementById("year").textContent = new Date().getFullYear();</script>
+  <script>
+    document.getElementById("year").textContent = new Date().getFullYear();
+
+    // Real, working search — matches the query against each section card's
+    // name/aliases (data-search) and jumps straight there on an exact-ish
+    // match; falls back to scrolling to the section grid so a query that
+    // doesn't match anything still lands somewhere useful rather than doing
+    // nothing.
+    function corvusHubSearch(event) {
+      event.preventDefault();
+      const query = document.getElementById("hub-search").value.trim().toLowerCase();
+      const cards = Array.from(document.querySelectorAll(".card[data-search]"));
+      if (query) {
+        const match = cards.find((card) => card.dataset.search.includes(query));
+        if (match) {
+          window.location.href = match.getAttribute("href");
+          return false;
+        }
+      }
+      document.getElementById("sections").scrollIntoView({ behavior: "smooth", block: "start" });
+      return false;
+    }
+  </script>
 </body>
 </html>

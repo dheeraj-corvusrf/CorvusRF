@@ -10,6 +10,9 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+# Local-only assembled preview (hub/ + a /corvuspt/ build merged together,
+# same layout the deploy workflow produces) — see .github/workflows/deploy.yml.
+/site
 .output
 .vinxi
 .tanstack/**
