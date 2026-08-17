@@ -4,11 +4,11 @@ import { ScrollReveal } from "@/components/ScrollReveal";
 export const Route = createFileRoute("/property-protest")({
   head: () => ({
     meta: [
-      { title: "Property Protest — CorvusRF.ai" },
+      { title: "Property Protest — CorvusPT.ai" },
       {
         name: "description",
         content:
-          "AI-driven Texas real property protest: comp analysis, evidence packet, deadline tracking, and CorvusRF-managed filing and hearings.",
+          "AI-driven Texas real property protest: comp analysis, evidence packet, deadline tracking, and CorvusPT-managed filing and hearings.",
       },
       { property: "og:title", content: "AI-driven Texas Property Protest" },
       { property: "og:description", content: "AI evidence + human-managed filing and hearings." },
@@ -21,7 +21,7 @@ function Page() {
   const bullets = [
     "AI reviews CAD value against comparable sales and equity comps.",
     "AI Evidence Builder assembles a hearing-ready packet.",
-    "CorvusRF staff files, communicates with county, and represents at hearings.",
+    "CorvusPT staff files, communicates with county, and represents at hearings.",
     "Deadline engine tracks your protest window automatically.",
   ];
   return (
@@ -32,7 +32,7 @@ function Page() {
           Protest with AI evidence. Filed and defended by humans.
         </h1>
         <p className="mt-4 text-lg text-muted-foreground">
-          AI handles research, comps, and evidence. CorvusRF handles filing, county
+          AI handles research, comps, and evidence. CorvusPT handles filing, county
           communication, hearings, and settlement.
         </p>
         <ul className="mt-6 grid gap-3">

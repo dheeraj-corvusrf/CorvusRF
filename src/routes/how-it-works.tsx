@@ -4,13 +4,13 @@ import { ScrollReveal } from "@/components/ScrollReveal";
 export const Route = createFileRoute("/how-it-works")({
   head: () => ({
     meta: [
-      { title: "How It Works — CorvusRF.ai" },
+      { title: "How It Works — CorvusPT.ai" },
       {
         name: "description",
         content:
-          "See how CorvusRF.ai combines AI analysis with CorvusRF staff review to protest values, file BPP, track deadlines, and manage Texas property tax savings.",
+          "See how CorvusPT.ai combines AI analysis with CorvusPT staff review to protest values, file BPP, track deadlines, and manage Texas property tax savings.",
       },
-      { property: "og:title", content: "How CorvusRF.ai works" },
+      { property: "og:title", content: "How CorvusPT.ai works" },
       {
         property: "og:description",
         content: "One linear flow: property → AI review → protest, BPP, payments, and savings.",
@@ -25,7 +25,7 @@ const STEPS = [
   { n: 2, t: "AI validates & matches the CAD record", d: "AI identifies your county appraisal district and pulls the official record." },
   { n: 3, t: "Background AI analysis", d: "Ten AI modules run in the background — health score, comps, site, income, evidence, savings, and more." },
   { n: 4, t: "Review the AI report", d: "See a plain-English protest recommendation, savings estimate, and next steps." },
-  { n: 5, t: "CorvusRF staff files & communicates", d: "Our team handles the filing, county communication, hearing support, and settlement approval." },
+  { n: 5, t: "CorvusPT staff files & communicates", d: "Our team handles the filing, county communication, hearing support, and settlement approval." },
   { n: 6, t: "Track payments, refunds, and savings", d: "One dashboard covers tax bills, payments, refunds, and annual savings across every year." },
 ];
 

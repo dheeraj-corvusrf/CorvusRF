@@ -77,7 +77,7 @@ function fromRow(row: ProtestRow): ProtestRecord {
   };
 }
 
-// Filing and hearing representation happen off-platform by CorvusRF staff (per the
+// Filing and hearing representation happen off-platform by CorvusPT staff (per the
 // /property-protest page's own description) — this creates the real request record
 // staff act on; there is no automated filing today, so status only ever advances via
 // the admin panel or the case-progress actions in protest-case.ts. `details` is used
@@ -105,8 +105,8 @@ export async function requestProtest(
   // happened to check the admin panel's "Protest Requests" list themselves.
   const address = details?.address ?? `property ${propertyId}`;
   submitWeb3Form({
-    subject: "New protest filing request — CorvusRF.ai",
-    from_name: "CorvusRF.ai",
+    subject: "New protest filing request — CorvusPT.ai",
+    from_name: "CorvusPT.ai",
     property_address: address,
     property_id: propertyId,
     user_email: details?.userEmail ?? "(unknown)",

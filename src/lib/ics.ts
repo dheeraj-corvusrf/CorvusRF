@@ -20,7 +20,7 @@ function buildIcsEvent(event: CalendarEvent): string {
   const endStamp = dateStamp(end.toISOString().slice(0, 10));
   const details = `${EVENT_TYPE_LABEL[event.type]}${
     event.amount != null ? ` — $${event.amount.toLocaleString()}` : ""
-  } — via CorvusRF.ai`;
+  } — via CorvusPT.ai`;
 
   return [
     "BEGIN:VEVENT",
@@ -38,7 +38,7 @@ export function buildIcsCalendar(events: CalendarEvent[]): string {
   return [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
-    "PRODID:-//CorvusRF.ai//Tax Calendar//EN",
+    "PRODID:-//CorvusPT.ai//Tax Calendar//EN",
     "CALSCALE:GREGORIAN",
     ...events.map(buildIcsEvent),
     "END:VCALENDAR",

@@ -26,7 +26,7 @@ import { useFileDrop } from "@/hooks/use-file-drop";
 export const Route = createFileRoute("/intake")({
   head: () => ({
     meta: [
-      { title: "Property Intake — CorvusRF.ai" },
+      { title: "Property Intake — CorvusPT.ai" },
       {
         name: "description",
         content: "Validate your Texas commercial or residential property and start your free AI review.",

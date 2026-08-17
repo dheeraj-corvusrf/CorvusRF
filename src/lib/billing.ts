@@ -14,7 +14,7 @@ export type PlanValue =
 export const PLAN_OPTIONS: { value: PlanValue; label: string }[] = [
   { value: "free_ai_review", label: "Free AI Review" },
   { value: "owner_managed", label: "Owner-Managed ($99/mo/property)" },
-  { value: "corvusrf_managed", label: "CorvusRF-Managed ($199/mo/property)" },
+  { value: "corvusrf_managed", label: "CorvusPT-Managed ($199/mo/property)" },
 ];
 
 export type BillingInfo = {

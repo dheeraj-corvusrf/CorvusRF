@@ -16,7 +16,7 @@ test("pricing page renders all 3 tiers with the correct prices", async ({ page }
   await expect(page.getByRole("heading", { name: "Owner-Managed" })).toBeVisible();
   await expect(page.getByText("$99", { exact: true })).toBeVisible();
 
-  await expect(page.getByRole("heading", { name: "CorvusRF-Managed" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "CorvusPT-Managed" })).toBeVisible();
   await expect(page.getByText("$199", { exact: true })).toBeVisible();
 
   await expect(page.getByRole("link", { name: "Start Free Review" })).toBeVisible();

@@ -25,7 +25,7 @@ const TOTAL_STEPS = STEP_LABELS.length;
 
 // Steps 6-11 used to render permanently locked ("coming soon") because the
 // filing workflow they describe didn't exist yet. It does now — protests.status
-// moves through this exact pipeline (advanced by CorvusRF staff via the admin
+// moves through this exact pipeline (advanced by CorvusPT staff via the admin
 // panel), so those steps are driven by the signed-in user's real cases instead.
 const STATUS_RANK: Record<ProtestStatus, number> = {
   requested: 1,
@@ -121,10 +121,10 @@ function getMessage(currentStep: number, allDone: boolean): StepMessage | null {
         ],
       };
     case 7:
-      return { title: "CorvusRF staff is filing your protest with the county." };
+      return { title: "CorvusPT staff is filing your protest with the county." };
     case 8:
       return {
-        title: "Your protest has been filed. CorvusRF is tracking it for updates.",
+        title: "Your protest has been filed. CorvusPT is tracking it for updates.",
         actions: [{ label: "View My Cases", to: "/dashboard" }],
       };
     case 9:

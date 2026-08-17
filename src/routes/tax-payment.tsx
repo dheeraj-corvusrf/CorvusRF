@@ -3,7 +3,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 export const Route = createFileRoute("/tax-payment")({
   head: () => ({
     meta: [
-      { title: "Tax Payment Tracking — CorvusRF.ai" },
+      { title: "Tax Payment Tracking — CorvusPT.ai" },
       {
         name: "description",
         content:

@@ -14,13 +14,13 @@ import {
 export const Route = createFileRoute("/pricing")({
   head: () => ({
     meta: [
-      { title: "Pricing — CorvusRF.ai" },
+      { title: "Pricing — CorvusPT.ai" },
       {
         name: "description",
         content:
-          "Simple per-property pricing for CorvusRF.ai: free AI review, Owner-Managed, or CorvusRF-Managed protest service.",
+          "Simple per-property pricing for CorvusPT.ai: free AI review, Owner-Managed, or CorvusPT-Managed protest service.",
       },
-      { property: "og:title", content: "CorvusRF.ai Pricing" },
+      { property: "og:title", content: "CorvusPT.ai Pricing" },
       {
         property: "og:description",
         content: "Free AI review. Then $99 or $199 per property, per month.",
@@ -55,12 +55,12 @@ const PAID_PLANS: {
   },
   {
     tier: "corvusrf_managed",
-    name: "CorvusRF-Managed",
+    name: "CorvusPT-Managed",
     price: "$199",
     tag: "White glove",
     features: [
       "Everything in Owner-Managed",
-      "CorvusRF staff files your protest",
+      "CorvusPT staff files your protest",
       "County communication + hearing representation",
       "Settlement approval workflow",
     ],
@@ -188,7 +188,7 @@ function Page() {
           <span className="badge-soft">Pricing</span>
           <h1 className="mt-3 text-4xl md:text-5xl font-semibold">Simple, per-property pricing.</h1>
           <p className="mt-4 text-lg text-muted-foreground">
-            Start free. Pick Owner-Managed to do it yourself with AI, or CorvusRF-Managed to have our
+            Start free. Pick Owner-Managed to do it yourself with AI, or CorvusPT-Managed to have our
             staff file and represent you. Priced per property, billed monthly.
           </p>
         </div>

@@ -10,7 +10,7 @@ const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 // rest of the app wouldn't notice until a full reload. Cache the instance on globalThis
 // so every re-evaluation of this module reuses the same client.
 declare global {
-  var __corvusrfSupabase__: SupabaseClient | undefined;
+  var __corvusptSupabase__: SupabaseClient | undefined;
 }
 
 export const isSupabaseConfigured = Boolean(url && anonKey);
@@ -31,8 +31,8 @@ if (!isSupabaseConfigured) {
 // just failing auth calls at runtime. Fall back to a syntactically valid placeholder so
 // the app builds and runs; unconfigured auth calls will simply fail over the network.
 export const supabase =
-  globalThis.__corvusrfSupabase__ ??
-  (globalThis.__corvusrfSupabase__ = createClient(
+  globalThis.__corvusptSupabase__ ??
+  (globalThis.__corvusptSupabase__ = createClient(
     url || "https://placeholder.supabase.co",
     anonKey || "placeholder-anon-key",
   ));
