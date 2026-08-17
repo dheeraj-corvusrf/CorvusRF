@@ -5,8 +5,8 @@ import { supabase } from "@/lib/supabase";
 export const Route = createFileRoute("/reset-password")({
   head: () => ({
     meta: [
-      { title: "Reset Password — CorvusRF.ai" },
-      { name: "description", content: "Choose a new password for your CorvusRF.ai account." },
+      { title: "Reset Password — CorvusPT.ai" },
+      { name: "description", content: "Choose a new password for your CorvusPT.ai account." },
     ],
   }),
   component: ResetPassword,
@@ -67,7 +67,7 @@ function ResetPassword() {
         <h1 className="mt-3 font-serif text-3xl font-semibold">You're all set.</h1>
         <p className="mt-2 text-muted-foreground">Your password has been changed.</p>
         <button onClick={() => nav({ to: "/" })} className="btn-primary btn-primary-hover mt-6">
-          Continue to CorvusRF.ai
+          Continue to CorvusPT.ai
         </button>
       </div>
     );

@@ -26,12 +26,12 @@ import { Modal } from "@/components/Modal";
 export const Route = createFileRoute("/document-review")({
   head: () => ({
     meta: [
-      { title: "Document Review — CorvusRF.ai" },
+      { title: "Document Review — CorvusPT.ai" },
       {
         name: "description",
         content: "AI read your Texas property tax document. Review and confirm.",
       },
-      { property: "og:title", content: "Document Review — CorvusRF.ai" },
+      { property: "og:title", content: "Document Review — CorvusPT.ai" },
       {
         property: "og:description",
         content: "Confirm classification, extraction, and next-best workflow.",
@@ -240,7 +240,7 @@ function DocumentReview() {
         <FlagBanner
           tone="warn"
           title="Some details need review."
-          body="CorvusRF staff will verify this document before filing or deadline action. You can still edit values below."
+          body="CorvusPT staff will verify this document before filing or deadline action. You can still edit values below."
         />
       )}
       {mismatch && (
@@ -534,7 +534,7 @@ function DocumentReview() {
           </div>
           {(lowConfidence || mismatch) && (
             <p className="mt-4 text-sm text-muted-foreground">
-              Because this document was flagged, CorvusRF staff will review the routing before any
+              Because this document was flagged, CorvusPT staff will review the routing before any
               filing action.
             </p>
           )}

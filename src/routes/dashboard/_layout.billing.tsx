@@ -70,7 +70,7 @@ function Billing() {
   return (
     <div>
       <h1 className="font-serif text-2xl font-semibold">Billing</h1>
-      <p className="text-muted-foreground text-sm">Your CorvusRF subscription.</p>
+      <p className="text-muted-foreground text-sm">Your CorvusPT subscription.</p>
 
       {loading ? (
         <p className="mt-6 text-sm text-muted-foreground">Loading…</p>

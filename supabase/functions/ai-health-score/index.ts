@@ -20,7 +20,7 @@ type HealthScoreInput = {
   taxYear?: number;
 };
 
-const SYSTEM = `You are CorvusRF's AI property tax analyst for Texas commercial properties.
+const SYSTEM = `You are CorvusPT's AI property tax analyst for Texas commercial properties.
 Given the property's official CAD (county appraisal district) record below, produce a
 "protest opportunity" health score from 0 to 100 (higher = stronger opportunity to
 protest and potentially reduce the assessed value), a one-sentence summary, and 2-4

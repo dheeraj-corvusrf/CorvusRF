@@ -99,7 +99,7 @@ export function SiteNav() {
         <Link to="/" className="flex items-center gap-2">
           <LogoMark />
           <span className="font-serif text-lg font-semibold tracking-tight">
-            CorvusRF<span className="text-accent">.ai</span>
+            CorvusPT<span className="text-accent">.ai</span>
           </span>
         </Link>
 
@@ -220,7 +220,7 @@ export function SiteFooter() {
           <div className="flex items-center gap-2">
             <LogoMark />
             <span className="font-serif text-lg font-semibold">
-              CorvusRF<span className="text-accent">.ai</span>
+              CorvusPT<span className="text-accent">.ai</span>
             </span>
           </div>
           <p className="mt-3 text-sm text-muted-foreground">
@@ -254,7 +254,7 @@ export function SiteFooter() {
       </div>
       <div className="border-t border-border/70">
         <div className="container-page py-5 text-xs text-muted-foreground flex flex-wrap justify-between gap-2">
-          <span>© {new Date().getFullYear()} CorvusRF.ai — Texas Property Tax AI.</span>
+          <span>© {new Date().getFullYear()} CorvusPT.ai — Texas Property Tax AI.</span>
           <span>Serving all 254 Texas counties.</span>
         </div>
       </div>

@@ -195,7 +195,7 @@ function CalendarPage() {
         </div>
         {events.length > 0 && (
           <button
-            onClick={() => downloadIcs("corvusrf-tax-calendar.ics", events)}
+            onClick={() => downloadIcs("corvuspt-tax-calendar.ics", events)}
             className="btn-outline text-sm inline-flex items-center gap-1.5"
           >
             <Download className="h-3.5 w-3.5" /> Export all (.ics)

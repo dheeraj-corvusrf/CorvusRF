@@ -203,7 +203,7 @@ export async function updatePropertyBillSnapshot(
   return fromRow(data as PropertyRow);
 }
 
-// CorvusRF has no live payment integration — there's no bank/county feed to confirm a
+// CorvusPT has no live payment integration — there's no bank/county feed to confirm a
 // bill was actually paid, so this records the user's own "I paid this" action rather
 // than a verified payment event.
 export async function markPropertyPaid(id: string): Promise<PropertyRecord> {

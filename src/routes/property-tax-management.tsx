@@ -15,7 +15,7 @@ import { ICON_COLORS } from "@/lib/icon-colors";
 export const Route = createFileRoute("/property-tax-management")({
   head: () => ({
     meta: [
-      { title: "Property Tax Management — CorvusRF.ai" },
+      { title: "Property Tax Management — CorvusPT.ai" },
       {
         name: "description",
         content:
@@ -29,7 +29,7 @@ export const Route = createFileRoute("/property-tax-management")({
 });
 
 const CAPS = [
-  { title: "Real Property Protest", description: "AI comps, evidence, and CorvusRF-filed protest.", icon: Scale },
+  { title: "Real Property Protest", description: "AI comps, evidence, and CorvusPT-filed protest.", icon: Scale },
   { title: "BPP Rendition & Protest", description: "Business-type templates, asset categories, and depreciation.", icon: Briefcase },
   { title: "Tax Bill Tracking", description: "Every county bill, every account, one dashboard.", icon: Receipt },
   { title: "Payment Tracking", description: "Never miss a payment or discount deadline.", icon: CreditCard },

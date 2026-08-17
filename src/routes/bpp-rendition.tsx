@@ -4,14 +4,14 @@ import { ScrollReveal } from "@/components/ScrollReveal";
 export const Route = createFileRoute("/bpp-rendition")({
   head: () => ({
     meta: [
-      { title: "BPP Rendition — CorvusRF.ai" },
+      { title: "BPP Rendition — CorvusPT.ai" },
       {
         name: "description",
         content:
           "AI-powered Business Personal Property rendition and protest: templates, asset categories, depreciation logic, and county-specific rules.",
       },
       { property: "og:title", content: "BPP Rendition & Protest" },
-      { property: "og:description", content: "AI templates, asset extraction, and CorvusRF-filed BPP." },
+      { property: "og:description", content: "AI templates, asset extraction, and CorvusPT-filed BPP." },
     ],
   }),
   component: Page,
@@ -34,7 +34,7 @@ function Page() {
           </h1>
           <p className="mt-4 text-lg text-muted-foreground">
             Upload a prior rendition or start with a template. AI extracts assets, applies
-            county depreciation, and prepares the filing. CorvusRF files and defends it.
+            county depreciation, and prepares the filing. CorvusPT files and defends it.
           </p>
         </div>
       </div>

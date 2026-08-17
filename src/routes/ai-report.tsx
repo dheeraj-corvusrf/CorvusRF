@@ -31,7 +31,7 @@ type ModuleAsyncState = {
 export const Route = createFileRoute("/ai-report")({
   head: () => ({
     meta: [
-      { title: "AI Property Review — CorvusRF.ai" },
+      { title: "AI Property Review — CorvusPT.ai" },
       { name: "description", content: "AI-generated property tax review with 10 premium modules." },
       { property: "og:title", content: "AI Property Review" },
       { property: "og:description", content: "AI analysis of your Texas commercial or residential property." },

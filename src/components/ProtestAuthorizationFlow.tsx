@@ -14,7 +14,7 @@ import type { PropertyRecord } from "@/lib/properties";
 
 // The TDLR regulatory line is intentionally omitted until registration is
 // confirmed. Fee (25%) and service scope were explicitly confirmed as
-// CorvusRF's real terms.
+// CorvusPT's real terms.
 export const AGREEMENT = {
   address: "18740 Wainsborough Ln, Dallas, TX",
   phone: "(469) 501-9362",
@@ -106,7 +106,7 @@ export function ProtestAuthorizationFlow({
         purchasedRecently: purchasedRecently ?? false,
         signature,
       });
-      toast.success("Authorization signed. CorvusRF staff will follow up.");
+      toast.success("Authorization signed. CorvusPT staff will follow up.");
       onDone(protest);
       close();
     } catch (err) {
@@ -190,7 +190,7 @@ export function ProtestAuthorizationFlow({
               <div className="grid gap-4 rounded-lg bg-secondary/40 p-4">
                 <h3 className="font-semibold">Representative of Entity Details</h3>
                 <p className="text-xs text-muted-foreground">
-                  If your name does not match an authorized representative of the entity, CorvusRF
+                  If your name does not match an authorized representative of the entity, CorvusPT
                   may be unable to proceed with your protest.
                 </p>
                 <div className="grid gap-4 sm:grid-cols-2">
@@ -281,23 +281,23 @@ export function ProtestAuthorizationFlow({
         {step === "review" && (
           <div className="grid gap-4">
             <div className="rounded-lg border border-border p-4 text-sm max-h-56 overflow-y-auto">
-              <h3 className="font-semibold">CorvusRF Service Agreement</h3>
+              <h3 className="font-semibold">CorvusPT Service Agreement</h3>
               <p className="mt-2">
-                <strong>Service:</strong> During the term of this agreement, CorvusRF will evaluate
+                <strong>Service:</strong> During the term of this agreement, CorvusPT will evaluate
                 your current property tax assessment for errors and available exemptions and
-                perform a comparative market analysis. If CorvusRF determines your property
-                assessment is incorrect, CorvusRF will prepare and file evidence supporting a
+                perform a comparative market analysis. If CorvusPT determines your property
+                assessment is incorrect, CorvusPT will prepare and file evidence supporting a
                 reduction with your county tax assessor and/or review board, and will represent you
                 at hearings and negotiate an assessment reduction on your behalf.
               </p>
               <p className="mt-2">
-                <strong>Fee:</strong> There is no fee unless CorvusRF successfully obtains a
-                reduction in your property's assessed value. If successful, CorvusRF's fee is 25%
+                <strong>Fee:</strong> There is no fee unless CorvusPT successfully obtains a
+                reduction in your property's assessed value. If successful, CorvusPT's fee is 25%
                 of the property tax savings obtained for the year in which the appeal is filed,
                 plus any recovered tax overpayments (refunds) from previous years.
               </p>
               <p className="mt-2">
-                <strong>Scope of Authorization:</strong> you authorize CorvusRF to execute and
+                <strong>Scope of Authorization:</strong> you authorize CorvusPT to execute and
                 submit an Appointment of Agent for Property Tax Matters (or similar form) with your
                 county appraisal district; obtain property, owner, and tax information on your
                 behalf; represent and negotiate on your behalf with the appraisal district and
@@ -309,7 +309,7 @@ export function ProtestAuthorizationFlow({
                 from services already provided before termination.
               </p>
               <p className="mt-2 text-xs text-muted-foreground">
-                CorvusRF, {AGREEMENT.address} · {AGREEMENT.phone} · {AGREEMENT.email}. Governed by
+                CorvusPT, {AGREEMENT.address} · {AGREEMENT.phone} · {AGREEMENT.email}. Governed by
                 the laws of the State of Texas; venue in {AGREEMENT.venue}.
               </p>
             </div>
@@ -320,7 +320,7 @@ export function ProtestAuthorizationFlow({
                 onChange={(e) => setAgreed(e.target.checked)}
                 className="mt-0.5"
               />
-              I have read and agree to the CorvusRF Service Agreement above, and authorize CorvusRF
+              I have read and agree to the CorvusPT Service Agreement above, and authorize CorvusPT
               to act as my agent for this property's tax matters.
             </label>
             <div>

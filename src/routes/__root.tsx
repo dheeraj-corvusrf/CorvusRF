@@ -84,7 +84,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "CorvusRF.ai — Texas Property Tax, Powered by AI" },
+      { title: "CorvusPT.ai — Texas Property Tax, Powered by AI" },
       {
         name: "description",
         content:

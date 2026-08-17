@@ -9,13 +9,13 @@ const PHONE_TEL = "+14695019362";
 export const Route = createFileRoute("/contact")({
   head: () => ({
     meta: [
-      { title: "Contact Us — CorvusRF.ai" },
+      { title: "Contact Us — CorvusPT.ai" },
       {
         name: "description",
-        content: "Talk to CorvusRF.ai about your Texas property tax questions.",
+        content: "Talk to CorvusPT.ai about your Texas property tax questions.",
       },
-      { property: "og:title", content: "Contact CorvusRF.ai" },
-      { property: "og:description", content: "Reach the CorvusRF property tax team." },
+      { property: "og:title", content: "Contact CorvusPT.ai" },
+      { property: "og:description", content: "Reach the CorvusPT property tax team." },
     ],
   }),
   component: Contact,
@@ -46,7 +46,7 @@ function Contact() {
       // Web3Forms' endpoint doesn't answer, which fails the request before it sends.
       const formData = new FormData();
       formData.set("access_key", accessKey);
-      formData.set("subject", "New CorvusRF.ai contact form submission");
+      formData.set("subject", "New CorvusPT.ai contact form submission");
       formData.set("name", name);
       formData.set("email", email);
       formData.set("message", message);
@@ -99,7 +99,7 @@ function Contact() {
           <div className="mt-8 card-elev p-6">
             <h3 className="font-semibold text-lg">Thanks — we'll be in touch.</h3>
             <p className="text-muted-foreground mt-1">
-              A CorvusRF specialist will reach out within one business day.
+              A CorvusPT specialist will reach out within one business day.
             </p>
           </div>
         ) : (

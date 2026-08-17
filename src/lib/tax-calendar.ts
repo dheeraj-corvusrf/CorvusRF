@@ -211,7 +211,7 @@ export function googleCalendarAddUrl(event: CalendarEvent): string {
     action: "TEMPLATE",
     text: event.title,
     dates: `${compact}/${endCompact}`,
-    details: `${EVENT_TYPE_LABEL[event.type]}${event.amount != null ? ` — $${event.amount.toLocaleString()}` : ""} — via CorvusRF.ai`,
+    details: `${EVENT_TYPE_LABEL[event.type]}${event.amount != null ? ` — $${event.amount.toLocaleString()}` : ""} — via CorvusPT.ai`,
   });
   return `https://calendar.google.com/calendar/render?${params.toString()}`;
 }

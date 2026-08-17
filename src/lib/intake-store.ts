@@ -316,7 +316,7 @@ export function routeWorkflows(e: Extraction): WorkflowSuggestion[] {
     out.push({
       workflow: "notice_epin_retrieval",
       label: "Manual Review",
-      message: "AI could not confidently route this document. CorvusRF staff will review.",
+      message: "AI could not confidently route this document. CorvusPT staff will review.",
       primary: true,
     });
   }

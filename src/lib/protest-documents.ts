@@ -337,7 +337,7 @@ export function getAppointmentOfAgentDefaults(
     "the property(ies) listed below:": true,
     "Appraisal District Account Number_2": property.accountNumber ?? "",
     "Physical or Situs Address of Property_2": property.address ?? "",
-    Name_2: "CorvusRF.ai",
+    Name_2: "CorvusPT.ai",
     "Telephone Number include area code_2": AGREEMENT.phone,
     Address_2: street,
     "City State Zip Code_2": cityStateZip,

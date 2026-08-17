@@ -21,13 +21,13 @@ import { ICON_COLORS } from "@/lib/icon-colors";
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "CorvusRF.ai — Texas Property Tax Management, Powered by AI" },
+      { title: "CorvusPT.ai — Texas Property Tax Management, Powered by AI" },
       {
         name: "description",
         content:
           "Upload your Texas appraisal notice or enter your commercial or residential property. AI checks your county value, protest deadline, evidence gaps, and savings opportunity.",
       },
-      { property: "og:title", content: "CorvusRF.ai — Texas Property Tax, Powered by AI" },
+      { property: "og:title", content: "CorvusPT.ai — Texas Property Tax, Powered by AI" },
       {
         property: "og:description",
         content:
@@ -200,14 +200,14 @@ function Home() {
       </div>
     </section>
 
-    {/* How CorvusRF Helps You Save — real, existing services only (no stats,
+    {/* How CorvusPT Helps You Save — real, existing services only (no stats,
         no testimonials — see plan notes on why those are out of scope). */}
     <section className="bg-secondary/30 py-14 md:py-20">
       <div className="container-page">
         <div className="mx-auto max-w-2xl text-center">
           <span className="badge-soft">What You Get</span>
           <h2 className="mt-3 font-serif text-3xl md:text-4xl font-semibold">
-            How CorvusRF Helps You Save
+            How CorvusPT Helps You Save
           </h2>
         </div>
         <div className="mt-12 grid items-center gap-6 md:grid-cols-3">
@@ -250,7 +250,7 @@ const PROCESS_STEPS = [
   {
     title: "AI reviews your case",
     description:
-      "Ten AI modules analyze value, comps, and evidence, while CorvusRF staff handle filing and the county.",
+      "Ten AI modules analyze value, comps, and evidence, while CorvusPT staff handle filing and the county.",
     icon: Sparkles,
     color: ICON_COLORS[1], // violet — AI at work
   },
@@ -265,7 +265,7 @@ const PROCESS_STEPS = [
 const SAVE_FEATURES = [
   {
     title: "Property Tax Protest",
-    description: "AI-backed evidence and CorvusRF staff filing to challenge an overvalued assessment.",
+    description: "AI-backed evidence and CorvusPT staff filing to challenge an overvalued assessment.",
     icon: Scale,
     to: "/property-protest",
     color: ICON_COLORS[0],

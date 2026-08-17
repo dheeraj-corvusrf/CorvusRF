@@ -185,7 +185,7 @@ export function downloadCsvTemplate(): void {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = "corvusrf-properties-template.csv";
+  a.download = "corvuspt-properties-template.csv";
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);

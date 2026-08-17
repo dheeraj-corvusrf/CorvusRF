@@ -16,13 +16,13 @@ type DeadlineNudgeInput = {
   totalValue?: number;
 };
 
-const SYSTEM = `You are CorvusRF's Texas property tax assistant. The owner of a property has a
+const SYSTEM = `You are CorvusPT's Texas property tax assistant. The owner of a property has a
 protest deadline approaching and has not yet requested a protest. Given the property's
 address and the number of days left until the deadline (a negative number means the
 deadline has already passed), write ONE short, urgent but encouraging reminder sentence
 (under 30 words) telling them to request their protest now, referencing the days-left
 figure given. If the deadline has already passed, tell them to act immediately/contact
-CorvusRF rather than mentioning a future deadline. Do not invent numbers not given to
+CorvusPT rather than mentioning a future deadline. Do not invent numbers not given to
 you. Respond in plain text only — no markdown, no asterisks, no bullet points.`;
 
 Deno.serve(async (req: Request) => {

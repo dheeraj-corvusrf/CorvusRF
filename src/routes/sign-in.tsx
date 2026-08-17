@@ -8,9 +8,9 @@ import { OwnerMatchModal } from "@/components/OwnerMatchModal";
 export const Route = createFileRoute("/sign-in")({
   head: () => ({
     meta: [
-      { title: "Sign In — CorvusRF.ai" },
-      { name: "description", content: "Sign in to your CorvusRF.ai property tax dashboard." },
-      { property: "og:title", content: "Sign In — CorvusRF.ai" },
+      { title: "Sign In — CorvusPT.ai" },
+      { name: "description", content: "Sign in to your CorvusPT.ai property tax dashboard." },
+      { property: "og:title", content: "Sign In — CorvusPT.ai" },
       { property: "og:description", content: "Access your property tax dashboard." },
     ],
   }),
@@ -145,7 +145,7 @@ function SignIn() {
       <div className="container-page pt-16 max-w-md">
         <span className="badge-soft">{mode === "signin" ? "Sign In" : "Create Account"}</span>
         <h1 className="mt-3 font-serif text-3xl font-semibold">
-          {mode === "signin" ? "Welcome back." : "Create your CorvusRF account."}
+          {mode === "signin" ? "Welcome back." : "Create your CorvusPT account."}
         </h1>
         <p className="mt-2 text-muted-foreground">
           {mode === "signin"

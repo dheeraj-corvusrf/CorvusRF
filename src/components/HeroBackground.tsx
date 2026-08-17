@@ -68,7 +68,7 @@ function Moon({ className }: { className: string }) {
 
 // Decorative background — a sky/green-field split (mirroring the reference's bold
 // proportions and grass tones), real illustration artwork for the house/people/dog
-// (sourced from unDraw, recolored to CorvusRF's navy/gold/teal — see
+// (sourced from unDraw, recolored to CorvusPT's navy/gold/teal — see
 // src/assets/illustrations), plus a hand-coded car and trees (green, per request).
 // Illustrations sit in the side margins beside the centered content column, hidden
 // below `lg` where there isn't room for them, and share a common "ground line"

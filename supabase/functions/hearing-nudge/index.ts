@@ -15,7 +15,7 @@ type HearingNudgeInput = {
   daysLeft: number;
 };
 
-const SYSTEM = `You are CorvusRF's Texas property tax assistant. The owner of a property already has
+const SYSTEM = `You are CorvusPT's Texas property tax assistant. The owner of a property already has
 a protest filed and an ARB (Appraisal Review Board) hearing scheduled. Given the
 property's address and the number of days left until the hearing (a negative number
 means the hearing already happened), write ONE short, encouraging reminder sentence

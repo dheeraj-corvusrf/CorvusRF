@@ -36,7 +36,7 @@ type ModulesInput = {
 
 const STRATEGIES = ["Market Value", "Unequal Appraisal", "Condition-Based Reduction", "Combined Approach"];
 
-const PREAMBLE = `You are CorvusRF's AI property tax analyst for Texas commercial properties.
+const PREAMBLE = `You are CorvusPT's AI property tax analyst for Texas commercial properties.
 Given only the official CAD (county appraisal district) record below, generate the requested
 report module.
 
