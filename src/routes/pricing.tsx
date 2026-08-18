@@ -2,7 +2,6 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
-import { ScrollReveal } from "@/components/ScrollReveal";
 import {
   startCheckout,
   openBillingPortal,
@@ -71,19 +70,17 @@ const PAID_PLANS: {
   },
 ];
 
-// One box per exact price point, in ascending price order (interleaving
-// tiers rather than grouping by tier: 99, 199, 299, 499, 499, 699) — the
-// $0 Free tier is rendered as its own leading box, for 7 total.
-const PRICE_BOXES: { tier: Tier; bracket: PropertyValueBracket }[] = [
-  { tier: "owner_managed", bracket: "under2m" },
-  { tier: "corvusrf_managed", bracket: "under2m" },
-  { tier: "owner_managed", bracket: "mid2m10m" },
-  { tier: "owner_managed", bracket: "over10m" },
-  { tier: "corvusrf_managed", bracket: "mid2m10m" },
-  { tier: "corvusrf_managed", bracket: "over10m" },
-];
+// Session-only (not persisted across browser restarts) — holds a pending
+// checkout selection across the sign-in detour when a signed-out visitor
+// clicks Subscribe. See handleSubscribe/the resume effect below.
+const PENDING_SUBSCRIBE_KEY = "crf_pending_subscribe";
 
-const SUBSCRIBED_PLANS: PlanValue[] = ["owner_managed", "corvusrf_managed", "ai_report", "managed_protest"];
+const SUBSCRIBED_PLANS: PlanValue[] = [
+  "owner_managed",
+  "corvusrf_managed",
+  "ai_report",
+  "managed_protest",
+];
 
 // "ai_report" (flat-rate, self-file) and "managed_protest" (contingency, staff-filed)
 // are the legacy tiers this pricing overhaul replaced — mapped to their closest
@@ -100,11 +97,16 @@ function Page() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [checkingOutTier, setCheckingOutTier] = useState<Tier | null>(null);
+  // Which tier's card is showing — a toggle instead of two side-by-side
+  // cards, since a user only ever picks one tier (billing stays entirely
+  // separate per tier; see CURRENT_TIER/SUBSCRIBED_PLANS below).
+  const [selectedTier, setSelectedTier] = useState<Tier>("owner_managed");
   const [openingPortal, setOpeningPortal] = useState(false);
   const [resuming, setResuming] = useState(false);
   const [currentPlan, setCurrentPlan] = useState<PlanValue | null>(null);
   const [subscriptionStatus, setSubscriptionStatus] = useState<string | null>(null);
-  const [subscriptionBrackets, setSubscriptionBrackets] = useState<BracketQuantities>(EMPTY_BRACKETS);
+  const [subscriptionBrackets, setSubscriptionBrackets] =
+    useState<BracketQuantities>(EMPTY_BRACKETS);
   const [cancelAtPeriodEnd, setCancelAtPeriodEnd] = useState(false);
   const [cancelAt, setCancelAt] = useState<string | null>(null);
   // Separate quantities per tier, not one shared set — a property you'd put
@@ -158,6 +160,13 @@ function Page() {
   const hasPaymentProblem = subscriptionStatus === "past_due" || subscriptionStatus === "unpaid";
   const subscribedCount = bracketPropertyCount(subscriptionBrackets);
 
+  // Once we know which tier (if any) the user is actually on, default the
+  // toggle to that — otherwise an existing CorvusPT-Managed subscriber would
+  // land on the Owner-Managed card first for no reason.
+  useEffect(() => {
+    if (currentTier) setSelectedTier(currentTier);
+  }, [currentTier]);
+
   function bracketsFor(tier: Tier): BracketQuantities {
     return tier === "owner_managed" ? ownerBrackets : managedBrackets;
   }
@@ -166,14 +175,10 @@ function Page() {
     setter((prev) => ({ ...prev, [bracket]: Math.max(0, value) }));
   }
 
-  async function handleSubscribe(tier: Tier) {
-    if (!user) {
-      navigate({ to: "/sign-in" });
-      return;
-    }
+  async function startSubscribeCheckout(tier: Tier, brackets: BracketQuantities) {
     setCheckingOutTier(tier);
     try {
-      await startCheckout(tier, bracketsFor(tier));
+      await startCheckout(tier, brackets);
     } catch (err) {
       toast.error(
         err instanceof Error ? err.message : "Could not start checkout. Please try again.",
@@ -181,6 +186,40 @@ function Page() {
       setCheckingOutTier(null);
     }
   }
+
+  async function handleSubscribe(tier: Tier) {
+    if (!user) {
+      // Sign-in used to always land back on "/", losing the property
+      // selection the visitor had just set up — save it here and restore +
+      // auto-continue to checkout once they're back (see the effect below),
+      // instead of dropping them on the homepage empty-handed.
+      sessionStorage.setItem(
+        PENDING_SUBSCRIBE_KEY,
+        JSON.stringify({ tier, brackets: bracketsFor(tier) }),
+      );
+      navigate({ to: "/sign-in", search: { redirect: "/pricing" } });
+      return;
+    }
+    await startSubscribeCheckout(tier, bracketsFor(tier));
+  }
+
+  // Runs once right after a signed-out "Subscribe" click round-trips through
+  // sign-in and lands back here with a real user.
+  useEffect(() => {
+    if (!user) return;
+    const raw = sessionStorage.getItem(PENDING_SUBSCRIBE_KEY);
+    if (!raw) return;
+    sessionStorage.removeItem(PENDING_SUBSCRIBE_KEY);
+    try {
+      const pending = JSON.parse(raw) as { tier: Tier; brackets: BracketQuantities };
+      if (pending.tier === "owner_managed") setOwnerBrackets(pending.brackets);
+      else setManagedBrackets(pending.brackets);
+      setSelectedTier(pending.tier);
+      startSubscribeCheckout(pending.tier, pending.brackets);
+    } catch {
+      // Malformed/stale sessionStorage entry — nothing to resume.
+    }
+  }, [user]);
 
   async function handleManageSubscription() {
     setOpeningPortal(true);
@@ -203,7 +242,9 @@ function Page() {
       toast.success("Your subscription will continue — it's no longer set to cancel.");
     } catch (err) {
       toast.error(
-        err instanceof Error ? err.message : "Could not resume your subscription. Please try again.",
+        err instanceof Error
+          ? err.message
+          : "Could not resume your subscription. Please try again.",
       );
     } finally {
       setResuming(false);
@@ -215,189 +256,240 @@ function Page() {
       <div className="container-page pt-16">
         <div className="max-w-3xl">
           <span className="badge-soft">Pricing</span>
-          <h1 className="mt-3 text-4xl md:text-5xl font-semibold">Pricing that scales with property value.</h1>
+          <h1 className="mt-3 text-4xl md:text-5xl font-semibold">
+            Pricing that scales with property value.
+          </h1>
           <p className="mt-4 text-lg text-muted-foreground">
-            Start free. Pick Owner-Managed to do it yourself with AI, or CorvusPT-Managed to have our
-            staff file and represent you. Priced per property, by property value, billed monthly.
+            Start free. Pick Owner-Managed to do it yourself with AI, or CorvusPT-Managed to have
+            our staff file and represent you. Priced per property, by property value, billed
+            monthly.
           </p>
         </div>
       </div>
 
       <div className="container-page pb-16">
-      {hasPaymentProblem && (
-        <div className="mt-6 max-w-3xl rounded-lg border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">
-          There's a problem with your last payment — update your billing details to keep your
-          subscription active.
-        </div>
-      )}
-      {cancelAtPeriodEnd && (
-        <div className="mt-6 max-w-3xl rounded-lg border border-warning/40 bg-warning/10 p-4 text-sm">
-          Your subscription is set to cancel
-          {cancelAt
-            ? ` on ${new Date(cancelAt).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}`
-            : " at the end of your current billing period"}
-          . You'll keep full access until then — click Resubscribe below if you'd like to keep
-          it going.
-        </div>
-      )}
-      {alreadySubscribed && (
-        <div className="mt-6 max-w-3xl rounded-lg border border-border bg-secondary/40 p-4 text-sm">
-          <p>
-            You're subscribed for {subscribedCount} propert{subscribedCount === 1 ? "y" : "ies"}.
-          </p>
-          <ul className="mt-1 text-muted-foreground">
-            {VALUE_BRACKETS.filter((b) => subscriptionBrackets[b.value] > 0).map((b) => (
-              <li key={b.value}>
-                {subscriptionBrackets[b.value]} × {b.label}
-              </li>
-            ))}
-          </ul>
-          <p className="mt-2">Manage your plan, brackets, or payment method below.</p>
-        </div>
-      )}
-
-      {!alreadySubscribed && (
-        <>
-        <div className="mt-8 text-sm font-medium">How many properties, by price?</div>
-        <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
-          <ScrollReveal>
-          <div className="card-elev p-4 flex flex-col items-center text-center gap-1 h-full">
-            <div className="text-2xl font-semibold">$0</div>
-            <div className="text-xs font-medium">Free AI Review</div>
-            <div className="text-xs text-muted-foreground">one property</div>
-            <Link to="/" className="btn-outline text-xs mt-2 w-full py-1.5">
-              Start Free Review
-            </Link>
+        {hasPaymentProblem && (
+          <div className="mt-6 max-w-3xl rounded-lg border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">
+            There's a problem with your last payment — update your billing details to keep your
+            subscription active.
           </div>
-          </ScrollReveal>
-
-          {PRICE_BOXES.map((box, i) => {
-            const bracketLabel = VALUE_BRACKETS.find((b) => b.value === box.bracket)!.label;
-            const tierName = box.tier === "owner_managed" ? "Owner-Managed" : "CorvusPT-Managed";
-            const price = TIER_BRACKET_PRICES[box.tier][box.bracket];
-            const brackets = bracketsFor(box.tier);
-            return (
-              <ScrollReveal key={`${box.tier}-${box.bracket}`} delay={(i + 1) * 60}>
-              <div className="card-elev p-4 flex flex-col items-center text-center gap-1 h-full">
-                <div className="text-2xl font-semibold">${price}</div>
-                <div className="text-xs font-medium">{tierName}</div>
-                <div className="text-xs text-muted-foreground">{bracketLabel}</div>
-                <label htmlFor={`qty-${box.tier}-${box.bracket}`} className="sr-only">
-                  {tierName} {bracketLabel} quantity
-                </label>
-                <input
-                  id={`qty-${box.tier}-${box.bracket}`}
-                  type="number"
-                  min={0}
-                  value={brackets[box.bracket]}
-                  onChange={(e) =>
-                    setBracketQty(box.tier, box.bracket, parseInt(e.target.value, 10) || 0)
-                  }
-                  className="mt-2 w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm text-center"
-                />
-              </div>
-              </ScrollReveal>
-            );
-          })}
-        </div>
-        </>
-      )}
-
-      <div className={`mt-8 grid gap-5 ${alreadySubscribed ? "md:grid-cols-2" : "md:grid-cols-2"}`}>
-        {PAID_PLANS.map((p) => {
-          const isWhiteGlove = p.tier === "corvusrf_managed";
-          const tierBrackets = bracketsFor(p.tier);
-          const monthlyTotal = bracketMonthlyTotal(p.tier, tierBrackets);
-          const propertyCount = bracketPropertyCount(tierBrackets);
-          return (
-          <div
-            key={p.tier}
-            className={`card-elev p-6 flex flex-col h-full transition-all hover:-translate-y-0.5 hover:shadow-elev ${p.highlight ? "ring-2 ring-accent" : isWhiteGlove ? "ring-2 ring-warning/60" : ""}`}
-          >
-            <div className={isWhiteGlove ? "badge-soft-warning self-start" : "badge-soft self-start"}>{p.tag}</div>
-            <h3 className="mt-3 font-serif text-2xl">{p.name}</h3>
-            <div className="mt-2 flex items-baseline gap-1">
-              <span className="text-4xl font-semibold">
-                ${TIER_BRACKET_PRICES[p.tier].under2m}–${TIER_BRACKET_PRICES[p.tier].over10m}
-              </span>
-              <span className="text-muted-foreground text-sm">/mo, per property</span>
-            </div>
-            {alreadySubscribed && (
-              <ul className="mt-3 space-y-1 text-xs text-muted-foreground">
-                {VALUE_BRACKETS.map((b) => (
-                  <li key={b.value}>
-                    {b.label}: ${TIER_BRACKET_PRICES[p.tier][b.value]}/mo
-                  </li>
-                ))}
-              </ul>
-            )}
-            <ul className="mt-4 space-y-2 text-sm">
-              {p.features.map((f) => (
-                <li key={f} className="flex gap-2">
-                  <span className={`mt-1.5 h-1.5 w-1.5 rounded-full ${isWhiteGlove ? "bg-warning" : "bg-accent"}`} />
-                  {f}
+        )}
+        {cancelAtPeriodEnd && (
+          <div className="mt-6 max-w-3xl rounded-lg border border-warning/40 bg-warning/10 p-4 text-sm">
+            Your subscription is set to cancel
+            {cancelAt
+              ? ` on ${new Date(cancelAt).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}`
+              : " at the end of your current billing period"}
+            . You'll keep full access until then — click Resubscribe below if you'd like to keep it
+            going.
+          </div>
+        )}
+        {alreadySubscribed && (
+          <div className="mt-6 max-w-3xl rounded-lg border border-border bg-secondary/40 p-4 text-sm">
+            <p>
+              You're subscribed for {subscribedCount} propert{subscribedCount === 1 ? "y" : "ies"}.
+            </p>
+            <ul className="mt-1 text-muted-foreground">
+              {VALUE_BRACKETS.filter((b) => subscriptionBrackets[b.value] > 0).map((b) => (
+                <li key={b.value}>
+                  {subscriptionBrackets[b.value]} × {b.label}
                 </li>
               ))}
             </ul>
-            <div className="mt-6 grid gap-2">
-              {currentTier === p.tier ? (
-                cancelAtPeriodEnd ? (
-                  // Scheduled to cancel — two distinct actions rather than one button,
-                  // since "keep it" and "manage billing details" are different intents.
-                  <>
-                    <button
-                      onClick={handleResume}
-                      disabled={resuming}
-                      className="w-full btn-accent disabled:opacity-60"
-                    >
-                      {resuming ? "Resuming…" : "Resubscribe"}
-                    </button>
+            <p className="mt-2">Manage your plan, brackets, or payment method below.</p>
+          </div>
+        )}
+
+        {!alreadySubscribed && (
+          <div className="mt-8 text-sm text-muted-foreground">
+            Just want the free AI review first?{" "}
+            <Link to="/" className="font-medium text-accent underline underline-offset-2">
+              Start a free review
+            </Link>{" "}
+            — no card required, one property.
+          </div>
+        )}
+
+        {/* Pick one tier, then its plan populates below — replaces two
+            side-by-side cards, which made it look like a choice between two
+            things you could both have, when billing is always one tier at a
+            time. */}
+        <div className="mt-8 inline-flex rounded-lg border border-border p-1">
+          {PAID_PLANS.map((p) => (
+            <button
+              key={p.tier}
+              type="button"
+              onClick={() => setSelectedTier(p.tier)}
+              aria-pressed={selectedTier === p.tier}
+              className={`rounded-md px-4 py-2 text-sm font-medium transition-colors ${
+                selectedTier === p.tier
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {p.name}
+            </button>
+          ))}
+        </div>
+
+        <div className="mt-5 max-w-xl">
+          {PAID_PLANS.filter((p) => p.tier === selectedTier).map((p) => {
+            const isWhiteGlove = p.tier === "corvusrf_managed";
+            const tierBrackets = bracketsFor(p.tier);
+            const monthlyTotal = bracketMonthlyTotal(p.tier, tierBrackets);
+            const propertyCount = bracketPropertyCount(tierBrackets);
+            return (
+              <div
+                key={p.tier}
+                className={`card-elev p-6 flex flex-col h-full transition-all hover:-translate-y-0.5 hover:shadow-elev ${p.highlight ? "ring-2 ring-accent" : isWhiteGlove ? "ring-2 ring-warning/60" : ""}`}
+              >
+                <div
+                  className={
+                    isWhiteGlove ? "badge-soft-warning self-start" : "badge-soft self-start"
+                  }
+                >
+                  {p.tag}
+                </div>
+                <h3 className="mt-3 font-serif text-2xl">{p.name}</h3>
+                <div className="mt-2 flex items-baseline gap-1">
+                  <span className="text-4xl font-semibold">
+                    ${TIER_BRACKET_PRICES[p.tier].under2m}–${TIER_BRACKET_PRICES[p.tier].over10m}
+                  </span>
+                  <span className="text-muted-foreground text-sm">/mo, per property</span>
+                </div>
+                {alreadySubscribed ? (
+                  <div className="mt-3 grid grid-cols-3 gap-2">
+                    {VALUE_BRACKETS.map((b) => (
+                      <div
+                        key={b.value}
+                        className="rounded-lg border border-border bg-secondary/40 px-2 py-2 text-center"
+                      >
+                        <div className="text-[10px] text-muted-foreground">{b.label}</div>
+                        <div className="text-sm font-semibold">
+                          ${TIER_BRACKET_PRICES[p.tier][b.value]}/mo
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  // Editable per-bracket quantities live right on this card —
+                  // previously these were a separate row of 6 boxes above,
+                  // duplicating the tier name/price on every box and leaving
+                  // two different "Subscribe" buttons for the same tier. One
+                  // card per tier, one button, is the whole flow now.
+                  <div className="mt-4 space-y-2">
+                    {VALUE_BRACKETS.map((b) => {
+                      const qty = tierBrackets[b.value];
+                      return (
+                        <div
+                          key={b.value}
+                          className="flex items-center justify-between gap-3 rounded-lg border border-border p-3"
+                        >
+                          <div>
+                            <div className="text-sm font-semibold">
+                              ${TIER_BRACKET_PRICES[p.tier][b.value]}/mo
+                            </div>
+                            <div className="text-xs text-muted-foreground">{b.label}</div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setBracketQty(p.tier, b.value, Math.max(0, qty - 1))}
+                              disabled={qty === 0}
+                              aria-label={`Decrease ${p.name} ${b.label} quantity`}
+                              className="h-8 w-8 rounded-md border border-input text-base font-medium leading-none disabled:opacity-40"
+                            >
+                              −
+                            </button>
+                            <span
+                              className="w-5 text-center text-sm font-semibold"
+                              aria-live="polite"
+                            >
+                              {qty}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setBracketQty(p.tier, b.value, qty + 1)}
+                              aria-label={`Increase ${p.name} ${b.label} quantity`}
+                              className="h-8 w-8 rounded-md border border-input text-base font-medium leading-none"
+                            >
+                              +
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                <ul className="mt-4 space-y-2 text-sm">
+                  {p.features.map((f) => (
+                    <li key={f} className="flex gap-2">
+                      <span
+                        className={`mt-1.5 h-1.5 w-1.5 rounded-full ${isWhiteGlove ? "bg-warning" : "bg-accent"}`}
+                      />
+                      {f}
+                    </li>
+                  ))}
+                </ul>
+                <div className="mt-6 grid gap-2">
+                  {currentTier === p.tier ? (
+                    cancelAtPeriodEnd ? (
+                      // Scheduled to cancel — two distinct actions rather than one button,
+                      // since "keep it" and "manage billing details" are different intents.
+                      <>
+                        <button
+                          onClick={handleResume}
+                          disabled={resuming}
+                          className="w-full btn-accent disabled:opacity-60"
+                        >
+                          {resuming ? "Resuming…" : "Resubscribe"}
+                        </button>
+                        <button
+                          onClick={handleManageSubscription}
+                          disabled={openingPortal}
+                          className="w-full btn-outline disabled:opacity-60"
+                        >
+                          {openingPortal ? "Redirecting…" : "Manage Subscription"}
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        onClick={handleManageSubscription}
+                        disabled={openingPortal}
+                        className="w-full btn-outline disabled:opacity-60"
+                      >
+                        {openingPortal ? "Redirecting…" : "Manage Subscription"}
+                      </button>
+                    )
+                  ) : alreadySubscribed ? (
+                    // Subscribed, but to the *other* tier — switching plans is a change to
+                    // the existing subscription, not a brand new checkout, so this also
+                    // opens the billing portal rather than starting a second subscription.
                     <button
                       onClick={handleManageSubscription}
                       disabled={openingPortal}
                       className="w-full btn-outline disabled:opacity-60"
                     >
-                      {openingPortal ? "Redirecting…" : "Manage Subscription"}
+                      {openingPortal ? "Redirecting…" : `Switch to ${p.name}`}
                     </button>
-                  </>
-                ) : (
-                  <button
-                    onClick={handleManageSubscription}
-                    disabled={openingPortal}
-                    className="w-full btn-outline disabled:opacity-60"
-                  >
-                    {openingPortal ? "Redirecting…" : "Manage Subscription"}
-                  </button>
-                )
-              ) : alreadySubscribed ? (
-                // Subscribed, but to the *other* tier — switching plans is a change to
-                // the existing subscription, not a brand new checkout, so this also
-                // opens the billing portal rather than starting a second subscription.
-                <button
-                  onClick={handleManageSubscription}
-                  disabled={openingPortal}
-                  className="w-full btn-outline disabled:opacity-60"
-                >
-                  {openingPortal ? "Redirecting…" : `Switch to ${p.name}`}
-                </button>
-              ) : (
-                <button
-                  onClick={() => handleSubscribe(p.tier)}
-                  disabled={checkingOutTier !== null || propertyCount === 0}
-                  className={`w-full ${p.highlight ? "btn-accent" : "btn-primary btn-primary-hover"} disabled:opacity-60`}
-                >
-                  {checkingOutTier === p.tier
-                    ? "Redirecting to checkout…"
-                    : propertyCount === 0
-                      ? "Add at least one property above"
-                      : `Subscribe — $${monthlyTotal}/mo`}
-                </button>
-              )}
-            </div>
-          </div>
-          );
-        })}
-      </div>
+                  ) : (
+                    <button
+                      onClick={() => handleSubscribe(p.tier)}
+                      disabled={checkingOutTier !== null || propertyCount === 0}
+                      className={`w-full ${p.highlight ? "btn-accent" : "btn-primary btn-primary-hover"} disabled:opacity-60`}
+                    >
+                      {checkingOutTier === p.tier
+                        ? "Redirecting to checkout…"
+                        : propertyCount === 0
+                          ? "Add at least one property above"
+                          : `Subscribe — $${monthlyTotal}/mo`}
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
