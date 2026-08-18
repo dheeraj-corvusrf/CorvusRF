@@ -347,9 +347,9 @@
 }
 @keyframes wave-arm {
   0%, 100% { transform: rotate(0deg); }
-  25% { transform: rotate(-18deg); }
-  50% { transform: rotate(4deg); }
-  75% { transform: rotate(-14deg); }
+  25% { transform: rotate(15deg); }
+  50% { transform: rotate(-4deg); }
+  75% { transform: rotate(10deg); }
 }
 /* One-shot "steps out of the doorway" entrance, plus a delayed pop-in for
    the speech bubble once he's arrived — separate elements from the
