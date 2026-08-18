@@ -1,21 +1,60 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { CheckCircle2, AlertTriangle, HelpCircle, Lock, FileWarning, Target, FileText, BarChart3, ArrowRight } from "lucide-react";
-import { RadialBarChart, RadialBar, PolarAngleAxis, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Cell, LabelList, ScatterChart, Scatter } from "recharts";
-import { readIntake, currency, UPLOAD_LIMITS, fileToDataUrl, type IntakeState } from "@/lib/intake-store";
+import {
+  CheckCircle2,
+  AlertTriangle,
+  HelpCircle,
+  Lock,
+  FileWarning,
+  Target,
+  FileText,
+  BarChart3,
+  ArrowRight,
+} from "lucide-react";
+import {
+  RadialBarChart,
+  RadialBar,
+  PolarAngleAxis,
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  Cell,
+  LabelList,
+  ScatterChart,
+  Scatter,
+} from "recharts";
+import {
+  readIntake,
+  currency,
+  UPLOAD_LIMITS,
+  fileToDataUrl,
+  type IntakeState,
+} from "@/lib/intake-store";
 import { MODULES, type Module } from "@/lib/modules";
 import { useAuth } from "@/lib/auth";
 import { getMyBilling } from "@/lib/billing";
 import { getHealthScore, type HealthScoreResult } from "@/lib/ai-health-score";
-import { getModuleAnalysis, type BatchModuleId, type ModuleResultMap } from "@/lib/ai-report-modules";
+import {
+  getModuleAnalysis,
+  type BatchModuleId,
+  type ModuleResultMap,
+} from "@/lib/ai-report-modules";
 import { getComps, type CompsResult } from "@/lib/cad-comps";
 import { estimateSavings } from "@/lib/savings-estimate";
 import { CompsMap } from "@/components/CompsMap";
 import { findExistingProperty, addProperty, type PropertyRecord } from "@/lib/properties";
 import { listProtests, type ProtestRecord } from "@/lib/protests";
 import { generateCasePrep } from "@/lib/protest-case";
-import { uploadDocument, listDocuments, getDocumentUrl, EVIDENCE_DOCUMENT_TYPE, type DocumentRecord } from "@/lib/documents";
+import {
+  uploadDocument,
+  listDocuments,
+  getDocumentUrl,
+  EVIDENCE_DOCUMENT_TYPE,
+  type DocumentRecord,
+} from "@/lib/documents";
 import { ProtestAuthorizationFlow } from "@/components/ProtestAuthorizationFlow";
 import { CaseDetailModal } from "@/components/CaseDetailModal";
 import { AnimatedNumber } from "@/components/AnimatedNumber";
@@ -34,7 +73,10 @@ export const Route = createFileRoute("/ai-report")({
       { title: "AI Property Review — CorvusPT.ai" },
       { name: "description", content: "AI-generated property tax review with 10 premium modules." },
       { property: "og:title", content: "AI Property Review" },
-      { property: "og:description", content: "AI analysis of your Texas commercial or residential property." },
+      {
+        property: "og:description",
+        content: "AI analysis of your Texas commercial or residential property.",
+      },
     ],
   }),
   component: Report,
@@ -114,7 +156,8 @@ function Report() {
       .then((docs) =>
         setEvidenceDocs(
           docs.filter(
-            (d) => d.propertyId === resolvedProperty.id && d.documentType === EVIDENCE_DOCUMENT_TYPE,
+            (d) =>
+              d.propertyId === resolvedProperty.id && d.documentType === EVIDENCE_DOCUMENT_TYPE,
           ),
         ),
       )
@@ -179,7 +222,9 @@ function Report() {
       const uploaded: DocumentRecord[] = [];
       for (const file of toUpload) {
         if (file.size > UPLOAD_LIMITS.maxFileBytes) {
-          toast.error(`${file.name} exceeds ${Math.round(UPLOAD_LIMITS.maxFileBytes / (1024 * 1024))} MB.`);
+          toast.error(
+            `${file.name} exceeds ${Math.round(UPLOAD_LIMITS.maxFileBytes / (1024 * 1024))} MB.`,
+          );
           continue;
         }
         uploaded.push(await uploadDocument(user.id, property.id, file, EVIDENCE_DOCUMENT_TYPE));
@@ -200,7 +245,8 @@ function Report() {
     // deterministic `estimated` value (see estimateSavings() above).
     if (id === "savings") return;
     const existing = moduleData[id];
-    if ((existing && (existing.loading || (existing.data && !opts?.force))) || !state.totalValue) return;
+    if ((existing && (existing.loading || (existing.data && !opts?.force))) || !state.totalValue)
+      return;
     setModuleData((prev) => ({ ...prev, [id]: { data: null, loading: true, error: null } }));
     const input = {
       address: state.address,
@@ -235,7 +281,9 @@ function Report() {
     }
 
     run()
-      .then((data) => setModuleData((prev) => ({ ...prev, [id]: { data, loading: false, error: null } })))
+      .then((data) =>
+        setModuleData((prev) => ({ ...prev, [id]: { data, loading: false, error: null } })),
+      )
       .catch((err) =>
         setModuleData((prev) => ({
           ...prev,
@@ -280,7 +328,8 @@ function Report() {
   // depending on which page you were on. Calling the one real function here
   // instead means this page and the intake flow always agree for the same
   // property, and the number never depends on an AI call.
-  const [savingsEstimate, setSavingsEstimate] = useState<Awaited<ReturnType<typeof estimateSavings>>>(null);
+  const [savingsEstimate, setSavingsEstimate] =
+    useState<Awaited<ReturnType<typeof estimateSavings>>>(null);
   useEffect(() => {
     if (!state.totalValue) return;
     estimateSavings({
@@ -415,10 +464,10 @@ function Report() {
             <div className="text-primary-foreground/70 text-xs">AI Report subscription active</div>
           ) : (
             <>
-              <div>{FREE_MODULE_COUNT} of {MODULES.length} modules free</div>
-              <div className="text-primary-foreground/70 text-xs">
-                Subscribe to unlock the rest
+              <div>
+                {FREE_MODULE_COUNT} of {MODULES.length} modules free
               </div>
+              <div className="text-primary-foreground/70 text-xs">Subscribe to unlock the rest</div>
             </>
           )}
         </div>
@@ -426,7 +475,9 @@ function Report() {
           <div className="w-full pt-3 border-t border-primary-foreground/20 print:hidden">
             {existingProtest ? (
               <div className="flex items-center gap-3">
-                <span className="badge-soft">Protest {existingProtest.status.replace("_", " ")}</span>
+                <span className="badge-soft">
+                  Protest {existingProtest.status.replace("_", " ")}
+                </span>
                 <button
                   onClick={() => setShowCase(true)}
                   className="btn-outline border-white/30 text-primary-foreground hover:bg-background/10 text-sm py-1.5"
@@ -621,7 +672,12 @@ function ModuleCard({
   moduleState: ModuleAsyncState | undefined;
   moduleData: Record<string, ModuleAsyncState>;
   compsMap: { data: CompsResult | null; loading: boolean };
-  estimated: { reduction: number; savings: number; rationale: string | null; effectiveTaxRatePct: number };
+  estimated: {
+    reduction: number;
+    savings: number;
+    rationale: string | null;
+    effectiveTaxRatePct: number;
+  };
   propertyType?: string;
   onOpen: () => void;
 }) {
@@ -644,7 +700,9 @@ function ModuleCard({
     <div className="card-elev p-5 flex flex-col">
       <div className="flex items-start justify-between gap-2">
         <div className="flex items-start gap-3 min-w-0">
-          <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg ${m.color.bg} ${m.color.text}`}>
+          <span
+            className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg ${m.color.bg} ${m.color.text}`}
+          >
             <m.icon className="h-4 w-4" />
           </span>
           <div className="min-w-0">
@@ -662,6 +720,7 @@ function ModuleCard({
           compsMap={compsMap}
           estimated={estimated}
           propertyType={propertyType}
+          onOpen={onOpen}
         />
       </div>
       <div className="mt-4 flex items-center justify-between gap-2">
@@ -691,7 +750,9 @@ function StatusChip({ status }: { status: CardStatus }) {
     Error: "bg-destructive/10 text-destructive",
   };
   return (
-    <span className={`text-[10px] font-semibold px-2 py-1 rounded-full whitespace-nowrap ${map[status]}`}>
+    <span
+      className={`text-[10px] font-semibold px-2 py-1 rounded-full whitespace-nowrap ${map[status]}`}
+    >
       {status}
     </span>
   );
@@ -709,14 +770,21 @@ function ModuleVisual({
   compsMap,
   estimated,
   propertyType,
+  onOpen,
 }: {
   m: Module;
   unlocked: boolean;
   moduleState: ModuleAsyncState | undefined;
   moduleData: Record<string, ModuleAsyncState>;
   compsMap: { data: CompsResult | null; loading: boolean };
-  estimated: { reduction: number; savings: number; rationale: string | null; effectiveTaxRatePct: number };
+  estimated: {
+    reduction: number;
+    savings: number;
+    rationale: string | null;
+    effectiveTaxRatePct: number;
+  };
   propertyType?: string;
+  onOpen: () => void;
 }) {
   if (!unlocked) {
     return (
@@ -754,7 +822,10 @@ function ModuleVisual({
           <span className="text-xs text-muted-foreground">comparable properties found nearby</span>
         </div>
         <div className="mt-1.5">
-          <CompsScatter comps={compsMap.data.comps} subjectValue={compsMap.data.subject?.marketValue ?? null} />
+          <CompsScatter
+            comps={compsMap.data.comps}
+            subjectValue={compsMap.data.subject?.marketValue ?? null}
+          />
         </div>
       </div>
     );
@@ -763,7 +834,15 @@ function ModuleVisual({
   const loading = !moduleState || moduleState.loading || (m.id === "comps" && compsMap.loading);
   if (loading) return <SkeletonVisual />;
   if (moduleState?.error) {
-    return <span className="text-xs text-destructive">Couldn't load — click to view &amp; retry</span>;
+    return (
+      <button
+        type="button"
+        onClick={onOpen}
+        className="text-left text-xs text-destructive underline underline-offset-2 hover:text-destructive/80"
+      >
+        Couldn't load — click to view &amp; retry
+      </button>
+    );
   }
   if (!moduleState?.data) return null;
 
@@ -796,7 +875,10 @@ function ModuleVisual({
       return (
         <div>
           <div className="flex items-baseline gap-1.5">
-            <span className="font-serif text-xl font-bold" style={{ color: scoreColor(d.confidencePct) }}>
+            <span
+              className="font-serif text-xl font-bold"
+              style={{ color: scoreColor(d.confidencePct) }}
+            >
               {d.confidencePct}%
             </span>
             <span className="text-xs text-muted-foreground">confidence</span>
@@ -828,7 +910,11 @@ function ModuleVisual({
     case "zoning": {
       const d = moduleState.data as ModuleResultMap["zoning"];
       return (
-        <MiniZoningBadge matches={d.matches} stated={propertyType} typical={d.typicalClassification || undefined} />
+        <MiniZoningBadge
+          matches={d.matches}
+          stated={propertyType}
+          typical={d.typicalClassification || undefined}
+        />
       );
     }
     case "evidence": {
@@ -840,8 +926,13 @@ function ModuleVisual({
       const strategyData = moduleData.strategy?.data as ModuleResultMap["strategy"] | undefined;
       const evidenceData = moduleData.evidence?.data as ModuleResultMap["evidence"] | undefined;
       const keyEvidence =
-        evidenceData?.items.find((i) => i.importance === "High")?.item ?? evidenceData?.items[0]?.item ?? null;
-      const comps = compsMap.data?.comps.filter((c): c is typeof c & { marketValue: number } => c.marketValue != null) ?? [];
+        evidenceData?.items.find((i) => i.importance === "High")?.item ??
+        evidenceData?.items[0]?.item ??
+        null;
+      const comps =
+        compsMap.data?.comps.filter(
+          (c): c is typeof c & { marketValue: number } => c.marketValue != null,
+        ) ?? [];
       const valueRange =
         comps.length > 0
           ? `${compactCurrency(Math.min(...comps.map((c) => c.marketValue)))}–${compactCurrency(Math.max(...comps.map((c) => c.marketValue)))}`
@@ -950,10 +1041,26 @@ function EvidenceQuadrant({ items }: { items: ModuleResultMap["evidence"]["items
     items.filter((i) => i.importance === importance && i.availability === availability);
   const focus = cell("High", "Low");
   const quadrants: { label: string; count: number; tone: string }[] = [
-    { label: "High Importance · Missing", count: focus.length, tone: "bg-destructive/10 text-destructive" },
-    { label: "High Importance · Available", count: cell("High", "High").length, tone: "bg-success/10 text-success" },
-    { label: "Low Importance · Missing", count: cell("Low", "Low").length, tone: "bg-warning/15 text-warning-foreground" },
-    { label: "Low Importance · Available", count: cell("Low", "High").length, tone: "bg-secondary/60 text-muted-foreground" },
+    {
+      label: "High Importance · Missing",
+      count: focus.length,
+      tone: "bg-destructive/10 text-destructive",
+    },
+    {
+      label: "High Importance · Available",
+      count: cell("High", "High").length,
+      tone: "bg-success/10 text-success",
+    },
+    {
+      label: "Low Importance · Missing",
+      count: cell("Low", "Low").length,
+      tone: "bg-warning/15 text-warning-foreground",
+    },
+    {
+      label: "Low Importance · Available",
+      count: cell("Low", "High").length,
+      tone: "bg-secondary/60 text-muted-foreground",
+    },
   ];
   return (
     <div>
@@ -974,7 +1081,15 @@ function EvidenceQuadrant({ items }: { items: ModuleResultMap["evidence"]["items
   );
 }
 
-function FormulaChain({ reduction, ratePct, savings }: { reduction: number; ratePct: number; savings: number }) {
+function FormulaChain({
+  reduction,
+  ratePct,
+  savings,
+}: {
+  reduction: number;
+  ratePct: number;
+  savings: number;
+}) {
   return (
     <div className="flex items-center gap-1.5">
       <div>
@@ -1015,10 +1130,15 @@ function ExecutiveBadges({
   return (
     <div className="grid grid-cols-2 gap-1.5">
       {badges.map((b) => (
-        <div key={b.label} className="flex items-start gap-1.5 rounded-md bg-secondary/40 px-2 py-1.5">
+        <div
+          key={b.label}
+          className="flex items-start gap-1.5 rounded-md bg-secondary/40 px-2 py-1.5"
+        >
           <b.icon className="h-3.5 w-3.5 shrink-0 mt-0.5 text-accent" />
           <div className="min-w-0">
-            <div className="text-[8px] uppercase tracking-wide text-muted-foreground">{b.label}</div>
+            <div className="text-[8px] uppercase tracking-wide text-muted-foreground">
+              {b.label}
+            </div>
             <div className="truncate text-[11px] font-medium">{b.value || "—"}</div>
           </div>
         </div>
@@ -1085,10 +1205,14 @@ function MiniZoningBadge({
       {(stated || typical) && (
         <div className="mt-1 flex flex-wrap gap-1.5">
           {stated && (
-            <span className="rounded-full bg-secondary/60 px-2 py-0.5 text-[10px]">Stated: {stated}</span>
+            <span className="rounded-full bg-secondary/60 px-2 py-0.5 text-[10px]">
+              Stated: {stated}
+            </span>
           )}
           {typical && (
-            <span className="rounded-full bg-secondary/60 px-2 py-0.5 text-[10px]">Typical: {typical}</span>
+            <span className="rounded-full bg-secondary/60 px-2 py-0.5 text-[10px]">
+              Typical: {typical}
+            </span>
           )}
         </div>
       )}
@@ -1110,7 +1234,12 @@ function ModulePreviewBody({
   onForceReload,
 }: {
   m: Module;
-  estimated: { reduction: number; savings: number; rationale: string | null; effectiveTaxRatePct: number };
+  estimated: {
+    reduction: number;
+    savings: number;
+    rationale: string | null;
+    effectiveTaxRatePct: number;
+  };
   state: IntakeState;
   moduleState: ModuleAsyncState | undefined;
   compsMap: { data: CompsResult | null; loading: boolean };
@@ -1307,7 +1436,11 @@ function ModulePreviewBody({
                   />
                 </label>
                 {evidenceDocs.length > 0 && (
-                  <button disabled={loading} onClick={onForceReload} className="btn-outline text-sm disabled:opacity-60">
+                  <button
+                    disabled={loading}
+                    onClick={onForceReload}
+                    className="btn-outline text-sm disabled:opacity-60"
+                  >
                     Regenerate with Evidence
                   </button>
                 )}
@@ -1331,7 +1464,12 @@ function ModulePreviewBody({
       return (
         <div className="mt-4 grid gap-2">
           {d.items.map((it, i) => (
-            <PriorityRow key={i} item={it.item} importance={it.importance} availability={it.availability} />
+            <PriorityRow
+              key={i}
+              item={it.item}
+              importance={it.importance}
+              availability={it.availability}
+            />
           ))}
         </div>
       );
@@ -1524,4 +1662,3 @@ function Field({ label, value, bold }: { label: string; value?: string; bold?: b
     </div>
   );
 }
-
