@@ -266,7 +266,7 @@ function Page() {
             <div className="text-xs font-medium">Free AI Review</div>
             <div className="text-xs text-muted-foreground">one property</div>
             <Link to="/" className="btn-outline text-xs mt-2 w-full py-1.5">
-              Start Free
+              Start Free Review
             </Link>
           </div>
           </ScrollReveal>
