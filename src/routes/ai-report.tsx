@@ -1,8 +1,8 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { CheckCircle2, AlertTriangle, HelpCircle } from "lucide-react";
-import { RadialBarChart, RadialBar, PolarAngleAxis, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Cell, LabelList } from "recharts";
+import { CheckCircle2, AlertTriangle, HelpCircle, Lock, FileWarning, Target, FileText, BarChart3, ArrowRight } from "lucide-react";
+import { RadialBarChart, RadialBar, PolarAngleAxis, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Cell, LabelList, ScatterChart, Scatter } from "recharts";
 import { readIntake, currency, UPLOAD_LIMITS, fileToDataUrl, type IntakeState } from "@/lib/intake-store";
 import { MODULES, type Module } from "@/lib/modules";
 import { useAuth } from "@/lib/auth";
@@ -309,20 +309,51 @@ function Report() {
   ]);
 
   const estimated = useMemo(() => {
-    if (!savingsEstimate || !state.totalValue) return { reduction: 0, savings: 0, rationale: null as string | null };
+    if (!savingsEstimate || !state.totalValue)
+      return { reduction: 0, savings: 0, rationale: null as string | null, effectiveTaxRatePct: 0 };
     if (savingsEstimate.basis === "comps") {
       return {
         reduction: Math.max(0, state.totalValue - savingsEstimate.compsMedian),
         savings: savingsEstimate.amount,
         rationale: `Estimated from ${savingsEstimate.compsCount} real comparable properties, at your county's ~${savingsEstimate.effectiveTaxRatePct}% effective tax rate.`,
+        effectiveTaxRatePct: savingsEstimate.effectiveTaxRatePct,
       };
     }
     return {
       reduction: Math.round(state.totalValue * (savingsEstimate.reductionPct / 100)),
       savings: savingsEstimate.amount,
       rationale: savingsEstimate.rationale,
+      effectiveTaxRatePct: savingsEstimate.effectiveTaxRatePct,
     };
   }, [savingsEstimate, state.totalValue]);
+
+  // Eager-loads real data for the module overview grid below (real scores,
+  // checklists, etc. instead of generic teaser text) as soon as the property
+  // is known. Free-preview modules (1-3) load for everyone; the rest only
+  // once hasFullAccess resolves true, so a signed-out visitor or an
+  // unsubscribed user never burns an AI call analyzing a module they can't
+  // see yet — they still get the same "Subscribe to unlock" card either way.
+  // "savings" needs no call (estimateSavings() above already runs
+  // unconditionally) and "income" needs user-uploaded data that doesn't
+  // exist yet, so both are skipped here exactly like loadModule() itself
+  // already skips "savings".
+  useEffect(() => {
+    if (!state.totalValue) return;
+    for (const m of MODULES) {
+      if (m.id === "savings" || m.id === "income") continue;
+      if (m.n <= FREE_MODULE_COUNT || hasFullAccess) loadModule(m.id);
+    }
+    loadCompsMap();
+    // loadModule/loadCompsMap close over moduleData/compsMap for their
+    // own-fetch guards, which is exactly why they're left out of this
+    // dependency list — including them would re-fire this effect (and, via
+    // the loading-state update inside loadModule, immediately re-fire
+    // itself again) on every single module's own load, an infinite loop
+    // just like the hub doors' entrance-animation bug earlier. Property
+    // identity and access level are the only real triggers for "should we
+    // start loading modules."
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.totalValue, hasFullAccess]);
 
   function openModule(m: Module) {
     if (hasFullAccess || m.n <= FREE_MODULE_COUNT) {
@@ -430,9 +461,13 @@ function Report() {
             <ModuleCard
               key={m.id}
               m={m}
-              analyzing={analyzing}
               unlocked={hasFullAccess || m.n <= FREE_MODULE_COUNT}
               hasFullAccess={hasFullAccess}
+              moduleState={moduleData[m.id]}
+              moduleData={moduleData}
+              compsMap={compsMap}
+              estimated={estimated}
+              propertyType={state.propertyType}
               onOpen={() => openModule(m)}
             />
           ))}
@@ -571,18 +606,40 @@ function Report() {
 
 function ModuleCard({
   m,
-  analyzing,
   unlocked,
   hasFullAccess,
+  moduleState,
+  moduleData,
+  compsMap,
+  estimated,
+  propertyType,
   onOpen,
 }: {
   m: Module;
-  analyzing: boolean;
   unlocked: boolean;
   hasFullAccess: boolean;
+  moduleState: ModuleAsyncState | undefined;
+  moduleData: Record<string, ModuleAsyncState>;
+  compsMap: { data: CompsResult | null; loading: boolean };
+  estimated: { reduction: number; savings: number; rationale: string | null; effectiveTaxRatePct: number };
+  propertyType?: string;
   onOpen: () => void;
 }) {
-  const status = analyzing ? "Analyzing" : m.status;
+  // Reflects what's actually happening now that the grid eager-loads real
+  // data (see the effect above Report()), not the old static per-module
+  // metadata — "Completed" used to show even for a module nobody had opened
+  // yet, before it had actually run.
+  const status: CardStatus = !unlocked
+    ? "Locked"
+    : m.id === "income"
+      ? "Needs Data"
+      : m.id === "savings"
+        ? "Completed"
+        : !moduleState || moduleState.loading
+          ? "Analyzing"
+          : moduleState.error
+            ? "Error"
+            : "Completed";
   return (
     <div className="card-elev p-5 flex flex-col">
       <div className="flex items-start justify-between gap-2">
@@ -591,14 +648,22 @@ function ModuleCard({
             <m.icon className="h-4 w-4" />
           </span>
           <div className="min-w-0">
-            <div className="text-xs text-muted-foreground">Module {m.n}</div>
-            <h3 className="font-semibold">{m.title}</h3>
+            <h3 className="font-semibold leading-tight">{m.title}</h3>
           </div>
         </div>
         <StatusChip status={status} />
       </div>
-      <p className="mt-2 text-sm text-muted-foreground">{m.question}</p>
-      <div className={`mt-3 text-sm ${!unlocked ? "locked-blur" : ""}`}>{m.teaser}</div>
+      <div className="mt-4 flex-1 flex flex-col justify-center">
+        <ModuleVisual
+          m={m}
+          unlocked={unlocked}
+          moduleState={moduleState}
+          moduleData={moduleData}
+          compsMap={compsMap}
+          estimated={estimated}
+          propertyType={propertyType}
+        />
+      </div>
       <div className="mt-4 flex items-center justify-between gap-2">
         {hasFullAccess ? (
           <span className="text-xs font-medium text-success">Included</span>
@@ -615,16 +680,419 @@ function ModuleCard({
   );
 }
 
-function StatusChip({ status }: { status: Module["status"] }) {
-  const map: Record<Module["status"], string> = {
+type CardStatus = "Locked" | "Analyzing" | "Completed" | "Needs Data" | "Error";
+
+function StatusChip({ status }: { status: CardStatus }) {
+  const map: Record<CardStatus, string> = {
+    Locked: "bg-secondary text-muted-foreground",
     Analyzing: "bg-secondary text-muted-foreground",
     Completed: "bg-success/15 text-success",
-    "Additional Data Needed": "bg-warning/20 text-warning-foreground",
+    "Needs Data": "bg-warning/20 text-warning-foreground",
+    Error: "bg-destructive/10 text-destructive",
   };
   return (
-    <span className={`text-[10px] font-semibold px-2 py-1 rounded-full ${map[status]}`}>
+    <span className={`text-[10px] font-semibold px-2 py-1 rounded-full whitespace-nowrap ${map[status]}`}>
       {status}
     </span>
+  );
+}
+
+// The small, glanceable visual each overview card shows in place of the old
+// paragraph of teaser text — real data once loaded (see the eager-load
+// effect above Report()), a skeleton while it's in flight, and a lock
+// (never a fetch attempt) for gated modules nobody has subscribed to yet.
+function ModuleVisual({
+  m,
+  unlocked,
+  moduleState,
+  moduleData,
+  compsMap,
+  estimated,
+  propertyType,
+}: {
+  m: Module;
+  unlocked: boolean;
+  moduleState: ModuleAsyncState | undefined;
+  moduleData: Record<string, ModuleAsyncState>;
+  compsMap: { data: CompsResult | null; loading: boolean };
+  estimated: { reduction: number; savings: number; rationale: string | null; effectiveTaxRatePct: number };
+  propertyType?: string;
+}) {
+  if (!unlocked) {
+    return (
+      <div className="flex items-center gap-2 text-muted-foreground">
+        <Lock className="h-4 w-4 shrink-0" />
+        <span className="text-xs">Subscribe to see this analysis</span>
+      </div>
+    );
+  }
+
+  if (m.id === "savings") {
+    return (
+      <FormulaChain
+        reduction={estimated.reduction}
+        ratePct={estimated.effectiveTaxRatePct}
+        savings={estimated.savings}
+      />
+    );
+  }
+
+  if (m.id === "income") {
+    return (
+      <div className="flex items-center gap-2 text-muted-foreground">
+        <FileWarning className="h-4 w-4 shrink-0" />
+        <span className="text-xs">Upload financials to run this analysis</span>
+      </div>
+    );
+  }
+
+  if (m.id === "comps" && compsMap.data?.comps.length) {
+    return (
+      <div>
+        <div className="flex items-baseline gap-1.5">
+          <span className="font-serif text-xl font-bold">{compsMap.data.comps.length}</span>
+          <span className="text-xs text-muted-foreground">comparable properties found nearby</span>
+        </div>
+        <div className="mt-1.5">
+          <CompsScatter comps={compsMap.data.comps} subjectValue={compsMap.data.subject?.marketValue ?? null} />
+        </div>
+      </div>
+    );
+  }
+
+  const loading = !moduleState || moduleState.loading || (m.id === "comps" && compsMap.loading);
+  if (loading) return <SkeletonVisual />;
+  if (moduleState?.error) {
+    return <span className="text-xs text-destructive">Couldn't load — click to view &amp; retry</span>;
+  }
+  if (!moduleState?.data) return null;
+
+  switch (m.id) {
+    case "health": {
+      const d = moduleState.data as HealthScoreResult;
+      return (
+        <div>
+          <MiniGauge value={d.score} label="opportunity score" />
+          {d.factors.length > 0 && (
+            <div className="mt-1.5 flex flex-wrap gap-1">
+              {d.factors.slice(0, 2).map((f, i) => (
+                <Chip key={i}>{f}</Chip>
+              ))}
+            </div>
+          )}
+        </div>
+      );
+    }
+    case "strategy": {
+      const d = moduleState.data as ModuleResultMap["strategy"];
+      if (d.factorScores.length > 0) {
+        return (
+          <div>
+            <div className="mb-1.5 text-xs font-medium truncate">{d.recommendation}</div>
+            <FactorBarsChart factors={d.factorScores} />
+          </div>
+        );
+      }
+      return (
+        <div>
+          <div className="flex items-baseline gap-1.5">
+            <span className="font-serif text-xl font-bold" style={{ color: scoreColor(d.confidencePct) }}>
+              {d.confidencePct}%
+            </span>
+            <span className="text-xs text-muted-foreground">confidence</span>
+          </div>
+          <div className="mt-0.5 text-sm font-medium truncate">{d.recommendation}</div>
+        </div>
+      );
+    }
+    case "comps": {
+      const d = moduleState.data as ModuleResultMap["comps"];
+      return (
+        <div className="text-xs text-muted-foreground">
+          {d.checklist.length} evidence item{d.checklist.length === 1 ? "" : "s"} to gather
+        </div>
+      );
+    }
+    case "site":
+    case "improvement": {
+      const d = moduleState.data as ModuleResultMap["site"] | ModuleResultMap["improvement"];
+      return (
+        <div>
+          <MiniMeter value={d.priorityScore} label="documentation priority" />
+          <div className="mt-1 text-[11px] text-muted-foreground">
+            {d.checklist.length} factor{d.checklist.length === 1 ? "" : "s"} worth documenting
+          </div>
+        </div>
+      );
+    }
+    case "zoning": {
+      const d = moduleState.data as ModuleResultMap["zoning"];
+      return (
+        <MiniZoningBadge matches={d.matches} stated={propertyType} typical={d.typicalClassification || undefined} />
+      );
+    }
+    case "evidence": {
+      const d = moduleState.data as ModuleResultMap["evidence"];
+      return <EvidenceQuadrant items={d.items} />;
+    }
+    case "executive": {
+      const d = moduleState.data as ModuleResultMap["executive"];
+      const strategyData = moduleData.strategy?.data as ModuleResultMap["strategy"] | undefined;
+      const evidenceData = moduleData.evidence?.data as ModuleResultMap["evidence"] | undefined;
+      const keyEvidence =
+        evidenceData?.items.find((i) => i.importance === "High")?.item ?? evidenceData?.items[0]?.item ?? null;
+      const comps = compsMap.data?.comps.filter((c): c is typeof c & { marketValue: number } => c.marketValue != null) ?? [];
+      const valueRange =
+        comps.length > 0
+          ? `${compactCurrency(Math.min(...comps.map((c) => c.marketValue)))}–${compactCurrency(Math.max(...comps.map((c) => c.marketValue)))}`
+          : null;
+      return (
+        <ExecutiveBadges
+          strategy={strategyData?.recommendation ?? null}
+          keyEvidence={keyEvidence}
+          valueRange={valueRange}
+          nextStep={d.nextStep}
+        />
+      );
+    }
+    default:
+      return null;
+  }
+}
+
+// Compact "$4.8M"/"$120K" formatting for tight badge/axis labels where the
+// full currency() output (e.g. "$4,800,000") would overflow.
+function compactCurrency(n: number): string {
+  if (Math.abs(n) >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`;
+  if (Math.abs(n) >= 1_000) return `$${Math.round(n / 1000)}K`;
+  return currency(n);
+}
+
+function CompsScatter({
+  comps,
+  subjectValue,
+}: {
+  comps: { marketValue: number | null }[];
+  subjectValue: number | null;
+}) {
+  const points = comps
+    .filter((c): c is { marketValue: number } => c.marketValue != null)
+    .map((c) => ({ x: c.marketValue, y: 0 }));
+  if (points.length === 0) return null;
+  const values = points.map((p) => p.x).concat(subjectValue != null ? [subjectValue] : []);
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const pad = (max - min) * 0.2 || max * 0.1 || 1000;
+  return (
+    <div>
+      <ResponsiveContainer width="100%" height={44}>
+        <ScatterChart margin={{ top: 4, right: 8, bottom: 4, left: 8 }}>
+          <XAxis type="number" dataKey="x" domain={[min - pad, max + pad]} hide />
+          <YAxis type="number" dataKey="y" domain={[-1, 1]} hide />
+          <Scatter data={points} fill="var(--muted-foreground)" />
+          {subjectValue != null && (
+            <Scatter data={[{ x: subjectValue, y: 0 }]} fill="var(--accent)" shape="diamond" />
+          )}
+        </ScatterChart>
+      </ResponsiveContainer>
+      <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+        <span>{compactCurrency(min)}</span>
+        <span>◆ subject vs comps</span>
+        <span>{compactCurrency(max)}</span>
+      </div>
+    </div>
+  );
+}
+
+function FactorBarsChart({ factors }: { factors: { label: string; score: number }[] }) {
+  return (
+    <div className="grid gap-1.5">
+      {factors.map((f, i) => (
+        <div key={i} className="grid grid-cols-[1fr_2rem] items-center gap-2">
+          <div className="min-w-0">
+            <div className="truncate text-[10px] text-muted-foreground">{f.label}</div>
+            <div className="h-1.5 rounded-full bg-secondary/60">
+              <div
+                className="h-1.5 rounded-full"
+                style={{ width: `${f.score}%`, backgroundColor: scoreColor(f.score) }}
+              />
+            </div>
+          </div>
+          <div className="text-right text-xs font-semibold" style={{ color: scoreColor(f.score) }}>
+            {f.score}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function MiniMeter({ value, label }: { value: number; label: string }) {
+  const color = scoreColor(value);
+  return (
+    <div>
+      <div className="flex items-baseline justify-between">
+        <span className="text-xs text-muted-foreground">{label}</span>
+        <span className="text-xs font-semibold" style={{ color }}>
+          {value}
+        </span>
+      </div>
+      <div className="mt-1 h-2 rounded-full bg-secondary/60">
+        <div className="h-2 rounded-full" style={{ width: `${value}%`, backgroundColor: color }} />
+      </div>
+    </div>
+  );
+}
+
+function EvidenceQuadrant({ items }: { items: ModuleResultMap["evidence"]["items"] }) {
+  if (items.length === 0) return <div className="text-xs text-muted-foreground">No gaps found</div>;
+  const cell = (importance: "High" | "Low", availability: "High" | "Low") =>
+    items.filter((i) => i.importance === importance && i.availability === availability);
+  const focus = cell("High", "Low");
+  const quadrants: { label: string; count: number; tone: string }[] = [
+    { label: "High Importance · Missing", count: focus.length, tone: "bg-destructive/10 text-destructive" },
+    { label: "High Importance · Available", count: cell("High", "High").length, tone: "bg-success/10 text-success" },
+    { label: "Low Importance · Missing", count: cell("Low", "Low").length, tone: "bg-warning/15 text-warning-foreground" },
+    { label: "Low Importance · Available", count: cell("Low", "High").length, tone: "bg-secondary/60 text-muted-foreground" },
+  ];
+  return (
+    <div>
+      <div className="grid grid-cols-2 gap-1.5">
+        {quadrants.map((q) => (
+          <div key={q.label} className={`rounded-md px-2 py-1.5 ${q.tone}`}>
+            <div className="text-[8px] font-semibold uppercase tracking-wide">{q.label}</div>
+            <div className="text-lg font-bold leading-tight">{q.count}</div>
+          </div>
+        ))}
+      </div>
+      {focus.length > 0 && (
+        <div className="mt-1.5 truncate text-[11px] text-muted-foreground">
+          Focus first: {focus.map((i) => i.item).join(", ")}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FormulaChain({ reduction, ratePct, savings }: { reduction: number; ratePct: number; savings: number }) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <div>
+        <div className="text-sm font-bold">{compactCurrency(reduction)}</div>
+        <div className="text-[9px] text-muted-foreground">value reduction</div>
+      </div>
+      <span className="text-xs text-muted-foreground">×</span>
+      <div>
+        <div className="text-sm font-bold">{ratePct}%</div>
+        <div className="text-[9px] text-muted-foreground">tax rate</div>
+      </div>
+      <span className="text-xs text-muted-foreground">=</span>
+      <div>
+        <div className="text-sm font-bold text-success">{compactCurrency(savings)}</div>
+        <div className="text-[9px] text-muted-foreground">savings</div>
+      </div>
+    </div>
+  );
+}
+
+function ExecutiveBadges({
+  strategy,
+  keyEvidence,
+  valueRange,
+  nextStep,
+}: {
+  strategy: string | null;
+  keyEvidence: string | null;
+  valueRange: string | null;
+  nextStep: string;
+}) {
+  const badges = [
+    { icon: Target, label: "Primary Strategy", value: strategy },
+    { icon: FileText, label: "Key Evidence", value: keyEvidence },
+    { icon: BarChart3, label: "Value Range", value: valueRange },
+    { icon: ArrowRight, label: "Next Step", value: nextStep },
+  ];
+  return (
+    <div className="grid grid-cols-2 gap-1.5">
+      {badges.map((b) => (
+        <div key={b.label} className="flex items-start gap-1.5 rounded-md bg-secondary/40 px-2 py-1.5">
+          <b.icon className="h-3.5 w-3.5 shrink-0 mt-0.5 text-accent" />
+          <div className="min-w-0">
+            <div className="text-[8px] uppercase tracking-wide text-muted-foreground">{b.label}</div>
+            <div className="truncate text-[11px] font-medium">{b.value || "—"}</div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function SkeletonVisual() {
+  return (
+    <div className="grid gap-2">
+      <div className="h-6 w-16 animate-pulse rounded bg-secondary/60" />
+      <div className="h-3 w-28 animate-pulse rounded bg-secondary/40" />
+    </div>
+  );
+}
+
+function MiniGauge({ value, label }: { value: number; label: string }) {
+  const color = scoreColor(value);
+  return (
+    <div className="flex items-center gap-3">
+      <div className="relative h-12 w-12 shrink-0">
+        <ResponsiveContainer width="100%" height="100%">
+          <RadialBarChart
+            innerRadius="70%"
+            outerRadius="100%"
+            data={[{ value, fill: color }]}
+            startAngle={90}
+            endAngle={-270}
+            barSize={5}
+          >
+            <PolarAngleAxis type="number" domain={[0, 100]} tick={false} />
+            <RadialBar background dataKey="value" cornerRadius={4} />
+          </RadialBarChart>
+        </ResponsiveContainer>
+        <div
+          className="absolute inset-0 flex items-center justify-center text-xs font-bold"
+          style={{ color }}
+        >
+          {value}
+        </div>
+      </div>
+      <div className="text-xs text-muted-foreground">{label}</div>
+    </div>
+  );
+}
+
+function MiniZoningBadge({
+  matches,
+  stated,
+  typical,
+}: {
+  matches: keyof typeof ZONING_STATUS;
+  stated?: string;
+  typical?: string;
+}) {
+  const { Icon, color, label } = ZONING_STATUS[matches];
+  return (
+    <div>
+      <div className="flex items-center gap-2">
+        <Icon className={`h-5 w-5 shrink-0 ${color}`} />
+        <span className={`text-sm font-medium ${color}`}>{label}</span>
+      </div>
+      {(stated || typical) && (
+        <div className="mt-1 flex flex-wrap gap-1.5">
+          {stated && (
+            <span className="rounded-full bg-secondary/60 px-2 py-0.5 text-[10px]">Stated: {stated}</span>
+          )}
+          {typical && (
+            <span className="rounded-full bg-secondary/60 px-2 py-0.5 text-[10px]">Typical: {typical}</span>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -642,7 +1110,7 @@ function ModulePreviewBody({
   onForceReload,
 }: {
   m: Module;
-  estimated: { reduction: number; savings: number; rationale: string | null };
+  estimated: { reduction: number; savings: number; rationale: string | null; effectiveTaxRatePct: number };
   state: IntakeState;
   moduleState: ModuleAsyncState | undefined;
   compsMap: { data: CompsResult | null; loading: boolean };
@@ -862,8 +1330,8 @@ function ModulePreviewBody({
       const d = moduleState.data as ModuleResultMap["evidence"];
       return (
         <div className="mt-4 grid gap-2">
-          {d.checklist.map((c, i) => (
-            <PriorityRow key={i} item={c} rank={i} />
+          {d.items.map((it, i) => (
+            <PriorityRow key={i} item={it.item} importance={it.importance} availability={it.availability} />
           ))}
         </div>
       );
@@ -968,11 +1436,19 @@ function Chip({ children, icon }: { children: React.ReactNode; icon?: boolean })
   );
 }
 
-function PriorityRow({ item, rank }: { item: string; rank: number }) {
+function PriorityRow({
+  item,
+  importance,
+  availability,
+}: {
+  item: string;
+  importance: "High" | "Low";
+  availability: "High" | "Low";
+}) {
   const tone =
-    rank === 0
+    importance === "High" && availability === "Low"
       ? { bg: "bg-destructive/10", text: "text-destructive", label: "Top Priority" }
-      : rank === 1
+      : importance === "High"
         ? { bg: "bg-warning/15", text: "text-warning-foreground", label: "High Priority" }
         : { bg: "bg-secondary/60", text: "text-muted-foreground", label: null };
   return (

@@ -52,11 +52,45 @@ type ModuleSpec = { instruction: string; schema: string; parse: (parsed: any) =>
 const checklist = (v: unknown): string[] =>
   Array.isArray(v) ? v.filter((x): x is string => typeof x === "string").slice(0, 4) : [];
 
+// Clamps an AI-provided 0-100 score, falling back to a neutral midpoint
+// (rather than 0, which would visually read as "no issue found" — the
+// opposite of "the AI didn't return a usable number") when missing/invalid.
+const score100 = (v: unknown, fallback = 50): number =>
+  Math.max(0, Math.min(100, Math.round(Number(v)) || fallback));
+
+const factorScores = (v: unknown): { label: string; score: number }[] =>
+  Array.isArray(v)
+    ? v
+        .filter(
+          (x): x is { label: unknown; score: unknown } => typeof x === "object" && x !== null,
+        )
+        .map((x) => ({ label: String((x as { label: unknown }).label ?? "").slice(0, 40), score: score100((x as { score: unknown }).score) }))
+        .filter((x) => x.label.length > 0)
+        .slice(0, 4)
+    : [];
+
+const evidenceItems = (v: unknown): { item: string; importance: "High" | "Low"; availability: "High" | "Low" }[] =>
+  Array.isArray(v)
+    ? v
+        .filter((x): x is Record<string, unknown> => typeof x === "object" && x !== null)
+        .map((x) => ({
+          item: String(x.item ?? "").slice(0, 120),
+          importance: x.importance === "High" ? "High" as const : "Low" as const,
+          availability: x.availability === "High" ? "High" as const : "Low" as const,
+        }))
+        .filter((x) => x.item.length > 0)
+        .slice(0, 6)
+    : [];
+
 const MODULE_SPECS: Record<string, ModuleSpec> = {
   strategy: {
     instruction:
-      "Recommend the single best-fit protest strategy for this record, with a confidence score.",
-    schema: `{"recommendation": "<one of: ${STRATEGIES.join(" | ")}>", "confidencePct": <integer 0-100, how confident this recommendation is given only a CAD record with no comps/inspection>, "rationale": "<1-2 sentences>"}`,
+      "Recommend the single best-fit protest strategy for this record, with a confidence score. " +
+      "Also break your reasoning into up to 4 short-labeled contributing factors (e.g. \"Comparable " +
+      "Sales\", \"Site Condition\", \"Improvement Condition\", \"Income Approach\", \"Zoning\" — pick " +
+      "whichever are actually relevant here), each with its own 0-100 opportunity score, ranked " +
+      "strongest first.",
+    schema: `{"recommendation": "<one of: ${STRATEGIES.join(" | ")}>", "confidencePct": <integer 0-100, how confident this recommendation is given only a CAD record with no comps/inspection>, "rationale": "<1-2 sentences>", "factorScores": [{"label": "<2-4 words>", "score": <integer 0-100>}, ...]}`,
     parse: (p) => ({
       recommendation:
         typeof p.recommendation === "string" && STRATEGIES.includes(p.recommendation)
@@ -64,6 +98,7 @@ const MODULE_SPECS: Record<string, ModuleSpec> = {
           : "Combined Approach",
       confidencePct: Math.max(0, Math.min(100, Math.round(Number(p.confidencePct) || 60))),
       rationale: p.rationale ?? "",
+      factorScores: factorScores(p.factorScores),
     }),
   },
   comps: {
@@ -73,31 +108,45 @@ const MODULE_SPECS: Record<string, ModuleSpec> = {
     parse: (p) => ({ guidance: p.guidance ?? "", checklist: checklist(p.checklist) }),
   },
   site: {
-    instruction: "Give guidance on site-condition factors (access, drainage, easements) worth documenting.",
-    schema: `{"guidance": "<1-2 sentences>", "checklist": ["<short item>", ...]}`,
-    parse: (p) => ({ guidance: p.guidance ?? "", checklist: checklist(p.checklist) }),
+    instruction:
+      "Give guidance on site-condition factors (access, drainage, easements) worth documenting. " +
+      "Also give an overall 0-100 documentation-priority score for how worthwhile pursuing site-" +
+      "condition evidence looks for this specific property (based on its value profile and property " +
+      "type — not a claim about a specific defect you haven't observed).",
+    schema: `{"guidance": "<1-2 sentences>", "checklist": ["<short item>", ...], "priorityScore": <integer 0-100>}`,
+    parse: (p) => ({ guidance: p.guidance ?? "", checklist: checklist(p.checklist), priorityScore: score100(p.priorityScore) }),
   },
   improvement: {
     instruction:
-      "Give guidance on building condition / functional obsolescence factors worth documenting.",
-    schema: `{"guidance": "<1-2 sentences>", "checklist": ["<short item>", ...]}`,
-    parse: (p) => ({ guidance: p.guidance ?? "", checklist: checklist(p.checklist) }),
+      "Give guidance on building condition / functional obsolescence factors worth documenting. " +
+      "Also give an overall 0-100 documentation-priority score for how worthwhile pursuing " +
+      "improvement-condition evidence looks for this specific property (based on its value profile " +
+      "and property type — not a claim about a specific defect you haven't observed).",
+    schema: `{"guidance": "<1-2 sentences>", "checklist": ["<short item>", ...], "priorityScore": <integer 0-100>}`,
+    parse: (p) => ({ guidance: p.guidance ?? "", checklist: checklist(p.checklist), priorityScore: score100(p.priorityScore) }),
   },
   zoning: {
     instruction:
-      "Assess whether the stated property type and typical CAD classification appear consistent.",
-    schema: `{"matches": "<one of: consistent | inconsistent | uncertain>", "assessment": "<1-2 sentences>"}`,
+      "Assess whether the stated property type and typical CAD classification appear consistent. " +
+      "Also state, in 2-4 words, what CAD classification would typically be expected for a property " +
+      "like this (e.g. \"Commercial - Retail\").",
+    schema: `{"matches": "<one of: consistent | inconsistent | uncertain>", "assessment": "<1-2 sentences>", "typicalClassification": "<2-4 words>"}`,
     parse: (p) => ({
       matches: (["consistent", "inconsistent", "uncertain"].includes(p.matches)
         ? p.matches
         : "uncertain") as "consistent" | "inconsistent" | "uncertain",
       assessment: p.assessment ?? "",
+      typicalClassification: typeof p.typicalClassification === "string" ? p.typicalClassification.slice(0, 40) : "",
     }),
   },
   evidence: {
-    instruction: "Produce a prioritized evidence checklist for the protest packet.",
-    schema: `{"checklist": ["<short item>", ...]}`,
-    parse: (p) => ({ checklist: checklist(p.checklist) }),
+    instruction:
+      "Produce a prioritized evidence checklist for the protest packet. For each item, judge its " +
+      "importance to the case (High/Low) and how readily available it typically is to a property " +
+      "owner (High/Low) — this powers a priority-quadrant view, so favor items that actually differ " +
+      "on these two axes rather than marking everything High/High.",
+    schema: `{"items": [{"item": "<short item>", "importance": "<High | Low>", "availability": "<High | Low>"}, ...]}`,
+    parse: (p) => ({ items: evidenceItems(p.items) }),
   },
   executive: {
     instruction: "Write the final executive recommendation, basis, and next step.",
