@@ -21,6 +21,9 @@ describe("getMyBilling", () => {
           plan: "owner_managed",
           subscription_status: "active",
           subscription_quantity: 3,
+          qty_under_2m: 2,
+          qty_2m_10m: 1,
+          qty_over_10m: 0,
           cancel_at_period_end: false,
           cancel_at: null,
         },
@@ -35,6 +38,7 @@ describe("getMyBilling", () => {
       plan: "owner_managed",
       subscriptionStatus: "active",
       subscriptionQuantity: 3,
+      subscriptionBrackets: { under2m: 2, mid2m10m: 1, over10m: 0 },
       cancelAtPeriodEnd: false,
       cancelAt: null,
     });
@@ -63,14 +67,14 @@ describe("startCheckout", () => {
     window.location = originalLocation;
   });
 
-  it("calls create-checkout-session with the tier/quantity/base-path-aware redirect paths and redirects to the returned URL", async () => {
+  it("calls create-checkout-session with the tier/brackets/base-path-aware redirect paths and redirects to the returned URL", async () => {
     mockInvoke.mockResolvedValue({ url: "https://checkout.stripe.com/session/abc" });
 
-    await startCheckout("owner_managed", 2);
+    await startCheckout("owner_managed", { under2m: 2, mid2m10m: 0, over10m: 0 });
 
     expect(mockInvoke).toHaveBeenCalledWith("create-checkout-session", {
       tier: "owner_managed",
-      quantity: 2,
+      brackets: { under2m: 2, mid2m10m: 0, over10m: 0 },
       successPath: `${import.meta.env.BASE_URL}dashboard?checkout=success`,
       cancelPath: `${import.meta.env.BASE_URL}pricing`,
     });
@@ -79,7 +83,9 @@ describe("startCheckout", () => {
 
   it("throws instead of redirecting when Stripe returns no URL", async () => {
     mockInvoke.mockResolvedValue({ url: "" });
-    await expect(startCheckout("corvusrf_managed", 1)).rejects.toThrow(/did not return a checkout URL/);
+    await expect(
+      startCheckout("corvusrf_managed", { under2m: 1, mid2m10m: 0, over10m: 0 }),
+    ).rejects.toThrow(/did not return a checkout URL/);
     expect(window.location.href).toBe("");
   });
 });

@@ -1,7 +1,19 @@
 // Deploy via CLI: `supabase functions deploy create-checkout-session`.
-// Requires STRIPE_SECRET_KEY, STRIPE_PRICE_ID_OWNER_MANAGED, and
-// STRIPE_PRICE_ID_CORVUSRF_MANAGED secrets — the two real per-property monthly
-// Price ids created in the Stripe Dashboard ($99/mo and $199/mo respectively).
+// Requires STRIPE_SECRET_KEY and 6 real Stripe Price id secrets — one per
+// (tier, property-value-bracket) combination, all monthly recurring prices
+// created in the Stripe Dashboard:
+//   STRIPE_PRICE_ID_OWNER_UNDER_2M     ($99/mo,  Owner-Managed,   $0-$2M)
+//   STRIPE_PRICE_ID_OWNER_MID_2M_10M   ($299/mo, Owner-Managed,   $2M-$10M)
+//   STRIPE_PRICE_ID_OWNER_OVER_10M     ($499/mo, Owner-Managed,   $10M+)
+//   STRIPE_PRICE_ID_MANAGED_UNDER_2M   ($199/mo, CorvusPT-Managed, $0-$2M)
+//   STRIPE_PRICE_ID_MANAGED_MID_2M_10M ($499/mo, CorvusPT-Managed, $2M-$10M)
+//   STRIPE_PRICE_ID_MANAGED_OVER_10M   ($699/mo, CorvusPT-Managed, $10M+)
+// The $0-$2M pair (STRIPE_PRICE_ID_OWNER_UNDER_2M / _MANAGED_UNDER_2M) is
+// optional — they already exist under their old flat-rate names from before
+// this bracket pricing overhaul (STRIPE_PRICE_ID_OWNER_MANAGED /
+// STRIPE_PRICE_ID_CORVUSRF_MANAGED, $99/$199, same amounts as the $0-$2M
+// bracket), so priceIdFor() below falls back to those rather than requiring
+// the same two Prices to be re-created under new secret names.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import Stripe from "npm:stripe@17";
 
@@ -14,14 +26,43 @@ const corsHeaders = {
 };
 
 type Tier = "owner_managed" | "corvusrf_managed";
+type Bracket = "under2m" | "mid2m10m" | "over10m";
+const BRACKETS: Bracket[] = ["under2m", "mid2m10m", "over10m"];
+
+const PRICE_ENV_VAR: Record<Tier, Record<Bracket, string>> = {
+  owner_managed: {
+    under2m: "STRIPE_PRICE_ID_OWNER_UNDER_2M",
+    mid2m10m: "STRIPE_PRICE_ID_OWNER_MID_2M_10M",
+    over10m: "STRIPE_PRICE_ID_OWNER_OVER_10M",
+  },
+  corvusrf_managed: {
+    under2m: "STRIPE_PRICE_ID_MANAGED_UNDER_2M",
+    mid2m10m: "STRIPE_PRICE_ID_MANAGED_MID_2M_10M",
+    over10m: "STRIPE_PRICE_ID_MANAGED_OVER_10M",
+  },
+};
+
+// The under2m bracket alone also has a legacy fallback secret name (see the
+// header comment above).
+const LEGACY_UNDER_2M_ENV_VAR: Record<Tier, string> = {
+  owner_managed: "STRIPE_PRICE_ID_OWNER_MANAGED",
+  corvusrf_managed: "STRIPE_PRICE_ID_CORVUSRF_MANAGED",
+};
+
+function priceIdFor(tier: Tier, bracket: Bracket): string | undefined {
+  const id = Deno.env.get(PRICE_ENV_VAR[tier][bracket]);
+  if (id) return id;
+  if (bracket === "under2m") return Deno.env.get(LEGACY_UNDER_2M_ENV_VAR[tier]);
+  return undefined;
+};
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   try {
-    const { tier, quantity, successPath, cancelPath } = (await req.json()) as {
+    const { tier, brackets, successPath, cancelPath } = (await req.json()) as {
       tier?: Tier;
-      quantity?: number;
+      brackets?: Partial<Record<Bracket, number>>;
       successPath?: string;
       cancelPath?: string;
     };
@@ -36,17 +77,28 @@ Deno.serve(async (req: Request) => {
     // protocol-relative) keeps this from being coaxed into pointing off-origin.
     const safePath = (p: string | undefined, fallback: string) =>
       p && p.startsWith("/") && !p.startsWith("//") ? p : fallback;
-    const qty = Number.isInteger(quantity) && (quantity as number) > 0 ? (quantity as number) : 1;
+
+    const qty: Record<Bracket, number> = { under2m: 0, mid2m10m: 0, over10m: 0 };
+    for (const b of BRACKETS) {
+      const raw = brackets?.[b];
+      qty[b] = Number.isInteger(raw) && (raw as number) > 0 ? (raw as number) : 0;
+    }
+    if (BRACKETS.every((b) => qty[b] === 0)) {
+      return new Response(
+        JSON.stringify({ error: "At least one property-value bracket must have a quantity" }),
+        { status: 400, headers: corsHeaders },
+      );
+    }
 
     const secretKey = Deno.env.get("STRIPE_SECRET_KEY");
-    const priceId =
-      tier === "owner_managed"
-        ? Deno.env.get("STRIPE_PRICE_ID_OWNER_MANAGED")
-        : Deno.env.get("STRIPE_PRICE_ID_CORVUSRF_MANAGED");
-    if (!secretKey || !priceId) {
-      throw new Error(
-        `Missing STRIPE_SECRET_KEY or price id secret for ${tier}`,
-      );
+    if (!secretKey) throw new Error("Missing STRIPE_SECRET_KEY");
+
+    const line_items: { price: string; quantity: number }[] = [];
+    for (const b of BRACKETS) {
+      if (qty[b] === 0) continue;
+      const priceId = priceIdFor(tier, b);
+      if (!priceId) throw new Error(`Missing ${PRICE_ENV_VAR[tier][b]} secret`);
+      line_items.push({ price: priceId, quantity: qty[b] });
     }
 
     // Identify the caller from their own JWT (forwarded from the client's session) —
@@ -83,7 +135,7 @@ Deno.serve(async (req: Request) => {
 
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",
-      line_items: [{ price: priceId, quantity: qty }],
+      line_items,
       client_reference_id: user.id,
       customer: profile?.stripe_customer_id ?? undefined,
       customer_email: profile?.stripe_customer_id ? undefined : (user.email ?? undefined),

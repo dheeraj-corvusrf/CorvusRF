@@ -640,6 +640,16 @@ create policy "Admins can view all tax bills"
   on public.tax_bills for select
   using (public.is_admin());
 
+-- Property-value-tiered pricing: each paid tier now has 3 price points
+-- (per src/lib/billing.ts's PropertyValueBracket) instead of one flat rate,
+-- so a subscription's property count is tracked per bracket rather than as
+-- a single number. subscription_quantity (above) is kept as the sum of the
+-- three, unchanged, so existing "N properties" displays don't need to know
+-- about brackets at all — only the checkout/pricing UI does.
+alter table public.profiles add column if not exists qty_under_2m integer not null default 0;
+alter table public.profiles add column if not exists qty_2m_10m integer not null default 0;
+alter table public.profiles add column if not exists qty_over_10m integer not null default 0;
+
 -- ── ONE-TIME MANUAL STEP — do NOT run this as part of the routine schema paste ──
 -- After you have an account (sign up normally through the app first), run this once,
 -- by itself, substituting your real email, to make that account an admin:
