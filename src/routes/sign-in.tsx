@@ -14,11 +14,21 @@ export const Route = createFileRoute("/sign-in")({
       { property: "og:description", content: "Access your property tax dashboard." },
     ],
   }),
+  // Lets any page that sends a signed-out visitor here (the dashboard guard,
+  // pricing's "sign in to subscribe" prompt, etc.) say where to return to
+  // afterward — without this, every sign-in landed on "/" regardless of what
+  // the visitor was actually trying to do.
+  validateSearch: (search: Record<string, unknown>): { redirect?: string } => ({
+    redirect: typeof search.redirect === "string" ? search.redirect : undefined,
+  }),
   component: SignIn,
 });
 
 function SignIn() {
   const nav = useNavigate();
+  const { redirect } = Route.useSearch();
+  const returnTo =
+    redirect && redirect.startsWith("/") && !redirect.startsWith("//") ? redirect : "/";
   const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
@@ -105,17 +115,17 @@ function SignIn() {
             if (matches.length > 0) {
               setOwnerMatches({ userId, companyName: ownerName, matches });
             } else {
-              nav({ to: "/" });
+              nav({ to: returnTo });
             }
           } catch (err) {
             console.error(err);
-            nav({ to: "/" });
+            nav({ to: returnTo });
           }
         }
       } else {
         const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
         if (signInError) throw signInError;
-        nav({ to: "/" });
+        nav({ to: returnTo });
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
@@ -155,130 +165,132 @@ function SignIn() {
       </div>
 
       <div className="container-page pb-16 max-w-md">
-      <form onSubmit={onSubmit} className="mt-8 card-elev p-6 grid gap-4">
-        {mode === "signup" && (
-          <div className="grid gap-4 sm:grid-cols-2">
-            <label className="grid gap-1 text-sm min-w-0">
-              <span className="font-medium">First Name</span>
+        <form onSubmit={onSubmit} className="mt-8 card-elev p-6 grid gap-4">
+          {mode === "signup" && (
+            <div className="grid gap-4 sm:grid-cols-2">
+              <label className="grid gap-1 text-sm min-w-0">
+                <span className="font-medium">First Name</span>
+                <input
+                  required
+                  type="text"
+                  autoComplete="given-name"
+                  value={firstName}
+                  onChange={(e) => setFirstName(e.target.value)}
+                  className="w-full min-w-0 rounded-md border border-input bg-background px-3 py-2"
+                />
+              </label>
+              <label className="grid gap-1 text-sm min-w-0">
+                <span className="font-medium">Last Name</span>
+                <input
+                  required
+                  type="text"
+                  autoComplete="family-name"
+                  value={lastName}
+                  onChange={(e) => setLastName(e.target.value)}
+                  className="w-full min-w-0 rounded-md border border-input bg-background px-3 py-2"
+                />
+              </label>
+            </div>
+          )}
+          {mode === "signup" && (
+            <label className="grid gap-1 text-sm">
+              <span className="font-medium">Phone Number</span>
               <input
                 required
-                type="text"
-                autoComplete="given-name"
-                value={firstName}
-                onChange={(e) => setFirstName(e.target.value)}
-                className="w-full min-w-0 rounded-md border border-input bg-background px-3 py-2"
+                type="tel"
+                autoComplete="tel"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                className="rounded-md border border-input bg-background px-3 py-2"
               />
             </label>
-            <label className="grid gap-1 text-sm min-w-0">
-              <span className="font-medium">Last Name</span>
+          )}
+          {mode === "signup" && (
+            <label className="grid gap-1 text-sm">
+              <span className="font-medium">Business / LLC Name (optional)</span>
               <input
-                required
                 type="text"
-                autoComplete="family-name"
-                value={lastName}
-                onChange={(e) => setLastName(e.target.value)}
-                className="w-full min-w-0 rounded-md border border-input bg-background px-3 py-2"
+                autoComplete="organization"
+                placeholder="e.g. Acme Commercial Holdings LLC"
+                value={companyName}
+                onChange={(e) => setCompanyName(e.target.value)}
+                className="rounded-md border border-input bg-background px-3 py-2"
               />
+              <span className="text-xs text-muted-foreground">
+                We'll check county records for properties already on file under this name.
+              </span>
             </label>
-          </div>
-        )}
-        {mode === "signup" && (
+          )}
           <label className="grid gap-1 text-sm">
-            <span className="font-medium">Phone Number</span>
+            <span className="font-medium">Email</span>
             <input
               required
-              type="tel"
-              autoComplete="tel"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
+              type="email"
+              autoComplete="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
               className="rounded-md border border-input bg-background px-3 py-2"
             />
           </label>
-        )}
-        {mode === "signup" && (
           <label className="grid gap-1 text-sm">
-            <span className="font-medium">Business / LLC Name (optional)</span>
-            <input
-              type="text"
-              autoComplete="organization"
-              placeholder="e.g. Acme Commercial Holdings LLC"
-              value={companyName}
-              onChange={(e) => setCompanyName(e.target.value)}
-              className="rounded-md border border-input bg-background px-3 py-2"
-            />
-            <span className="text-xs text-muted-foreground">
-              We'll check county records for properties already on file under this name.
-            </span>
-          </label>
-        )}
-        <label className="grid gap-1 text-sm">
-          <span className="font-medium">Email</span>
-          <input
-            required
-            type="email"
-            autoComplete="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            className="rounded-md border border-input bg-background px-3 py-2"
-          />
-        </label>
-        <label className="grid gap-1 text-sm">
-          <span className="font-medium">Password</span>
-          <input
-            required
-            type="password"
-            minLength={6}
-            autoComplete={mode === "signin" ? "current-password" : "new-password"}
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className="rounded-md border border-input bg-background px-3 py-2"
-          />
-        </label>
-        {mode === "signin" && (
-          <Link
-            to="/forgot-password"
-            className="-mt-2 justify-self-end text-sm text-muted-foreground hover:text-foreground"
-          >
-            Forgot password?
-          </Link>
-        )}
-        {mode === "signup" && (
-          <label className="grid gap-1 text-sm">
-            <span className="font-medium">Confirm Password</span>
+            <span className="font-medium">Password</span>
             <input
               required
               type="password"
               minLength={6}
-              autoComplete="new-password"
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
+              autoComplete={mode === "signin" ? "current-password" : "new-password"}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
               className="rounded-md border border-input bg-background px-3 py-2"
             />
           </label>
+          {mode === "signin" && (
+            <Link
+              to="/forgot-password"
+              className="-mt-2 justify-self-end text-sm text-muted-foreground hover:text-foreground"
+            >
+              Forgot password?
+            </Link>
+          )}
+          {mode === "signup" && (
+            <label className="grid gap-1 text-sm">
+              <span className="font-medium">Confirm Password</span>
+              <input
+                required
+                type="password"
+                minLength={6}
+                autoComplete="new-password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                className="rounded-md border border-input bg-background px-3 py-2"
+              />
+            </label>
+          )}
+          {error && <p className="text-sm text-destructive">{error}</p>}
+          <button disabled={loading} className="btn-primary btn-primary-hover disabled:opacity-60">
+            {loading ? "Please wait…" : mode === "signin" ? "Sign In" : "Create Account"}
+          </button>
+          <button
+            type="button"
+            onClick={() => switchMode(mode === "signin" ? "signup" : "signin")}
+            className="text-sm text-muted-foreground hover:text-foreground"
+          >
+            {mode === "signin"
+              ? "Need an account? Create one."
+              : "Already have an account? Sign in."}
+          </button>
+        </form>
+        {ownerMatches && (
+          <OwnerMatchModal
+            userId={ownerMatches.userId}
+            companyName={ownerMatches.companyName}
+            matches={ownerMatches.matches}
+            onDone={() => {
+              setOwnerMatches(null);
+              nav({ to: returnTo });
+            }}
+          />
         )}
-        {error && <p className="text-sm text-destructive">{error}</p>}
-        <button disabled={loading} className="btn-primary btn-primary-hover disabled:opacity-60">
-          {loading ? "Please wait…" : mode === "signin" ? "Sign In" : "Create Account"}
-        </button>
-        <button
-          type="button"
-          onClick={() => switchMode(mode === "signin" ? "signup" : "signin")}
-          className="text-sm text-muted-foreground hover:text-foreground"
-        >
-          {mode === "signin" ? "Need an account? Create one." : "Already have an account? Sign in."}
-        </button>
-      </form>
-      {ownerMatches && (
-        <OwnerMatchModal
-          userId={ownerMatches.userId}
-          companyName={ownerMatches.companyName}
-          matches={ownerMatches.matches}
-          onDone={() => {
-            setOwnerMatches(null);
-            nav({ to: "/" });
-          }}
-        />
-      )}
       </div>
     </div>
   );

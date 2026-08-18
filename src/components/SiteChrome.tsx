@@ -81,7 +81,11 @@ export function SiteNav() {
       }
       const containerRect = container.getBoundingClientRect();
       const linkRect = link.getBoundingClientRect();
-      setIndicator({ left: linkRect.left - containerRect.left, width: linkRect.width, visible: true });
+      setIndicator({
+        left: linkRect.left - containerRect.left,
+        width: linkRect.width,
+        visible: true,
+      });
     }
     recompute();
     window.addEventListener("resize", recompute);
@@ -99,7 +103,8 @@ export function SiteNav() {
         <Link to="/" className="flex items-center gap-2">
           <LogoMark />
           <span className="font-serif text-lg font-semibold tracking-tight">
-            Corvus<span className="text-emerald-600 dark:text-emerald-400">PT</span><span className="text-accent">.ai</span>
+            Corvus<span className="text-emerald-600 dark:text-emerald-400">PT</span>
+            <span className="text-accent">.ai</span>
           </span>
         </Link>
 
@@ -107,7 +112,11 @@ export function SiteNav() {
           <span
             aria-hidden
             className="absolute inset-y-1 rounded-md bg-secondary transition-[left,width] duration-300 ease-out"
-            style={{ left: indicator.left, width: indicator.width, opacity: indicator.visible ? 1 : 0 }}
+            style={{
+              left: indicator.left,
+              width: indicator.width,
+              opacity: indicator.visible ? 1 : 0,
+            }}
           />
           {navItems.map((item) => (
             <Link
@@ -174,7 +183,11 @@ export function SiteNav() {
               )}
             </div>
           ) : (
-            <Link to="/sign-in" className="btn-outline hidden sm:inline-flex text-sm">
+            <Link
+              to="/sign-in"
+              search={{ redirect: pathname }}
+              className="btn-outline hidden sm:inline-flex text-sm"
+            >
               Sign In
             </Link>
           )}
@@ -201,7 +214,12 @@ export function SiteNav() {
               </Link>
             ))}
             {!signedIn && (
-              <Link to="/sign-in" onClick={() => setOpen(false)} className="btn-outline mt-2">
+              <Link
+                to="/sign-in"
+                search={{ redirect: pathname }}
+                onClick={() => setOpen(false)}
+                className="btn-outline mt-2"
+              >
                 Sign In
               </Link>
             )}
@@ -220,12 +238,13 @@ export function SiteFooter() {
           <div className="flex items-center gap-2">
             <LogoMark />
             <span className="font-serif text-lg font-semibold">
-              Corvus<span className="text-emerald-600 dark:text-emerald-400">PT</span><span className="text-accent">.ai</span>
+              Corvus<span className="text-emerald-600 dark:text-emerald-400">PT</span>
+              <span className="text-accent">.ai</span>
             </span>
           </div>
           <p className="mt-3 text-sm text-muted-foreground">
-            Texas property tax help, powered by AI. Real property protest, BPP, payments,
-            and savings — one platform.
+            Texas property tax help, powered by AI. Real property protest, BPP, payments, and
+            savings — one platform.
           </p>
         </div>
         <FooterCol
@@ -263,13 +282,18 @@ export function SiteFooter() {
 }
 
 function FooterCol({ title, links }: { title: string; links: [string, string][] }) {
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
   return (
     <div>
       <h4 className="text-sm font-semibold text-foreground">{title}</h4>
       <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
         {links.map(([label, to]) => (
           <li key={to}>
-            <Link to={to} className="hover:text-foreground">
+            <Link
+              to={to}
+              search={to === "/sign-in" ? { redirect: pathname } : undefined}
+              className="hover:text-foreground"
+            >
               {label}
             </Link>
           </li>
@@ -285,7 +309,13 @@ function LogoMark() {
       className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-brand text-brand-foreground"
       aria-hidden
     >
-      <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">
+      <svg
+        viewBox="0 0 24 24"
+        className="h-5 w-5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+      >
         <path d="M4 20c3-6 5-9 8-9s5 3 8 9" strokeLinecap="round" />
         <circle cx="16" cy="7" r="2" fill="currentColor" />
       </svg>

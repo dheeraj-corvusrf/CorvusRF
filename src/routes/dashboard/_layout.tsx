@@ -14,7 +14,9 @@ function DashboardLayout() {
   const { user, loading } = useAuth();
 
   useEffect(() => {
-    if (!loading && !user) nav({ to: "/sign-in" });
+    if (!loading && !user) {
+      nav({ to: "/sign-in", search: { redirect: window.location.pathname } });
+    }
   }, [loading, user, nav]);
 
   if (loading || !user) return null;

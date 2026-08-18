@@ -30,13 +30,6 @@ export function WavingBearIllustration({ className }: { className?: string }) {
       <rect x="58" y="70" width="7" height="18" rx="3.5" fill="#14b8a6" transform="rotate(8 61.5 79)" />
       <circle cx="50" cy="94" r="3.4" fill="#eab308" />
 
-      {/* Waving arm — same transform-origin convention/CSS class as the
-          illustration this replaces, so it keeps waving continuously. */}
-      <g className="hero-wave-arm" style={{ transformOrigin: "68px 78px" }}>
-        <rect x="62" y="44" width="13" height="38" rx="6.5" fill="#a9744a" transform="rotate(-16 68.5 63)" />
-        <circle cx="83" cy="40" r="9.5" fill="#a9744a" />
-      </g>
-
       {/* Head */}
       <circle cx="34" cy="30" r="10" fill="#a9744a" />
       <circle cx="66" cy="30" r="10" fill="#a9744a" />
@@ -58,6 +51,24 @@ export function WavingBearIllustration({ className }: { className?: string }) {
       <circle cx="59" cy="43" r="2.6" fill="#0a2b52" />
       <circle cx="42" cy="42" r="0.8" fill="#fff" />
       <circle cx="60" cy="42" r="0.8" fill="#fff" />
+
+      {/* Waving arm — drawn last (on top of the head/cap) and swung well
+          clear of the head's silhouette (never closer than x=84, vs. the
+          head's own rightmost point at x=76) so raising it never lets the
+          head paint over the paw. Both the static rotate() below and the
+          .hero-wave-arm animation's transform-origin pivot on the same
+          shoulder point (72, 76) so they compose around one consistent
+          joint. */}
+      <g className="hero-wave-arm" style={{ transformOrigin: "72px 76px" }}>
+        <rect x="65.5" y="32" width="13" height="44" rx="6.5" fill="#a9744a" transform="rotate(20 72 76)" />
+        {/* Palm + 4 splayed fingers (an open paw, not a bare circle) fanned
+            out from the top of the palm so the "hi!" read is unmistakable. */}
+        <circle cx="88" cy="33" r="4.7" fill="#a9744a" />
+        <rect x="82.15" y="25.15" width="2.3" height="4.7" rx="1.15" fill="#a9744a" transform="rotate(-22 83.3 29.85)" />
+        <rect x="85.25" y="22.8" width="2.3" height="4.7" rx="1.15" fill="#a9744a" transform="rotate(-7 86.4 27.5)" />
+        <rect x="88.45" y="22.8" width="2.3" height="4.7" rx="1.15" fill="#a9744a" transform="rotate(7 89.6 27.5)" />
+        <rect x="91.55" y="25.15" width="2.3" height="4.7" rx="1.15" fill="#a9744a" transform="rotate(22 92.7 29.85)" />
+      </g>
     </svg>
   );
 }
