@@ -7,9 +7,9 @@ import { checkIsAdmin } from "@/lib/admin";
 const NAV = [
   { to: "/", label: "Home" },
   { to: "/how-it-works", label: "How It Works" },
-  { to: "/property-protest", label: "Property Protest" },
-  { to: "/bpp-rendition", label: "BPP Rendition" },
-  { to: "/tax-payment", label: "Tax Payment" },
+  { to: "/property-protest", label: "Protest" },
+  { to: "/bpp-rendition", label: "Personal Property" },
+  { to: "/tax-payment", label: "Pay Tax" },
   { to: "/pricing", label: "Pricing" },
   { to: "/contact", label: "Contact Us" },
 ] as const;
@@ -99,7 +99,7 @@ export function SiteNav() {
         <Link to="/" className="flex items-center gap-2">
           <LogoMark />
           <span className="font-serif text-lg font-semibold tracking-tight">
-            CorvusPT<span className="text-accent">.ai</span>
+            Corvus<span className="text-emerald-600 dark:text-emerald-400">PT</span><span className="text-accent">.ai</span>
           </span>
         </Link>
 
@@ -220,7 +220,7 @@ export function SiteFooter() {
           <div className="flex items-center gap-2">
             <LogoMark />
             <span className="font-serif text-lg font-semibold">
-              CorvusPT<span className="text-accent">.ai</span>
+              Corvus<span className="text-emerald-600 dark:text-emerald-400">PT</span><span className="text-accent">.ai</span>
             </span>
           </div>
           <p className="mt-3 text-sm text-muted-foreground">
@@ -239,9 +239,9 @@ export function SiteFooter() {
         <FooterCol
           title="Services"
           links={[
-            ["Property Protest", "/property-protest"],
-            ["BPP Rendition", "/bpp-rendition"],
-            ["Tax Payment", "/tax-payment"],
+            ["Protest", "/property-protest"],
+            ["Personal Property", "/bpp-rendition"],
+            ["Pay Tax", "/tax-payment"],
           ]}
         />
         <FooterCol
