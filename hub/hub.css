@@ -264,26 +264,6 @@ body.doors-page footer {
   background: linear-gradient(155deg, #fef3c7, #d97706 75%);
   box-shadow: 0 0 0 0.375rem oklch(1 0 0 / 0.14), 0 1px 3px oklch(0 0 0 / 0.5);
 }
-/* A one-shot diagonal glint that sweeps across the door on hover/focus —
-   on top of everything else but non-interactive, and blended so the label
-   underneath stays legible. */
-.door-sheen {
-  position: absolute;
-  inset: 0;
-  z-index: 2;
-  border-radius: 0.25rem;
-  background: linear-gradient(115deg, transparent 38%, oklch(1 0 0 / 0.4) 50%, transparent 62%);
-  background-size: 300% 300%;
-  background-position: -40% -40%;
-  mix-blend-mode: overlay;
-  pointer-events: none;
-  transition: background-position 0.9s ease;
-}
-.door:hover .door-sheen,
-.door:focus-visible .door-sheen {
-  background-position: 120% 120%;
-}
-
 /* A little figure standing at the threshold, invisible until you actually
    click — then it walks up and through the doorway while the door swings
    open, timed to disappear right around when the page navigates. Sits
@@ -376,13 +356,13 @@ body.doors-page footer {
 }
 
 .door-pt .door-panel {
-  background-image: linear-gradient(155deg, oklch(0.28 0.09 258) 0%, oklch(0.48 0.18 260) 55%, oklch(0.58 0.19 268) 100%);
+  background-image: linear-gradient(155deg, #064e3b 0%, #059669 55%, #34d399 100%);
 }
 .door-bsl .door-panel {
   background-image: linear-gradient(155deg, #4c1d95 0%, #7c3aed 55%, #a78bfa 100%);
 }
 .door-dp .door-panel {
-  background-image: linear-gradient(155deg, #0f4c47 0%, #0d9488 55%, #2dd4bf 100%);
+  background-image: linear-gradient(155deg, #78350f 0%, #d97706 55%, #fbbf24 100%);
 }
 .door-co .door-panel {
   background-image: linear-gradient(155deg, #831843 0%, #db2777 55%, #f472b6 100%);
@@ -429,7 +409,6 @@ body.doors-page footer {
   background: radial-gradient(closest-side, oklch(1 0 0 / 0.22), transparent 70%);
   pointer-events: none;
 }
-
 .door-top {
   position: relative;
   z-index: 1;
@@ -479,6 +458,9 @@ body.doors-page footer {
   writing-mode: vertical-rl;
   transform: rotate(180deg);
   white-space: nowrap;
+  /* Keeps the label legible over the door's own gradient/glow regardless
+     of exactly where it lands. */
+  text-shadow: 0 1px 3px oklch(0 0 0 / 0.55), 0 0 10px oklch(0 0 0 / 0.35);
 }
 /* Matches the app header/footer wordmark, where "PT" is picked out in
    green — a brighter shade here specifically so it still pops against
