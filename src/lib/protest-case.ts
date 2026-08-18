@@ -89,10 +89,10 @@ export async function generateCasePrep(
       .eq("protest_id", protestId);
     if (!count) {
       const evidence = await getModuleAnalysis("evidence", input);
-      if (evidence.checklist.length > 0) {
+      if (evidence.items.length > 0) {
         const { error } = await supabase
           .from("protest_evidence_items")
-          .insert(evidence.checklist.map((label) => ({ protest_id: protestId, user_id: userId, label })));
+          .insert(evidence.items.map(({ item }) => ({ protest_id: protestId, user_id: userId, label: item })));
         if (error) throw error;
       }
     }

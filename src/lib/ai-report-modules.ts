@@ -24,12 +24,23 @@ export type BatchModuleId =
   | "executive";
 
 export type ModuleResultMap = {
-  strategy: { recommendation: string; confidencePct: number; rationale: string };
+  strategy: {
+    recommendation: string;
+    confidencePct: number;
+    rationale: string;
+    factorScores: { label: string; score: number }[];
+  };
   comps: { guidance: string; checklist: string[] };
-  site: { guidance: string; checklist: string[] };
-  improvement: { guidance: string; checklist: string[] };
-  zoning: { matches: "consistent" | "inconsistent" | "uncertain"; assessment: string };
-  evidence: { checklist: string[] };
+  site: { guidance: string; checklist: string[]; priorityScore: number };
+  improvement: { guidance: string; checklist: string[]; priorityScore: number };
+  zoning: {
+    matches: "consistent" | "inconsistent" | "uncertain";
+    assessment: string;
+    typicalClassification: string;
+  };
+  evidence: {
+    items: { item: string; importance: "High" | "Low"; availability: "High" | "Low" }[];
+  };
   executive: { recommendation: string; basis: string; nextStep: string };
 };
 
