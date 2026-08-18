@@ -15,6 +15,7 @@ import { MicButton } from "@/components/MicButton";
 import { AnimatedSteps } from "@/components/AnimatedSteps";
 import { ScrollReveal } from "@/components/ScrollReveal";
 import { HouseIllustration } from "@/assets/illustrations/house";
+import { WavingBearIllustration } from "@/assets/illustrations/waving-bear";
 import { useFileDrop } from "@/hooks/use-file-drop";
 import { ICON_COLORS } from "@/lib/icon-colors";
 
@@ -74,58 +75,77 @@ function Home() {
       <HeroBackground />
       <div className="container-page pt-8 pb-0 md:pt-12 md:pb-2">
       <div className="mx-auto max-w-3xl text-center">
-        <span className="badge-soft">
-          <span className="h-1.5 w-1.5 rounded-full bg-accent" /> AI Powered Property Tax Assistant
-        </span>
-        <h1 className="mt-5 font-serif text-3xl sm:text-4xl md:text-6xl font-semibold leading-[1.15] md:leading-[1.1]">
+        <h1 className="font-serif text-3xl sm:text-4xl md:text-6xl font-semibold leading-[1.15] md:leading-[1.1]">
           AI-Powered Property Tax
           <br className="hidden md:block" />{" "}
-          <span className="text-accent">&amp; Protest Management</span>
-          <br className="hidden md:block" />{" "}
-          From Notice to Savings.
+          <span className="text-emerald-600 dark:text-emerald-400">&amp; Protest Management</span>
         </h1>
-        <p className="mt-5 text-lg text-muted-foreground">
-          Upload your notice or enter your property address. Check value. File BPP. Protest
-          overvaluation. Track your savings — all in one place.
+        <p className="mt-3 text-lg sm:text-xl font-medium text-foreground/80">
+          From Notice to Savings.
         </p>
 
         <div className="mt-8 flex justify-center" role="radiogroup" aria-label="Property type">
           <div className="inline-flex rounded-full border border-border bg-card p-1 shadow-sm">
-            {(["commercial", "residential"] as const).map((kind) => (
-              <button
-                key={kind}
-                type="button"
-                role="radio"
-                aria-checked={propertyKind === kind}
-                onClick={() => setPropertyKind(kind)}
-                className={`rounded-full px-4 py-1.5 text-sm font-medium capitalize transition-colors ${
-                  propertyKind === kind
-                    ? "bg-accent text-accent-foreground"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                {kind}
-              </button>
-            ))}
+            {(["commercial", "residential"] as const).map((kind) =>
+              kind === "residential" ? (
+                <button
+                  key={kind}
+                  type="button"
+                  role="radio"
+                  aria-checked={false}
+                  disabled
+                  title="Residential — coming soon"
+                  className="rounded-full px-4 py-1.5 text-sm font-medium capitalize text-muted-foreground/40 cursor-not-allowed"
+                >
+                  {kind}
+                </button>
+              ) : (
+                <button
+                  key={kind}
+                  type="button"
+                  role="radio"
+                  aria-checked={propertyKind === kind}
+                  onClick={() => setPropertyKind(kind)}
+                  className={`rounded-full px-4 py-1.5 text-sm font-medium capitalize transition-colors ${
+                    propertyKind === kind
+                      ? "bg-accent text-accent-foreground"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {kind}
+                </button>
+              ),
+            )}
           </div>
         </div>
 
-        <form
-          onSubmit={submit}
-          className="mt-3 flex flex-col sm:flex-row sm:items-center gap-2 bg-card p-2 rounded-xl shadow-elev border border-border"
-        >
-          <AddressAutocomplete
-            value={address}
-            onChange={setAddress}
-            placeholder={`Enter a ${propertyKind} property address in Texas`}
-            className="flex-1 bg-transparent text-foreground placeholder:text-muted-foreground px-4 py-3 outline-none rounded-lg"
-            ariaLabel={`${propertyKind === "commercial" ? "Commercial" : "Residential"} property address`}
-          />
-          <MicButton onResult={setAddress} />
-          <button type="submit" className="btn-accent">
-            Start Free AI Property Review
-          </button>
-        </form>
+        <div className="relative mt-3">
+          {/* Teddy pops up out of the search box's own top-left corner (the
+              box is the "doorway" now, not a separate graphic beside it) —
+              same one-time emerge animation as before, reused as-is. */}
+          <div className="hidden sm:block absolute -top-16 -left-14 z-10" aria-hidden="true">
+            <WavingBearIllustration className="h-24 w-auto hero-bear-emerge" />
+            <div className="hero-bubble absolute -top-4 left-[105%] w-36 text-left">
+              Hi! 👋 Type your address, or upload.
+            </div>
+          </div>
+          <form
+            onSubmit={submit}
+            className="flex flex-col sm:flex-row sm:items-center gap-2 bg-card p-2 rounded-xl shadow-elev border border-border"
+          >
+            <AddressAutocomplete
+              value={address}
+              onChange={setAddress}
+              placeholder={`Enter a ${propertyKind} property address in Texas`}
+              className="flex-1 bg-transparent text-foreground placeholder:text-muted-foreground px-4 py-3 outline-none rounded-lg"
+              ariaLabel={`${propertyKind === "commercial" ? "Commercial" : "Residential"} property address`}
+            />
+            <MicButton onResult={setAddress} />
+            <button type="submit" className="btn-accent">
+              Start Free AI Property Review
+            </button>
+          </form>
+        </div>
 
         <div className="mt-4 flex flex-wrap justify-center gap-3">
           <label

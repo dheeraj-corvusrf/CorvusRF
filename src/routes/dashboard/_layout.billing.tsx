@@ -6,8 +6,12 @@ import {
   getMyBilling,
   openBillingPortal,
   resumeSubscription,
+  bracketPropertyCount,
+  EMPTY_BRACKETS,
+  VALUE_BRACKETS,
   PLAN_OPTIONS,
   type PlanValue,
+  type BracketQuantities,
 } from "@/lib/billing";
 
 export const Route = createFileRoute("/dashboard/_layout/billing")({
@@ -18,7 +22,7 @@ function Billing() {
   const { user } = useAuth();
   const [plan, setPlan] = useState<PlanValue | null>(null);
   const [subscriptionStatus, setSubscriptionStatus] = useState<string | null>(null);
-  const [subscriptionQuantity, setSubscriptionQuantity] = useState(1);
+  const [subscriptionBrackets, setSubscriptionBrackets] = useState<BracketQuantities>(EMPTY_BRACKETS);
   const [cancelAtPeriodEnd, setCancelAtPeriodEnd] = useState(false);
   const [cancelAt, setCancelAt] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -31,7 +35,7 @@ function Billing() {
       .then((b) => {
         setPlan(b.plan);
         setSubscriptionStatus(b.subscriptionStatus);
-        setSubscriptionQuantity(b.subscriptionQuantity);
+        setSubscriptionBrackets(b.subscriptionBrackets);
         setCancelAtPeriodEnd(b.cancelAtPeriodEnd);
         setCancelAt(b.cancelAt);
       })
@@ -95,9 +99,19 @@ function Billing() {
           <div className="text-xs text-muted-foreground uppercase tracking-wide">Current plan</div>
           <div className="mt-1 font-serif text-2xl font-semibold">{planLabel}</div>
           {isPaid && (
-            <p className="mt-1 text-sm text-muted-foreground">
-              {subscriptionQuantity} propert{subscriptionQuantity === 1 ? "y" : "ies"}
-            </p>
+            <>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {bracketPropertyCount(subscriptionBrackets)} propert
+                {bracketPropertyCount(subscriptionBrackets) === 1 ? "y" : "ies"}
+              </p>
+              <ul className="mt-1 text-xs text-muted-foreground">
+                {VALUE_BRACKETS.filter((b) => subscriptionBrackets[b.value] > 0).map((b) => (
+                  <li key={b.value}>
+                    {subscriptionBrackets[b.value]} × {b.label}
+                  </li>
+                ))}
+              </ul>
+            </>
           )}
 
           <div className="mt-6 grid gap-2 sm:flex sm:flex-wrap">

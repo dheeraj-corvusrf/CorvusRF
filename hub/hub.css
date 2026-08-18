@@ -480,6 +480,12 @@ body.doors-page footer {
   transform: rotate(180deg);
   white-space: nowrap;
 }
+/* Matches the app header/footer wordmark, where "PT" is picked out in
+   green — a brighter shade here specifically so it still pops against
+   the door's own vivid blue gradient, not just the neutral header bg. */
+.door-label-pt {
+  color: #34d399;
+}
 
 .door-detail {
   position: relative;

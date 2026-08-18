@@ -8,7 +8,15 @@ import {
   openBillingPortal,
   resumeSubscription,
   getMyBilling,
+  bracketMonthlyTotal,
+  bracketPropertyCount,
+  EMPTY_BRACKETS,
+  VALUE_BRACKETS,
+  TIER_BRACKET_PRICES,
   type PlanValue,
+  type Tier,
+  type BracketQuantities,
+  type PropertyValueBracket,
 } from "@/lib/billing";
 
 export const Route = createFileRoute("/pricing")({
@@ -18,24 +26,21 @@ export const Route = createFileRoute("/pricing")({
       {
         name: "description",
         content:
-          "Simple per-property pricing for CorvusPT.ai: free AI review, Owner-Managed, or CorvusPT-Managed protest service.",
+          "Property-value-tiered pricing for CorvusPT.ai: free AI review, Owner-Managed, or CorvusPT-Managed protest service.",
       },
       { property: "og:title", content: "CorvusPT.ai Pricing" },
       {
         property: "og:description",
-        content: "Free AI review. Then $99 or $199 per property, per month.",
+        content: "Free AI review. Then $99–$699/mo per property, priced by property value.",
       },
     ],
   }),
   component: Page,
 });
 
-type Tier = "owner_managed" | "corvusrf_managed";
-
 const PAID_PLANS: {
   tier: Tier;
   name: string;
-  price: string;
   tag: string;
   features: string[];
   highlight: boolean;
@@ -43,7 +48,6 @@ const PAID_PLANS: {
   {
     tier: "owner_managed",
     name: "Owner-Managed",
-    price: "$99",
     tag: "Most popular",
     features: [
       "All 10 premium AI modules unlocked, per property",
@@ -56,7 +60,6 @@ const PAID_PLANS: {
   {
     tier: "corvusrf_managed",
     name: "CorvusPT-Managed",
-    price: "$199",
     tag: "White glove",
     features: [
       "Everything in Owner-Managed",
@@ -66,6 +69,18 @@ const PAID_PLANS: {
     ],
     highlight: false,
   },
+];
+
+// One box per exact price point, in ascending price order (interleaving
+// tiers rather than grouping by tier: 99, 199, 299, 499, 499, 699) — the
+// $0 Free tier is rendered as its own leading box, for 7 total.
+const PRICE_BOXES: { tier: Tier; bracket: PropertyValueBracket }[] = [
+  { tier: "owner_managed", bracket: "under2m" },
+  { tier: "corvusrf_managed", bracket: "under2m" },
+  { tier: "owner_managed", bracket: "mid2m10m" },
+  { tier: "owner_managed", bracket: "over10m" },
+  { tier: "corvusrf_managed", bracket: "mid2m10m" },
+  { tier: "corvusrf_managed", bracket: "over10m" },
 ];
 
 const SUBSCRIBED_PLANS: PlanValue[] = ["owner_managed", "corvusrf_managed", "ai_report", "managed_protest"];
@@ -89,10 +104,15 @@ function Page() {
   const [resuming, setResuming] = useState(false);
   const [currentPlan, setCurrentPlan] = useState<PlanValue | null>(null);
   const [subscriptionStatus, setSubscriptionStatus] = useState<string | null>(null);
-  const [subscriptionQuantity, setSubscriptionQuantity] = useState(1);
+  const [subscriptionBrackets, setSubscriptionBrackets] = useState<BracketQuantities>(EMPTY_BRACKETS);
   const [cancelAtPeriodEnd, setCancelAtPeriodEnd] = useState(false);
   const [cancelAt, setCancelAt] = useState<string | null>(null);
-  const [quantity, setQuantity] = useState(1);
+  // Separate quantities per tier, not one shared set — a property you'd put
+  // on Owner-Managed isn't necessarily the same one you'd put on
+  // CorvusPT-Managed, so each card gets its own 3 bracket inputs (6 boxes
+  // total) rather than both cards pricing the same shared property list.
+  const [ownerBrackets, setOwnerBrackets] = useState<BracketQuantities>(EMPTY_BRACKETS);
+  const [managedBrackets, setManagedBrackets] = useState<BracketQuantities>(EMPTY_BRACKETS);
 
   useEffect(() => {
     // Stripe Checkout/Portal are separate origins, so hitting the browser Back button
@@ -121,7 +141,7 @@ function Page() {
       .then((b) => {
         setCurrentPlan(b.plan);
         setSubscriptionStatus(b.subscriptionStatus);
-        setSubscriptionQuantity(b.subscriptionQuantity);
+        setSubscriptionBrackets(b.subscriptionBrackets);
         setCancelAtPeriodEnd(b.cancelAtPeriodEnd);
         setCancelAt(b.cancelAt);
       })
@@ -136,6 +156,15 @@ function Page() {
   const alreadySubscribed = !!currentPlan && SUBSCRIBED_PLANS.includes(currentPlan);
   const currentTier = currentPlan ? CURRENT_TIER[currentPlan] : undefined;
   const hasPaymentProblem = subscriptionStatus === "past_due" || subscriptionStatus === "unpaid";
+  const subscribedCount = bracketPropertyCount(subscriptionBrackets);
+
+  function bracketsFor(tier: Tier): BracketQuantities {
+    return tier === "owner_managed" ? ownerBrackets : managedBrackets;
+  }
+  function setBracketQty(tier: Tier, bracket: PropertyValueBracket, value: number) {
+    const setter = tier === "owner_managed" ? setOwnerBrackets : setManagedBrackets;
+    setter((prev) => ({ ...prev, [bracket]: Math.max(0, value) }));
+  }
 
   async function handleSubscribe(tier: Tier) {
     if (!user) {
@@ -144,7 +173,7 @@ function Page() {
     }
     setCheckingOutTier(tier);
     try {
-      await startCheckout(tier, quantity);
+      await startCheckout(tier, bracketsFor(tier));
     } catch (err) {
       toast.error(
         err instanceof Error ? err.message : "Could not start checkout. Please try again.",
@@ -186,10 +215,10 @@ function Page() {
       <div className="container-page pt-16">
         <div className="max-w-3xl">
           <span className="badge-soft">Pricing</span>
-          <h1 className="mt-3 text-4xl md:text-5xl font-semibold">Simple, per-property pricing.</h1>
+          <h1 className="mt-3 text-4xl md:text-5xl font-semibold">Pricing that scales with property value.</h1>
           <p className="mt-4 text-lg text-muted-foreground">
             Start free. Pick Owner-Managed to do it yourself with AI, or CorvusPT-Managed to have our
-            staff file and represent you. Priced per property, billed monthly.
+            staff file and represent you. Priced per property, by property value, billed monthly.
           </p>
         </div>
       </div>
@@ -213,71 +242,95 @@ function Page() {
       )}
       {alreadySubscribed && (
         <div className="mt-6 max-w-3xl rounded-lg border border-border bg-secondary/40 p-4 text-sm">
-          You're subscribed for {subscriptionQuantity} propert{subscriptionQuantity === 1 ? "y" : "ies"}.
-          Manage your plan, quantity, or payment method below.
+          <p>
+            You're subscribed for {subscribedCount} propert{subscribedCount === 1 ? "y" : "ies"}.
+          </p>
+          <ul className="mt-1 text-muted-foreground">
+            {VALUE_BRACKETS.filter((b) => subscriptionBrackets[b.value] > 0).map((b) => (
+              <li key={b.value}>
+                {subscriptionBrackets[b.value]} × {b.label}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2">Manage your plan, brackets, or payment method below.</p>
         </div>
       )}
 
       {!alreadySubscribed && (
-        <div className="mt-8 flex items-center gap-3 max-w-md">
-          <label className="text-sm font-medium" htmlFor="property-qty">
-            Number of properties
-          </label>
-          <input
-            id="property-qty"
-            type="number"
-            min={1}
-            value={quantity}
-            onChange={(e) => setQuantity(Math.max(1, parseInt(e.target.value, 10) || 1))}
-            className="w-20 rounded-md border border-input bg-background px-3 py-2 text-sm"
-          />
-        </div>
-      )}
-
-      <div className={`mt-6 grid gap-5 ${alreadySubscribed ? "md:grid-cols-2" : "md:grid-cols-3"}`}>
-        {!alreadySubscribed && (
-        <ScrollReveal>
-        <div className="card-elev p-6 flex flex-col h-full transition-all hover:-translate-y-0.5 hover:shadow-elev">
-          <div className="badge-soft self-start">No account required</div>
-          <h3 className="mt-3 font-serif text-2xl">Free AI Review</h3>
-          <div className="mt-2 flex items-baseline gap-1">
-            <span className="text-4xl font-semibold">$0</span>
-            <span className="text-muted-foreground text-sm">one property</span>
-          </div>
-          <ul className="mt-4 space-y-2 text-sm">
-            {[
-              "Property validation & CAD match",
-              "AI Property Health Score preview",
-              "3 premium AI insight previews",
-            ].map((f) => (
-              <li key={f} className="flex gap-2">
-                <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-accent" />
-                {f}
-              </li>
-            ))}
-          </ul>
-          <div className="mt-6">
-            <Link to="/" className="btn-primary btn-primary-hover w-full">
-              Start Free Review
+        <>
+        <div className="mt-8 text-sm font-medium">How many properties, by price?</div>
+        <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
+          <ScrollReveal>
+          <div className="card-elev p-4 flex flex-col items-center text-center gap-1 h-full">
+            <div className="text-2xl font-semibold">$0</div>
+            <div className="text-xs font-medium">Free AI Review</div>
+            <div className="text-xs text-muted-foreground">one property</div>
+            <Link to="/" className="btn-outline text-xs mt-2 w-full py-1.5">
+              Start Free
             </Link>
           </div>
-        </div>
-        </ScrollReveal>
-        )}
+          </ScrollReveal>
 
-        {PAID_PLANS.map((p, i) => {
+          {PRICE_BOXES.map((box, i) => {
+            const bracketLabel = VALUE_BRACKETS.find((b) => b.value === box.bracket)!.label;
+            const tierName = box.tier === "owner_managed" ? "Owner-Managed" : "CorvusPT-Managed";
+            const price = TIER_BRACKET_PRICES[box.tier][box.bracket];
+            const brackets = bracketsFor(box.tier);
+            return (
+              <ScrollReveal key={`${box.tier}-${box.bracket}`} delay={(i + 1) * 60}>
+              <div className="card-elev p-4 flex flex-col items-center text-center gap-1 h-full">
+                <div className="text-2xl font-semibold">${price}</div>
+                <div className="text-xs font-medium">{tierName}</div>
+                <div className="text-xs text-muted-foreground">{bracketLabel}</div>
+                <label htmlFor={`qty-${box.tier}-${box.bracket}`} className="sr-only">
+                  {tierName} {bracketLabel} quantity
+                </label>
+                <input
+                  id={`qty-${box.tier}-${box.bracket}`}
+                  type="number"
+                  min={0}
+                  value={brackets[box.bracket]}
+                  onChange={(e) =>
+                    setBracketQty(box.tier, box.bracket, parseInt(e.target.value, 10) || 0)
+                  }
+                  className="mt-2 w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm text-center"
+                />
+              </div>
+              </ScrollReveal>
+            );
+          })}
+        </div>
+        </>
+      )}
+
+      <div className={`mt-8 grid gap-5 ${alreadySubscribed ? "md:grid-cols-2" : "md:grid-cols-2"}`}>
+        {PAID_PLANS.map((p) => {
           const isWhiteGlove = p.tier === "corvusrf_managed";
+          const tierBrackets = bracketsFor(p.tier);
+          const monthlyTotal = bracketMonthlyTotal(p.tier, tierBrackets);
+          const propertyCount = bracketPropertyCount(tierBrackets);
           return (
-          <ScrollReveal key={p.tier} delay={(i + 1) * 100}>
           <div
+            key={p.tier}
             className={`card-elev p-6 flex flex-col h-full transition-all hover:-translate-y-0.5 hover:shadow-elev ${p.highlight ? "ring-2 ring-accent" : isWhiteGlove ? "ring-2 ring-warning/60" : ""}`}
           >
             <div className={isWhiteGlove ? "badge-soft-warning self-start" : "badge-soft self-start"}>{p.tag}</div>
             <h3 className="mt-3 font-serif text-2xl">{p.name}</h3>
             <div className="mt-2 flex items-baseline gap-1">
-              <span className="text-4xl font-semibold">{p.price}</span>
+              <span className="text-4xl font-semibold">
+                ${TIER_BRACKET_PRICES[p.tier].under2m}–${TIER_BRACKET_PRICES[p.tier].over10m}
+              </span>
               <span className="text-muted-foreground text-sm">/mo, per property</span>
             </div>
+            {alreadySubscribed && (
+              <ul className="mt-3 space-y-1 text-xs text-muted-foreground">
+                {VALUE_BRACKETS.map((b) => (
+                  <li key={b.value}>
+                    {b.label}: ${TIER_BRACKET_PRICES[p.tier][b.value]}/mo
+                  </li>
+                ))}
+              </ul>
+            )}
             <ul className="mt-4 space-y-2 text-sm">
               {p.features.map((f) => (
                 <li key={f} className="flex gap-2">
@@ -330,17 +383,18 @@ function Page() {
               ) : (
                 <button
                   onClick={() => handleSubscribe(p.tier)}
-                  disabled={checkingOutTier !== null}
+                  disabled={checkingOutTier !== null || propertyCount === 0}
                   className={`w-full ${p.highlight ? "btn-accent" : "btn-primary btn-primary-hover"} disabled:opacity-60`}
                 >
                   {checkingOutTier === p.tier
                     ? "Redirecting to checkout…"
-                    : `Subscribe — $${p.tier === "owner_managed" ? 99 * quantity : 199 * quantity}/mo`}
+                    : propertyCount === 0
+                      ? "Add at least one property above"
+                      : `Subscribe — $${monthlyTotal}/mo`}
                 </button>
               )}
             </div>
           </div>
-          </ScrollReveal>
           );
         })}
       </div>

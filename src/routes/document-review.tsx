@@ -22,6 +22,8 @@ import { addProperty } from "@/lib/properties";
 import { uploadDocument } from "@/lib/documents";
 import { addTaxBill, recordRefund } from "@/lib/tax-bills";
 import { Modal } from "@/components/Modal";
+import { cadLookup } from "@/lib/cad-lookup";
+import { classifyPropertyCategory } from "@/lib/texas-tax-rates";
 
 export const Route = createFileRoute("/document-review")({
   head: () => ({
@@ -52,6 +54,17 @@ function DocumentReview() {
   const [askOpen, setAskOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [hearingOpen, setHearingOpen] = useState(false);
+  // Same reasoning as /intake's own CAD-based block: the AI extraction has no
+  // residential/commercial field of its own, so the extracted address is
+  // checked against the real CAD record (classifyPropertyCategory() again —
+  // the same Texas state-code classifier, not a second, possibly-inconsistent
+  // one) once the document's extracted address is known. "pending" until that
+  // lookup resolves; a failed/unmatched lookup fails open (not blocked) —
+  // we only block on an address CAD *positively* confirms as residential.
+  const [propertyCheck, setPropertyCheck] = useState<"pending" | "ok" | "residential">("pending");
+  const [residentialInfo, setResidentialInfo] = useState<{ address: string; propertyType: string | null } | null>(
+    null,
+  );
 
   useEffect(() => {
     const s = readIntake();
@@ -69,10 +82,77 @@ function DocumentReview() {
     [extraction],
   );
 
+  // effectiveExtraction() (above) builds a brand-new object on every call —
+  // it's not memoized, and it's called fresh on every render — so depending
+  // on `extraction` itself here would re-fire this effect every render this
+  // effect's own setPropertyCheck() calls cause, an infinite loop of CAD
+  // lookups. Depend on the actual address string instead, which only
+  // changes when the extraction's address field itself changes.
+  const checkAddress = extraction?.propertyAddress ?? extraction?.situsAddress ?? null;
+
+  useEffect(() => {
+    if (!checkAddress) {
+      setPropertyCheck("ok");
+      return;
+    }
+    let cancelled = false;
+    setPropertyCheck("pending");
+    cadLookup(checkAddress)
+      .then((res) => {
+        if (cancelled) return;
+        if (res.matched && classifyPropertyCategory(res.record.propertyType) === "residential") {
+          appendAudit({
+            actor: "ai",
+            action: "block_residential_property",
+            reason: res.record.propertyType ?? undefined,
+          });
+          setResidentialInfo({ address: res.record.propertyAddress, propertyType: res.record.propertyType });
+          setPropertyCheck("residential");
+        } else {
+          setPropertyCheck("ok");
+        }
+      })
+      .catch((err) => {
+        console.error(err);
+        if (!cancelled) setPropertyCheck("ok");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [checkAddress]);
+
   if (!extraction) {
     return (
       <div className="container-page py-12">
         <p className="text-muted-foreground">Loading document…</p>
+      </div>
+    );
+  }
+
+  if (propertyCheck === "pending") {
+    return (
+      <div className="container-page py-12">
+        <p className="text-muted-foreground">Checking property type…</p>
+      </div>
+    );
+  }
+
+  if (propertyCheck === "residential") {
+    return (
+      <div className="container-page py-12 max-w-3xl">
+        <div className="card-elev p-6">
+          <h1 className="font-serif text-2xl font-semibold">This is a residential property.</h1>
+          <p className="mt-1 text-muted-foreground">
+            The county's own records classify {residentialInfo?.address ?? "this address"} as
+            residential{residentialInfo?.propertyType ? ` (${residentialInfo.propertyType})` : ""}.
+            CorvusPT currently serves commercial properties only.
+          </p>
+          <div className="mt-4 flex gap-2">
+            <Link to="/intake" className="btn-outline">
+              Upload a Different Document
+            </Link>
+          </div>
+        </div>
       </div>
     );
   }

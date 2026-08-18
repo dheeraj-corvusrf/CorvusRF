@@ -15,6 +15,7 @@ import {
   type PropertyKind,
 } from "@/lib/intake-store";
 import { cadLookup } from "@/lib/cad-lookup";
+import { classifyPropertyCategory } from "@/lib/texas-tax-rates";
 import { AddressAutocomplete } from "@/components/AddressAutocomplete";
 import { useAuth } from "@/lib/auth";
 import { addProperty, findExistingProperty, type PropertyRecord } from "@/lib/properties";
@@ -38,7 +39,15 @@ export const Route = createFileRoute("/intake")({
   component: Intake,
 });
 
-type Step = "address" | "validating" | "notice" | "savings" | "confirm" | "notfound" | "classifying";
+type Step =
+  | "address"
+  | "validating"
+  | "notice"
+  | "savings"
+  | "confirm"
+  | "notfound"
+  | "classifying"
+  | "residential-blocked";
 
 function Intake() {
   const nav = useNavigate();
@@ -81,6 +90,25 @@ function Intake() {
       const res = await cadLookup(addr);
       if (!res.matched) {
         setStep("notfound");
+        return;
+      }
+      // The commercial/residential toggle above is just the user's own guess
+      // — the CAD record is authoritative. Block here too (not just at the
+      // toggle) since someone can still reach this page with an address that
+      // turns out to be a true single-family home the county itself codes as
+      // residential (state code "A"/"C1" or descriptive text like "Single
+      // Family") — classifyPropertyCategory() already does this exact
+      // classification for the savings-estimate formula tier, so reuse it
+      // rather than inventing a second, possibly-inconsistent check.
+      if (classifyPropertyCategory(res.record.propertyType) === "residential") {
+        setState(
+          updateIntake({
+            address: res.record.propertyAddress,
+            cad: res.record.cad,
+            propertyType: res.record.propertyType ?? undefined,
+          }),
+        );
+        setStep("residential-blocked");
         return;
       }
       const next = updateIntake({
@@ -192,23 +220,35 @@ function Intake() {
           </p>
 
           <div className="mt-4 inline-flex rounded-full border border-border bg-secondary/40 p-1">
-            {(["commercial", "residential"] as const).map((kind) => (
-              <button
-                key={kind}
-                type="button"
-                onClick={() => {
-                  setPropertyKind(kind);
-                  updateIntake({ propertyKind: kind });
-                }}
-                className={`rounded-full px-3 py-1 text-xs font-medium capitalize transition-colors ${
-                  propertyKind === kind
-                    ? "bg-accent text-accent-foreground"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                {kind}
-              </button>
-            ))}
+            {(["commercial", "residential"] as const).map((kind) =>
+              kind === "residential" ? (
+                <button
+                  key={kind}
+                  type="button"
+                  disabled
+                  title="Residential — coming soon"
+                  className="rounded-full px-3 py-1 text-xs font-medium capitalize text-muted-foreground/40 cursor-not-allowed"
+                >
+                  {kind}
+                </button>
+              ) : (
+                <button
+                  key={kind}
+                  type="button"
+                  onClick={() => {
+                    setPropertyKind(kind);
+                    updateIntake({ propertyKind: kind });
+                  }}
+                  className={`rounded-full px-3 py-1 text-xs font-medium capitalize transition-colors ${
+                    propertyKind === kind
+                      ? "bg-accent text-accent-foreground"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {kind}
+                </button>
+              ),
+            )}
           </div>
 
           <form
@@ -303,6 +343,22 @@ function Intake() {
             </button>
             <button onClick={() => setStep("address")} className="btn-primary btn-primary-hover">
               Search Again
+            </button>
+          </div>
+        </section>
+      )}
+
+      {step === "residential-blocked" && (
+        <section className="mt-8 card-elev p-6">
+          <h2 className="font-serif text-xl font-semibold">This is a residential property.</h2>
+          <p className="mt-1 text-muted-foreground">
+            The county's own records classify {state.address ?? "this address"} as residential
+            {state.propertyType ? ` (${state.propertyType})` : ""}. CorvusPT currently serves
+            commercial properties only.
+          </p>
+          <div className="mt-4 flex gap-2">
+            <button onClick={() => setStep("address")} className="btn-outline">
+              Search a Different Address
             </button>
           </div>
         </section>
@@ -528,7 +584,7 @@ function Intake() {
 function Stepper({ step }: { step: Step }) {
   const items = [
     ["Address", ["address"]],
-    ["Validate", ["validating", "notfound"]],
+    ["Validate", ["validating", "notfound", "residential-blocked"]],
     ["Savings", ["savings"]],
     ["Confirm", ["confirm"]],
   ] as const;
