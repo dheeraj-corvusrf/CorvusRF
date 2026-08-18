@@ -22,7 +22,7 @@ export type PropertyValueBracket = "under2m" | "mid2m10m" | "over10m";
 
 export type BracketQuantities = Record<PropertyValueBracket, number>;
 
-export const EMPTY_BRACKETS: BracketQuantities = { under2m: 1, mid2m10m: 0, over10m: 0 };
+export const EMPTY_BRACKETS: BracketQuantities = { under2m: 0, mid2m10m: 0, over10m: 0 };
 
 export const VALUE_BRACKETS: { value: PropertyValueBracket; label: string }[] = [
   { value: "under2m", label: "$0 - $2M" },
