@@ -1,15 +1,42 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Plus, Briefcase, Upload, Sparkles, ArrowUpRight, Trash2, AlertTriangle, Building2, FileText, Scale, TrendingDown, type LucideIcon } from "lucide-react";
-import { BarChart, Bar, XAxis, YAxis, Cell, LabelList, ResponsiveContainer, PieChart, Pie } from "recharts";
+import {
+  Plus,
+  Briefcase,
+  Upload,
+  Sparkles,
+  ArrowUpRight,
+  Trash2,
+  AlertTriangle,
+  Building2,
+  FileText,
+  Scale,
+  TrendingDown,
+  type LucideIcon,
+} from "lucide-react";
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  Cell,
+  LabelList,
+  ResponsiveContainer,
+  PieChart,
+  Pie,
+} from "recharts";
 import { useAuth } from "@/lib/auth";
 import { currency, resetIntake, classifyAndStoreDocument, updateIntake } from "@/lib/intake-store";
 import { listProperties, deleteProperty, type PropertyRecord } from "@/lib/properties";
 import { useSavingsBackfill } from "@/hooks/use-savings-backfill";
 import { useHealthScoreBackfill } from "@/hooks/use-health-score-backfill";
 import { listHealthScores, type PropertyAiScore } from "@/lib/property-scores";
-import { getEffectiveTaxRate, getBaseReductionPct, classifyPropertyCategory } from "@/lib/texas-tax-rates";
+import {
+  getEffectiveTaxRate,
+  getBaseReductionPct,
+  classifyPropertyCategory,
+} from "@/lib/texas-tax-rates";
 import { listBppAccounts, type BppAccountRecord } from "@/lib/bpp-accounts";
 import { listDocuments, type DocumentRecord } from "@/lib/documents";
 import { listProtests, type ProtestRecord, type ProtestStatus } from "@/lib/protests";
@@ -113,7 +140,12 @@ function Overview() {
         if (p.estimatedSavings != null) return sum + p.estimatedSavings;
         if (!p.totalValue) return sum;
         const category = classifyPropertyCategory(p.propertyType);
-        return sum + Math.round(p.totalValue * getBaseReductionPct(p.cad, category) * getEffectiveTaxRate(p.cad));
+        return (
+          sum +
+          Math.round(
+            p.totalValue * getBaseReductionPct(p.cad, category) * getEffectiveTaxRate(p.cad),
+          )
+        );
       }, 0),
     [properties],
   );
@@ -169,7 +201,8 @@ function Overview() {
   const urgentProperties = properties
     .map((p) => ({ property: p, ...getPropertyProtestStatus(p, protests) }))
     .filter(
-      (u): u is typeof u & { daysLeft: number } => u.status === "needs_action" && u.daysLeft != null,
+      (u): u is typeof u & { daysLeft: number } =>
+        u.status === "needs_action" && u.daysLeft != null,
     )
     .sort((a, b) => a.daysLeft - b.daysLeft);
 
@@ -280,7 +313,9 @@ function Overview() {
         <h1 className="mt-3 font-serif text-3xl font-semibold">
           Welcome back{firstName ? `, ${firstName}` : ""}.
         </h1>
-        <p className="text-muted-foreground">Pick any entry point below — AI figures out the right workflow.</p>
+        <p className="text-muted-foreground">
+          Pick any entry point below — AI figures out the right workflow.
+        </p>
       </div>
 
       {nudge && urgentProperties.length > 0 && (
@@ -324,7 +359,9 @@ function Overview() {
           onClick={() => resetIntake()}
           className="card-elev p-4 transition-all hover:-translate-y-0.5 hover:bg-secondary/40 hover:shadow-elev"
         >
-          <span className={`grid h-9 w-9 place-items-center rounded-lg ${ICON_COLORS[0].bg} ${ICON_COLORS[0].text}`}>
+          <span
+            className={`grid h-9 w-9 place-items-center rounded-lg ${ICON_COLORS[0].bg} ${ICON_COLORS[0].text}`}
+          >
             <Plus className="h-4 w-4" />
           </span>
           <div className="mt-3 flex items-center gap-1 font-medium">
@@ -340,27 +377,39 @@ function Overview() {
           className="card-elev p-4 transition-all hover:-translate-y-0.5 hover:bg-secondary/40 hover:shadow-elev"
           style={{ animationDelay: "60ms" }}
         >
-          <span className={`grid h-9 w-9 place-items-center rounded-lg ${ICON_COLORS[1].bg} ${ICON_COLORS[1].text}`}>
+          <span
+            className={`grid h-9 w-9 place-items-center rounded-lg ${ICON_COLORS[1].bg} ${ICON_COLORS[1].text}`}
+          >
             <Briefcase className="h-4 w-4" />
           </span>
           <div className="mt-3 flex items-center gap-1 font-medium">
             Add BPP Account <ArrowUpRight className="h-3.5 w-3.5" />
           </div>
-          <p className="mt-1 text-xs text-muted-foreground">Track a business personal property account.</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Track a business personal property account.
+          </p>
         </Link>
 
         <label
           className={`card-elev p-4 cursor-pointer block transition-all ${
-            uploading ? "opacity-60 pointer-events-none" : "hover:-translate-y-0.5 hover:bg-secondary/40 hover:shadow-elev"
+            uploading
+              ? "opacity-60 pointer-events-none"
+              : "hover:-translate-y-0.5 hover:bg-secondary/40 hover:shadow-elev"
           } ${isDraggingNotice ? "border-accent bg-accent/5" : ""}`}
           style={{ animationDelay: "120ms" }}
           {...noticeDropHandlers}
         >
-          <span className={`grid h-9 w-9 place-items-center rounded-lg ${ICON_COLORS[2].bg} ${ICON_COLORS[2].text}`}>
+          <span
+            className={`grid h-9 w-9 place-items-center rounded-lg ${ICON_COLORS[2].bg} ${ICON_COLORS[2].text}`}
+          >
             <Upload className="h-4 w-4" />
           </span>
           <div className="mt-3 font-medium">
-            {isDraggingNotice ? "Drop to upload" : uploading ? "Reading document…" : "Upload Notice"}
+            {isDraggingNotice
+              ? "Drop to upload"
+              : uploading
+                ? "Reading document…"
+                : "Upload Notice"}
           </div>
           <p className="mt-1 text-xs text-muted-foreground">
             Drop any tax notice — AI extracts fields and routes it.
@@ -382,7 +431,9 @@ function Overview() {
           className="card-elev p-4 transition-all hover:-translate-y-0.5 hover:shadow-elev"
           style={{ animationDelay: "180ms" }}
         >
-          <span className={`grid h-9 w-9 place-items-center rounded-lg ${ICON_COLORS[4].bg} ${ICON_COLORS[4].text}`}>
+          <span
+            className={`grid h-9 w-9 place-items-center rounded-lg ${ICON_COLORS[4].bg} ${ICON_COLORS[4].text}`}
+          >
             <Sparkles className="h-4 w-4" />
           </span>
           <div className="mt-3 font-medium">Ask AI</div>
@@ -398,24 +449,63 @@ function Overview() {
 
       {/* Stats */}
       <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-5">
-        <StatCard label="Properties" value={loaded ? properties.length : null} to="/dashboard/properties" delayMs={0} icon={Building2} color={ICON_COLORS[0]} />
-        <StatCard label="BPP Accounts" value={loaded ? bppAccounts.length : null} to="/dashboard/bpp-accounts" delayMs={40} icon={Briefcase} color={ICON_COLORS[1]} />
-        <StatCard label="Documents" value={loaded ? documents.length : null} to="/dashboard/documents" delayMs={80} icon={FileText} color={ICON_COLORS[2]} />
-        <StatCard label="Cases" value={loaded ? protests.length : null} to="/dashboard/properties" delayMs={120} icon={Scale} color={ICON_COLORS[4]} />
-        <StatCard label="Est. Savings" value={loaded ? estimatedSavings : null} format={currency} delayMs={160} icon={TrendingDown} color={ICON_COLORS[5]} />
+        <StatCard
+          label="Properties"
+          value={loaded ? properties.length : null}
+          to="/dashboard/properties"
+          delayMs={0}
+          icon={Building2}
+          color={ICON_COLORS[0]}
+        />
+        <StatCard
+          label="BPP Accounts"
+          value={loaded ? bppAccounts.length : null}
+          to="/dashboard/bpp-accounts"
+          delayMs={40}
+          icon={Briefcase}
+          color={ICON_COLORS[1]}
+        />
+        <StatCard
+          label="Documents"
+          value={loaded ? documents.length : null}
+          to="/dashboard/documents"
+          delayMs={80}
+          icon={FileText}
+          color={ICON_COLORS[2]}
+        />
+        <StatCard
+          label="Cases"
+          value={loaded ? protests.length : null}
+          to="/dashboard/properties"
+          delayMs={120}
+          icon={Scale}
+          color={ICON_COLORS[4]}
+        />
+        <StatCard
+          label="Est. Savings"
+          value={loaded ? estimatedSavings : null}
+          format={currency}
+          delayMs={160}
+          icon={TrendingDown}
+          color={ICON_COLORS[5]}
+        />
       </div>
 
       {properties.length > 0 && (
         <div className="card-elev p-5 min-w-0">
           <h3 className="font-semibold">Portfolio Value</h3>
-          <PortfolioValueChart properties={properties} />
+          <PortfolioValueChart properties={properties} onOpenReport={openAiReport} />
         </div>
       )}
 
       {properties.length > 0 && (
         <div className="card-elev p-5 min-w-0">
           <h3 className="font-semibold">Top Protest Opportunities</h3>
-          <TopOpportunities properties={properties} healthScores={healthScores} onOpenReport={openAiReport} />
+          <TopOpportunities
+            properties={properties}
+            healthScores={healthScores}
+            onOpenReport={openAiReport}
+          />
         </div>
       )}
 
@@ -425,7 +515,9 @@ function Overview() {
           {protests.length > 0 ? (
             <ProtestStatusChart protests={protests} addressFor={addressFor} />
           ) : (
-            <p className="mt-2 text-sm text-muted-foreground">No cases yet. Use an entry point above.</p>
+            <p className="mt-2 text-sm text-muted-foreground">
+              No cases yet. Use an entry point above.
+            </p>
           )}
         </div>
 
@@ -462,7 +554,10 @@ function Overview() {
         {activity.length > 0 ? (
           <div className="mt-3 grid min-w-0 gap-2">
             {activity.map((a, i) => (
-              <div key={i} className="group row-hover rounded-md flex items-center justify-between gap-2 px-2 py-1 text-sm min-w-0">
+              <div
+                key={i}
+                className="group row-hover rounded-md flex items-center justify-between gap-2 px-2 py-1 text-sm min-w-0"
+              >
                 <span className="shrink-0 text-muted-foreground">{a.label}</span>
                 <span className="truncate min-w-0">{a.detail}</span>
                 <span className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
@@ -540,16 +635,37 @@ function StatCard({
   );
 }
 
-const PORTFOLIO_COLORS = ["var(--accent)", "var(--success)", "var(--warning)", "#8b5cf6", "#ec4899", "#14b8a6"];
+const PORTFOLIO_COLORS = [
+  "var(--accent)",
+  "var(--success)",
+  "var(--warning)",
+  "#8b5cf6",
+  "#ec4899",
+  "#14b8a6",
+];
 
-function PortfolioValueChart({ properties }: { properties: PropertyRecord[] }) {
+// Each bar opens that property's AI report — the whole point of showing "which
+// properties make up my portfolio" is to be able to jump straight into one, not
+// just look at the chart. Bars get a pointer cursor and darken slightly on
+// hover (native SVG :hover, no extra state needed) as the button affordance;
+// the Y-axis address labels are real buttons too, for the same click target
+// without needing to land precisely on a (sometimes short) bar.
+function PortfolioValueChart({
+  properties,
+  onOpenReport,
+}: {
+  properties: PropertyRecord[];
+  onOpenReport: (p: PropertyRecord) => void;
+}) {
   const data = properties
     .filter((p) => p.totalValue != null)
     .sort((a, b) => (b.totalValue ?? 0) - (a.totalValue ?? 0))
     .slice(0, 8)
     .map((p) => ({
+      id: p.id,
       name: p.address.length > 28 ? `${p.address.slice(0, 26)}…` : p.address,
       value: p.totalValue ?? 0,
+      property: p,
     }));
 
   if (data.length === 0) {
@@ -566,11 +682,21 @@ function PortfolioValueChart({ properties }: { properties: PropertyRecord[] }) {
           width={160}
           tickLine={false}
           axisLine={false}
-          tick={{ fontSize: 12 }}
+          tick={(props) => <PortfolioAxisTick {...props} data={data} onOpenReport={onOpenReport} />}
         />
-        <Bar dataKey="value" radius={[0, 6, 6, 0]} barSize={22}>
+        <Bar
+          dataKey="value"
+          radius={[0, 6, 6, 0]}
+          barSize={22}
+          cursor="pointer"
+          onClick={(entry: (typeof data)[number]) => onOpenReport(entry.property)}
+        >
           {data.map((_, i) => (
-            <Cell key={i} fill={PORTFOLIO_COLORS[i % PORTFOLIO_COLORS.length]} />
+            <Cell
+              key={i}
+              fill={PORTFOLIO_COLORS[i % PORTFOLIO_COLORS.length]}
+              className="transition-opacity hover:opacity-80"
+            />
           ))}
           <LabelList
             dataKey="value"
@@ -581,6 +707,45 @@ function PortfolioValueChart({ properties }: { properties: PropertyRecord[] }) {
         </Bar>
       </BarChart>
     </ResponsiveContainer>
+  );
+}
+
+// Recharts' <YAxis tick> renders raw SVG, not HTML — a real <button> can't go
+// here, so this renders a <text> that behaves like one (pointer cursor,
+// underline-on-hover, click handler) using the same per-row property lookup
+// the bars themselves use.
+function PortfolioAxisTick(
+  props: {
+    x?: number;
+    y?: number;
+    payload?: { value: string };
+  } & {
+    data: { name: string; property: PropertyRecord }[];
+    onOpenReport: (p: PropertyRecord) => void;
+  },
+) {
+  const { x = 0, y = 0, payload, data, onOpenReport } = props;
+  const row = data.find((d) => d.name === payload?.value);
+  if (!row) return null;
+  const lines = row.name.split(/(?<=,)\s+/);
+  return (
+    <text
+      x={x}
+      y={y}
+      dy={4}
+      textAnchor="end"
+      fontSize={12}
+      fill="var(--foreground)"
+      cursor="pointer"
+      className="hover:underline"
+      onClick={() => onOpenReport(row.property)}
+    >
+      {lines.map((line, i) => (
+        <tspan key={i} x={x} dy={i === 0 ? -((lines.length - 1) * 6) : 12}>
+          {line}
+        </tspan>
+      ))}
+    </text>
   );
 }
 
@@ -626,10 +791,7 @@ function TopOpportunities({
                 AI Score: {score.score}/100 — {score.summary}
               </p>
             </div>
-            <button
-              onClick={() => onOpenReport(p)}
-              className="btn-outline shrink-0 text-xs py-1.5"
-            >
+            <button onClick={() => onOpenReport(p)} className="btn-outline shrink-0 text-xs py-1.5">
               View AI Report
             </button>
           </div>
@@ -674,7 +836,14 @@ function ProtestStatusChart({
       <div className="mt-3 grid grid-cols-[7rem_1fr] items-center gap-3">
         <ResponsiveContainer width="100%" height={110}>
           <PieChart>
-            <Pie data={data} dataKey="value" nameKey="name" innerRadius={30} outerRadius={50} paddingAngle={2}>
+            <Pie
+              data={data}
+              dataKey="value"
+              nameKey="name"
+              innerRadius={30}
+              outerRadius={50}
+              paddingAngle={2}
+            >
               {data.map((d) => (
                 <Cell key={d.status} fill={STATUS_COLORS[d.status]} />
               ))}
