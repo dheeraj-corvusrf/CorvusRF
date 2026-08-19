@@ -156,6 +156,15 @@
   @media (min-width: 768px) { padding-inline: 2rem; }
 }
 
+/* The header's own .container-page spans the full window edge-to-edge instead of
+   staying centered at 80rem — otherwise on wide screens the logo sits stranded well
+   inside the actual left corner instead of flush against it (same technique as the
+   CorvusRE hub's header, hub/hub.css). */
+header .container-page {
+  max-width: none;
+  margin-inline: 0;
+}
+
 @utility btn-primary {
   display: inline-flex; align-items: center; justify-content: center;
   gap: 0.5rem;
@@ -410,6 +419,62 @@
 }
 @media (prefers-reduced-motion: no-preference) {
   .radiate-ring { animation: radiate-ping 3s ease-out infinite; }
+}
+
+/* Homepage beta-signup announcement — a small plane towing a banner sign,
+   flying right-to-left through the hero's own sky (see HeroBackground.tsx),
+   not a separate colored strip above it. The plane leads (left side of the
+   group, since that's the direction of travel) with the banner trailing
+   behind it to the right, like a real towed sign. Positioned high in the sky
+   (same band as the sun/moon and top clouds) so it mostly clears the
+   centered headline text as it crosses. */
+@keyframes fly-across {
+  from { transform: translateX(100vw); }
+  to { transform: translateX(-100%); }
+}
+.beta-flyby-plane {
+  position: absolute;
+  top: 1.5rem;
+  left: 0;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+  transform: translateX(100vw);
+}
+/* A visible tow rope, not just a gap — without it the plane and the banner
+   just look like two unrelated things sitting near each other. */
+.beta-flyby-rope {
+  width: 1.375rem;
+  height: 2px;
+  flex-shrink: 0;
+  background: var(--muted-foreground);
+  opacity: 0.6;
+}
+/* A real pennant/flag silhouette — a swallowtail V cut into the trailing
+   edge via clip-path, the actual shape a cloth banner tail makes, rather
+   than a rectangle with a decorative corner. clip-path cuts the box itself,
+   so a normal `border` won't trace the notch (it draws around the
+   unclipped rectangle) — filter: drop-shadow() is used instead, since that
+   one *does* follow the clipped silhouette. */
+.beta-flyby-banner {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+  background: var(--card);
+  /* A fixed-depth notch (not a %-based one) — at this box's length, a
+     percentage cut reached deep enough to slice through the trailing link
+     text itself instead of staying a small decorative tail. */
+  clip-path: polygon(0% 0%, 100% 0%, calc(100% - 12px) 50%, 100% 100%, 0% 100%);
+  padding: 0.35rem 1.75rem 0.35rem 1rem;
+  filter: drop-shadow(0 2px 5px oklch(0 0 0 / 0.25));
+}
+@media (prefers-reduced-motion: no-preference) {
+  .beta-flyby-plane { animation: fly-across 32s linear infinite; }
+}
+/* Reduced-motion: no flight, just a centered, static plane+banner. */
+@media (prefers-reduced-motion: reduce) {
+  .beta-flyby-plane { left: 50%; transform: translateX(-50%); }
 }
 
 /* Without this, browsers strip background colors by default when printing —
