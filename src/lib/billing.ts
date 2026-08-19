@@ -4,12 +4,15 @@ import { invokeEdgeFunction } from "./edge-functions";
 // "ai_report" and the old contingency-based "managed_protest" are retained only for
 // backward compatibility with any pre-existing rows from before the per-property
 // pricing overhaul — new subscriptions always write owner_managed/corvusrf_managed.
+// "beta" is a free, full-access grant set only at signup (see handle_new_user() in
+// supabase/schema.sql) or manually via the admin panel — never through Stripe.
 export type PlanValue =
   | "free_ai_review"
   | "ai_report"
   | "managed_protest"
   | "owner_managed"
-  | "corvusrf_managed";
+  | "corvusrf_managed"
+  | "beta";
 
 export type Tier = "owner_managed" | "corvusrf_managed";
 
@@ -50,6 +53,7 @@ export const PLAN_OPTIONS: { value: PlanValue; label: string }[] = [
   { value: "free_ai_review", label: "Free AI Review" },
   { value: "owner_managed", label: "Owner-Managed ($99–$499/mo/property, by value)" },
   { value: "corvusrf_managed", label: "CorvusPT-Managed ($199–$699/mo/property, by value)" },
+  { value: "beta", label: "Beta (free, full access)" },
 ];
 
 export type BillingInfo = {

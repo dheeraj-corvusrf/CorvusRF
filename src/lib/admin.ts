@@ -128,18 +128,24 @@ export async function listAdminAuditLog(limit = 50): Promise<AdminAuditEntry[]> 
   }));
 }
 
+// Both of these now go through a service-role edge function rather than a direct
+// client update — Postgres column grants on profiles (see supabase/schema.sql)
+// no longer allow the plain client to write plan/is_admin at all, and the edge
+// function verifies admin status server-side instead of relying on this module
+// only ever being imported from the admin UI (which doesn't stop anyone from
+// calling the underlying client methods directly). Each function logs its own
+// admin_audit_log row server-side, so the separate logAdminAction() call these
+// used to make is gone too — it can't be skipped independently of the update now.
 export async function updateUserPlan(
   userId: string,
   plan: PlanValue,
   context?: { targetEmail?: string; previousPlan?: PlanValue },
 ): Promise<void> {
-  const { error } = await supabase.from("profiles").update({ plan }).eq("id", userId);
-  if (error) throw error;
-  await logAdminAction({
-    action: "update_plan",
-    targetUserId: userId,
+  await invokeEdgeFunction("admin-update-plan", {
+    userId,
+    plan,
     targetEmail: context?.targetEmail,
-    detail: context?.previousPlan ? `${context.previousPlan} → ${plan}` : `set to ${plan}`,
+    previousPlan: context?.previousPlan,
   });
 }
 
@@ -148,13 +154,10 @@ export async function updateUserAdminStatus(
   isAdmin: boolean,
   context?: { targetEmail?: string },
 ): Promise<void> {
-  const { error } = await supabase.from("profiles").update({ is_admin: isAdmin }).eq("id", userId);
-  if (error) throw error;
-  await logAdminAction({
-    action: "update_admin_status",
-    targetUserId: userId,
+  await invokeEdgeFunction("admin-update-admin-status", {
+    userId,
+    isAdmin,
     targetEmail: context?.targetEmail,
-    detail: isAdmin ? "granted admin access" : "removed admin access",
   });
 }
 
@@ -400,14 +403,14 @@ export async function listDocumentsForProperty(propertyId: string): Promise<Admi
     .eq("property_id", propertyId)
     .order("uploaded_at", { ascending: false });
   if (error) throw error;
-  return (data as { id: string; file_name: string; document_type: string | null; uploaded_at: string }[]).map(
-    (row) => ({
-      id: row.id,
-      fileName: row.file_name,
-      documentType: row.document_type,
-      uploadedAt: row.uploaded_at,
-    }),
-  );
+  return (
+    data as { id: string; file_name: string; document_type: string | null; uploaded_at: string }[]
+  ).map((row) => ({
+    id: row.id,
+    fileName: row.file_name,
+    documentType: row.document_type,
+    uploadedAt: row.uploaded_at,
+  }));
 }
 
 export type CaseSummaryResult = {
