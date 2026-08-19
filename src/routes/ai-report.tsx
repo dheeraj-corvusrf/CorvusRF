@@ -312,7 +312,8 @@ function Report() {
           plan === "owner_managed" ||
             plan === "corvusrf_managed" ||
             plan === "ai_report" ||
-            plan === "managed_protest",
+            plan === "managed_protest" ||
+            plan === "beta",
         ),
       )
       .catch(() => setHasFullAccess(false));

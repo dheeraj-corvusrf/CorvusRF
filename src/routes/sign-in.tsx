@@ -37,6 +37,7 @@ function SignIn() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [wantsBeta, setWantsBeta] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [checkEmail, setCheckEmail] = useState(false);
@@ -56,6 +57,7 @@ function SignIn() {
     setLastName("");
     setPhone("");
     setCompanyName("");
+    setWantsBeta(false);
   }
 
   async function onSubmit(e: React.FormEvent) {
@@ -95,6 +97,9 @@ function SignIn() {
               last_name: lastName.trim(),
               phone: phone.trim(),
               company_name: companyName.trim() || null,
+              // Read server-side by handle_new_user() (supabase/schema.sql) to set
+              // plan='beta' at row-creation — never written by the client directly.
+              wants_beta: String(wantsBeta),
             },
           },
         });
@@ -136,7 +141,7 @@ function SignIn() {
 
   if (checkEmail) {
     return (
-      <div className="container-page py-16 max-w-md">
+      <div className="container-page py-16 max-w-2xl">
         <span className="badge-soft">Almost there</span>
         <h1 className="mt-3 font-serif text-3xl font-semibold">Check your email.</h1>
         <p className="mt-2 text-muted-foreground">
@@ -152,7 +157,7 @@ function SignIn() {
 
   return (
     <div>
-      <div className="container-page pt-16 max-w-md">
+      <div className="container-page pt-16 max-w-2xl">
         <span className="badge-soft">{mode === "signin" ? "Sign In" : "Create Account"}</span>
         <h1 className="mt-3 font-serif text-3xl font-semibold">
           {mode === "signin" ? "Welcome back." : "Create your CorvusPT account."}
@@ -164,7 +169,7 @@ function SignIn() {
         </p>
       </div>
 
-      <div className="container-page pb-16 max-w-md">
+      <div className="container-page pb-16 max-w-2xl">
         <form onSubmit={onSubmit} className="mt-8 card-elev p-6 grid gap-4">
           {mode === "signup" && (
             <div className="grid gap-4 sm:grid-cols-2">
@@ -265,6 +270,23 @@ function SignIn() {
                 className="rounded-md border border-input bg-background px-3 py-2"
               />
             </label>
+          )}
+          {mode === "signup" && (
+            <div className="flex items-start gap-2 text-sm rounded-lg border border-accent/30 bg-accent/5 p-3">
+              <input
+                id="wants-beta"
+                type="checkbox"
+                checked={wantsBeta}
+                onChange={(e) => setWantsBeta(e.target.checked)}
+                className="mt-0.5"
+              />
+              <label htmlFor="wants-beta">
+                <span className="font-medium">🎉 Sign up as a beta user</span>
+                <span className="block text-muted-foreground text-xs mt-0.5">
+                  Free full access to every AI module while we're in beta — no card, no charge.
+                </span>
+              </label>
+            </div>
           )}
           {error && <p className="text-sm text-destructive">{error}</p>}
           <button disabled={loading} className="btn-primary btn-primary-hover disabled:opacity-60">
