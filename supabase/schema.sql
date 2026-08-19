@@ -33,23 +33,40 @@ create policy "Users can update their own profile"
   on public.profiles for update
   using (auth.uid() = id);
 
+-- RLS policies gate which ROWS are visible/writable, not which COLUMNS — the policy
+-- above alone would let any signed-in user set their OWN plan/is_admin/subscription_*
+-- columns directly (e.g. `supabase.from("profiles").update({ plan: "owner_managed" })`
+-- or `{ is_admin: true }`), bypassing Stripe and admin gating entirely. Column-level
+-- grants close that regardless of RLS: only the fields a normal profile-edit form
+-- actually needs (see src/lib/profile.ts's updateMyProfile) stay client-writable.
+-- Everything else — plan, is_admin, subscription/billing fields — becomes writable
+-- only by the service-role client, which is exactly what the Stripe webhook and the
+-- admin-update-plan/admin-update-admin-status edge functions already use.
+revoke update on public.profiles from authenticated;
+grant update (first_name, last_name, phone, company_name) on public.profiles to authenticated;
+
 -- Auto-create a profile row whenever someone signs up via Supabase Auth. first_name,
 -- last_name and phone are passed in from the sign-up form via supabase.auth.signUp's
--- options.data, which lands in raw_user_meta_data.
+-- options.data, which lands in raw_user_meta_data. 'wants_beta' (also passed through
+-- options.data, from the sign-up form's beta checkbox) sets plan='beta' right here,
+-- in this security-definer trigger — not via a client-side update, which the column
+-- grants above no longer allow. Runs at row-creation regardless of whether email
+-- confirmation is required, so both signup paths grant beta access correctly.
 create or replace function public.handle_new_user()
 returns trigger
 language plpgsql
 security definer set search_path = public
 as $$
 begin
-  insert into public.profiles (id, email, first_name, last_name, phone, company_name)
+  insert into public.profiles (id, email, first_name, last_name, phone, company_name, plan)
   values (
     new.id,
     new.email,
     new.raw_user_meta_data ->> 'first_name',
     new.raw_user_meta_data ->> 'last_name',
     new.raw_user_meta_data ->> 'phone',
-    new.raw_user_meta_data ->> 'company_name'
+    new.raw_user_meta_data ->> 'company_name',
+    case when new.raw_user_meta_data ->> 'wants_beta' = 'true' then 'beta' else 'free_ai_review' end
   );
   return new;
 end;
@@ -115,9 +132,11 @@ alter table public.profiles add column if not exists plan text not null default 
 -- 'ai_report' and 'managed_protest' are the original flat-rate/contingency tiers,
 -- kept in the allow-list for any pre-existing rows; 'owner_managed' and
 -- 'corvusrf_managed' are the real per-property monthly tiers new checkouts write.
+-- 'beta' is a free, full-access grant set only by handle_new_user() below when
+-- someone signs up with the beta checkbox checked — never through Stripe.
 alter table public.profiles drop constraint if exists profiles_plan_check;
 alter table public.profiles add constraint profiles_plan_check
-  check (plan in ('free_ai_review', 'ai_report', 'managed_protest', 'owner_managed', 'corvusrf_managed'));
+  check (plan in ('free_ai_review', 'ai_report', 'managed_protest', 'owner_managed', 'corvusrf_managed', 'beta'));
 
 -- How many properties the active subscription covers (Stripe line-item quantity) —
 -- pricing is per-property, so this drives what "N properties on your plan" means.
