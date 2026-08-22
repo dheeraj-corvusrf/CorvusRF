@@ -9,9 +9,11 @@ import {
   getMyBilling,
   bracketMonthlyTotal,
   bracketPropertyCount,
+  formatMoney,
   EMPTY_BRACKETS,
   VALUE_BRACKETS,
   TIER_BRACKET_PRICES,
+  CUSTOM_TIER,
   type PlanValue,
   type Tier,
   type BracketQuantities,
@@ -97,10 +99,6 @@ function Page() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [checkingOutTier, setCheckingOutTier] = useState<Tier | null>(null);
-  // Which tier's card is showing — a toggle instead of two side-by-side
-  // cards, since a user only ever picks one tier (billing stays entirely
-  // separate per tier; see CURRENT_TIER/SUBSCRIBED_PLANS below).
-  const [selectedTier, setSelectedTier] = useState<Tier>("owner_managed");
   const [openingPortal, setOpeningPortal] = useState(false);
   const [resuming, setResuming] = useState(false);
   const [currentPlan, setCurrentPlan] = useState<PlanValue | null>(null);
@@ -164,13 +162,6 @@ function Page() {
   const hasPaymentProblem = subscriptionStatus === "past_due" || subscriptionStatus === "unpaid";
   const subscribedCount = bracketPropertyCount(subscriptionBrackets);
 
-  // Once we know which tier (if any) the user is actually on, default the
-  // toggle to that — otherwise an existing CorvusPT-Managed subscriber would
-  // land on the Owner-Managed card first for no reason.
-  useEffect(() => {
-    if (currentTier) setSelectedTier(currentTier);
-  }, [currentTier]);
-
   function bracketsFor(tier: Tier): BracketQuantities {
     return tier === "owner_managed" ? ownerBrackets : managedBrackets;
   }
@@ -218,7 +209,6 @@ function Page() {
       const pending = JSON.parse(raw) as { tier: Tier; brackets: BracketQuantities };
       if (pending.tier === "owner_managed") setOwnerBrackets(pending.brackets);
       else setManagedBrackets(pending.brackets);
-      setSelectedTier(pending.tier);
       startSubscribeCheckout(pending.tier, pending.brackets);
     } catch {
       // Malformed/stale sessionStorage entry — nothing to resume.
@@ -326,30 +316,10 @@ function Page() {
               </div>
             )}
 
-            {/* Pick one tier, then its plan populates below — replaces two
-            side-by-side cards, which made it look like a choice between two
-            things you could both have, when billing is always one tier at a
-            time. */}
-            <div className="mt-8 inline-flex rounded-lg border border-border p-1">
-              {PAID_PLANS.map((p) => (
-                <button
-                  key={p.tier}
-                  type="button"
-                  onClick={() => setSelectedTier(p.tier)}
-                  aria-pressed={selectedTier === p.tier}
-                  className={`rounded-md px-4 py-2 text-sm font-medium transition-colors ${
-                    selectedTier === p.tier
-                      ? "bg-primary text-primary-foreground"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  {p.name}
-                </button>
-              ))}
-            </div>
-
-            <div className="mt-5 max-w-xl">
-              {PAID_PLANS.filter((p) => p.tier === selectedTier).map((p) => {
+            {/* Both tiers shown side by side, plus a Custom card for $25M+ —
+            so a visitor can compare every price without switching tabs. */}
+            <div className="mt-8 grid grid-cols-1 gap-6 lg:grid-cols-3">
+              {PAID_PLANS.map((p) => {
                 const isWhiteGlove = p.tier === "corvusrf_managed";
                 const tierBrackets = bracketsFor(p.tier);
                 const monthlyTotal = bracketMonthlyTotal(p.tier, tierBrackets);
@@ -501,13 +471,23 @@ function Page() {
                             ? "Redirecting to checkout…"
                             : propertyCount === 0
                               ? "Add at least one property above"
-                              : `Subscribe — $${monthlyTotal}/mo`}
+                              : `Subscribe — $${formatMoney(monthlyTotal)}/mo`}
                         </button>
                       )}
                     </div>
                   </div>
                 );
               })}
+
+              <div className="card-elev p-6 flex flex-col h-full">
+                <div className="badge-soft self-start">{CUSTOM_TIER.tag}</div>
+                <h3 className="mt-3 font-serif text-2xl">{CUSTOM_TIER.label}</h3>
+                <p className="mt-2 text-sm text-muted-foreground">{CUSTOM_TIER.blurb}</p>
+                <div className="mt-6 flex-1" />
+                <Link to="/contact" className="w-full btn-outline text-center">
+                  Contact Us
+                </Link>
+              </div>
             </div>
           </>
         )}

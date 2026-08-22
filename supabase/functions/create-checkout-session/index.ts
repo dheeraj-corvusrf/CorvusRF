@@ -1,19 +1,10 @@
 // Deploy via CLI: `supabase functions deploy create-checkout-session`.
-// Requires STRIPE_SECRET_KEY and 6 real Stripe Price id secrets — one per
-// (tier, property-value-bracket) combination, all monthly recurring prices
-// created in the Stripe Dashboard:
-//   STRIPE_PRICE_ID_OWNER_UNDER_2M     ($99/mo,  Owner-Managed,   $0-$2M)
-//   STRIPE_PRICE_ID_OWNER_MID_2M_10M   ($299/mo, Owner-Managed,   $2M-$10M)
-//   STRIPE_PRICE_ID_OWNER_OVER_10M     ($499/mo, Owner-Managed,   $10M+)
-//   STRIPE_PRICE_ID_MANAGED_UNDER_2M   ($199/mo, CorvusPT-Managed, $0-$2M)
-//   STRIPE_PRICE_ID_MANAGED_MID_2M_10M ($499/mo, CorvusPT-Managed, $2M-$10M)
-//   STRIPE_PRICE_ID_MANAGED_OVER_10M   ($699/mo, CorvusPT-Managed, $10M+)
-// The $0-$2M pair (STRIPE_PRICE_ID_OWNER_UNDER_2M / _MANAGED_UNDER_2M) is
-// optional — they already exist under their old flat-rate names from before
-// this bracket pricing overhaul (STRIPE_PRICE_ID_OWNER_MANAGED /
-// STRIPE_PRICE_ID_CORVUSRF_MANAGED, $99/$199, same amounts as the $0-$2M
-// bracket), so priceIdFor() below falls back to those rather than requiring
-// the same two Prices to be re-created under new secret names.
+// Requires only STRIPE_SECRET_KEY — no per-bracket Stripe Price id secrets.
+// Prices are computed here and passed to Stripe as price_data (ad hoc, no
+// pre-created Price/Product needed), so the 15%-off-2nd-property-per-bracket
+// discount can be applied per line item. This mirrors TIER_BRACKET_PRICES /
+// ADDITIONAL_PROPERTY_DISCOUNT / bracketLineTotal in src/lib/billing.ts,
+// which a Deno function can't import directly — keep both in sync by hand.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import Stripe from "npm:stripe@17";
 
@@ -29,32 +20,24 @@ type Tier = "owner_managed" | "corvusrf_managed";
 type Bracket = "under2m" | "mid2m10m" | "over10m";
 const BRACKETS: Bracket[] = ["under2m", "mid2m10m", "over10m"];
 
-const PRICE_ENV_VAR: Record<Tier, Record<Bracket, string>> = {
-  owner_managed: {
-    under2m: "STRIPE_PRICE_ID_OWNER_UNDER_2M",
-    mid2m10m: "STRIPE_PRICE_ID_OWNER_MID_2M_10M",
-    over10m: "STRIPE_PRICE_ID_OWNER_OVER_10M",
-  },
-  corvusrf_managed: {
-    under2m: "STRIPE_PRICE_ID_MANAGED_UNDER_2M",
-    mid2m10m: "STRIPE_PRICE_ID_MANAGED_MID_2M_10M",
-    over10m: "STRIPE_PRICE_ID_MANAGED_OVER_10M",
-  },
+const TIER_LABEL: Record<Tier, string> = {
+  owner_managed: "Owner-Managed",
+  corvusrf_managed: "CorvusPT-Managed",
 };
 
-// The under2m bracket alone also has a legacy fallback secret name (see the
-// header comment above).
-const LEGACY_UNDER_2M_ENV_VAR: Record<Tier, string> = {
-  owner_managed: "STRIPE_PRICE_ID_OWNER_MANAGED",
-  corvusrf_managed: "STRIPE_PRICE_ID_CORVUSRF_MANAGED",
+// "over10m" is the capped $10M-$25M bracket — see billing.ts.
+const BRACKET_LABEL: Record<Bracket, string> = {
+  under2m: "$0 - $2M",
+  mid2m10m: "$2M - $10M",
+  over10m: "$10M - $25M",
 };
 
-function priceIdFor(tier: Tier, bracket: Bracket): string | undefined {
-  const id = Deno.env.get(PRICE_ENV_VAR[tier][bracket]);
-  if (id) return id;
-  if (bracket === "under2m") return Deno.env.get(LEGACY_UNDER_2M_ENV_VAR[tier]);
-  return undefined;
+const TIER_BRACKET_PRICES: Record<Tier, Record<Bracket, number>> = {
+  owner_managed: { under2m: 99, mid2m10m: 299, over10m: 499 },
+  corvusrf_managed: { under2m: 199, mid2m10m: 499, over10m: 699 },
 };
+
+const ADDITIONAL_PROPERTY_DISCOUNT = 0.15;
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -93,12 +76,40 @@ Deno.serve(async (req: Request) => {
     const secretKey = Deno.env.get("STRIPE_SECRET_KEY");
     if (!secretKey) throw new Error("Missing STRIPE_SECRET_KEY");
 
-    const line_items: { price: string; quantity: number }[] = [];
+    const line_items: Stripe.Checkout.SessionCreateParams.LineItem[] = [];
     for (const b of BRACKETS) {
       if (qty[b] === 0) continue;
-      const priceId = priceIdFor(tier, b);
-      if (!priceId) throw new Error(`Missing ${PRICE_ENV_VAR[tier][b]} secret`);
-      line_items.push({ price: priceId, quantity: qty[b] });
+      const basePrice = TIER_BRACKET_PRICES[tier][b];
+      const baseCents = Math.round(basePrice * 100);
+      const name = `${TIER_LABEL[tier]} — ${BRACKET_LABEL[b]}`;
+      // 1st property in this bracket at full price; every additional one at
+      // 15% off (see ADDITIONAL_PROPERTY_DISCOUNT above). Two line items
+      // instead of one so each unit's price is exact — Stripe quantities
+      // don't support a per-unit price break within a single line item.
+      line_items.push({
+        quantity: 1,
+        price_data: {
+          currency: "usd",
+          unit_amount: baseCents,
+          recurring: { interval: "month" },
+          product_data: { name, metadata: { tier, bracket: b } },
+        },
+      });
+      if (qty[b] > 1) {
+        const discountedCents = Math.round(baseCents * (1 - ADDITIONAL_PROPERTY_DISCOUNT));
+        line_items.push({
+          quantity: qty[b] - 1,
+          price_data: {
+            currency: "usd",
+            unit_amount: discountedCents,
+            recurring: { interval: "month" },
+            product_data: {
+              name: `${name} (2nd+ property, 15% off)`,
+              metadata: { tier, bracket: b },
+            },
+          },
+        });
+      }
     }
 
     // Identify the caller from their own JWT (forwarded from the client's session) —

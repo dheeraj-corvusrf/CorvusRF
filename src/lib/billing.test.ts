@@ -11,7 +11,8 @@ vi.mock("./supabase", () => ({ supabase: { from: (...args: unknown[]) => mockFro
 vi.mock("./edge-functions", () => ({ invokeEdgeFunction: (...args: unknown[]) => mockInvoke(...args) }));
 
 // Imported after the mocks above so billing.ts picks up the mocked modules.
-const { getMyBilling, startCheckout, openBillingPortal, resumeSubscription } = await import("./billing");
+const { getMyBilling, startCheckout, openBillingPortal, resumeSubscription, bracketLineTotal, bracketMonthlyTotal } =
+  await import("./billing");
 
 describe("getMyBilling", () => {
   it("maps snake_case profile columns to BillingInfo", async () => {
@@ -114,5 +115,28 @@ describe("resumeSubscription", () => {
     mockInvoke.mockResolvedValue({ ok: true });
     await resumeSubscription();
     expect(mockInvoke).toHaveBeenCalledWith("resume-subscription", {});
+  });
+});
+
+describe("bracketLineTotal", () => {
+  it("returns 0 for zero quantity", () => {
+    expect(bracketLineTotal(499, 0)).toBe(0);
+  });
+
+  it("charges full price for a single property", () => {
+    expect(bracketLineTotal(499, 1)).toBe(499);
+  });
+
+  it("discounts every property after the first by 15%", () => {
+    // 1 full-price + 2 at 85% = 499 + 2 * 424.15
+    expect(bracketLineTotal(499, 3)).toBeCloseTo(499 + 2 * 424.15, 5);
+  });
+});
+
+describe("bracketMonthlyTotal", () => {
+  it("sums the discounted total across brackets", () => {
+    const total = bracketMonthlyTotal("owner_managed", { under2m: 2, mid2m10m: 0, over10m: 0 });
+    // 1 full-price ($99) + 1 at 85% ($84.15)
+    expect(total).toBeCloseTo(99 + 84.15, 5);
   });
 });

@@ -18,19 +18,24 @@ export type Tier = "owner_managed" | "corvusrf_managed";
 
 // Property-value-tiered pricing — each paid tier has 3 monthly price points
 // instead of one flat per-property rate, keyed by which value bracket a
-// given property falls in. The real amount charged is whatever Stripe Price
-// each STRIPE_PRICE_ID_* secret points at (see create-checkout-session) —
-// these numbers are for display/estimate only, kept in sync by hand.
+// given property falls in. The real amount charged is computed dynamically by
+// create-checkout-session (Stripe price_data, not a fixed Price ID) — these
+// numbers are for display/estimate only, kept in sync by hand with that
+// function's own copy of the same math (Deno functions can't import from
+// src/lib).
 export type PropertyValueBracket = "under2m" | "mid2m10m" | "over10m";
 
 export type BracketQuantities = Record<PropertyValueBracket, number>;
 
 export const EMPTY_BRACKETS: BracketQuantities = { under2m: 0, mid2m10m: 0, over10m: 0 };
 
+// "over10m" now means the capped $10M-$25M bracket, not open-ended — anything
+// above $25M moved to CUSTOM_TIER below, which isn't part of this bracket
+// system (no quantity, no checkout).
 export const VALUE_BRACKETS: { value: PropertyValueBracket; label: string }[] = [
   { value: "under2m", label: "$0 - $2M" },
   { value: "mid2m10m", label: "$2M - $10M" },
-  { value: "over10m", label: "$10M+" },
+  { value: "over10m", label: "$10M - $25M" },
 ];
 
 export const TIER_BRACKET_PRICES: Record<Tier, Record<PropertyValueBracket, number>> = {
@@ -38,9 +43,35 @@ export const TIER_BRACKET_PRICES: Record<Tier, Record<PropertyValueBracket, numb
   corvusrf_managed: { under2m: 199, mid2m10m: 499, over10m: 699 },
 };
 
+// Non-metered — shown on /pricing as a third, always-visible card with a
+// "Contact Us" link instead of Subscribe. Never enters BracketQuantities,
+// checkout, or the DB.
+export const CUSTOM_TIER = {
+  label: "$25M+",
+  tag: "Custom pricing",
+  blurb: "Portfolios above $25M per property are priced individually — talk to us.",
+};
+
+// 1st property in a bracket is full price; every additional property in that
+// same bracket is 15% off. Mirrored in create-checkout-session/index.ts,
+// which can't import this file.
+export const ADDITIONAL_PROPERTY_DISCOUNT = 0.15;
+
+export function bracketLineTotal(basePrice: number, qty: number): number {
+  if (qty <= 0) return 0;
+  return basePrice + (qty - 1) * basePrice * (1 - ADDITIONAL_PROPERTY_DISCOUNT);
+}
+
+// The 15%-off math produces amounts like $84.15 — plain integers still print
+// as-is (no trailing ".00"), but anything with cents gets exactly 2 decimals
+// instead of raw floating-point noise (e.g. 267.29999999999995).
+export function formatMoney(amount: number): string {
+  return Number.isInteger(amount) ? String(amount) : amount.toFixed(2);
+}
+
 export function bracketMonthlyTotal(tier: Tier, brackets: BracketQuantities): number {
   return VALUE_BRACKETS.reduce(
-    (sum, { value }) => sum + brackets[value] * TIER_BRACKET_PRICES[tier][value],
+    (sum, { value }) => sum + bracketLineTotal(TIER_BRACKET_PRICES[tier][value], brackets[value]),
     0,
   );
 }

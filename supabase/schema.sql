@@ -667,6 +667,9 @@ create policy "Admins can view all tax bills"
 -- about brackets at all — only the checkout/pricing UI does.
 alter table public.profiles add column if not exists qty_under_2m integer not null default 0;
 alter table public.profiles add column if not exists qty_2m_10m integer not null default 0;
+-- Despite the name, this is now the capped $10M-$25M bracket, not open-ended —
+-- anything above $25M moved to billing.ts's CUSTOM_TIER, which has no quantity
+-- or checkout at all (contact-us only), so it needs no column here.
 alter table public.profiles add column if not exists qty_over_10m integer not null default 0;
 
 -- "Add Ownerships" — an LLC/ownership name the user has searched and added
