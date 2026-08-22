@@ -20,6 +20,7 @@ test("pricing page renders all 3 tiers side by side with the correct prices", as
   await expect(page.getByText("$199/mo", { exact: true })).toBeVisible();
 
   // The $25M+ Custom card links out to Contact Us instead of Subscribing.
+  // Scoped to <main> — nav and footer both also have a "Contact Us" link.
   await expect(page.getByRole("heading", { name: "$25M+" })).toBeVisible();
-  await expect(page.getByRole("link", { name: "Contact Us" })).toBeVisible();
+  await expect(page.getByRole("main").getByRole("link", { name: "Contact Us" })).toBeVisible();
 });
