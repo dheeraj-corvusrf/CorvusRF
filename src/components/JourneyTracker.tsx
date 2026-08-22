@@ -143,6 +143,7 @@ export function JourneyTracker() {
   const [protests, setProtests] = useState<ProtestRecord[]>([]);
   const [properties, setProperties] = useState<PropertyRecord[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [page, setPage] = useState(0);
 
   useEffect(() => {
     setState(readIntake());
@@ -169,6 +170,10 @@ export function JourneyTracker() {
 
   const hasSavedProperty = properties.length > 0;
   const intakeSteps = computeIntakeSteps(state, hasSavedProperty);
+  // Clamp rather than reset to 0 outright, so losing the last property on the
+  // last page (e.g. it gets removed) lands on the new last page instead of
+  // always yanking back to the first one.
+  const currentPage = Math.min(page, Math.max(0, properties.length - 1));
 
   // Nobody has a saved property yet — one generic tracker driven purely by
   // whatever the current browser session's in-progress intake flow has done so
@@ -183,47 +188,64 @@ export function JourneyTracker() {
           onFile={onFile}
           isDragging={isDragging}
           dropHandlers={dropHandlers}
-          first
         />
       </section>
     );
   }
 
-  // One full tracker per property, all inside a single box — each block is
-  // driven by that specific property's own protest (if any), rather than
-  // blending every case the user has into one bar. A property with no protest
-  // yet simply sits at "Choose Service".
+  // One box, one property's tracker at a time — each block is driven by that
+  // specific property's own protest (if any), rather than blending every case
+  // the user has into one bar. A property with no protest yet simply sits at
+  // "Choose Service". Switch properties via the page numbers below instead of
+  // stacking every property's tracker in one long scroll.
+  const activeProperty = properties[currentPage];
+  const activeProtest = protests.find((pr) => pr.propertyId === activeProperty.id);
+  const activeRank = activeProtest ? STATUS_RANK[activeProtest.status] : 0;
+
   return (
     <section className="card-elev p-6">
       <span className="badge-soft">Your Journey</span>
-      {properties.map((p, i) => {
-        const protest = protests.find((pr) => pr.propertyId === p.id);
-        const rank = protest ? STATUS_RANK[protest.status] : 0;
-        return (
-          <JourneyBlock
-            key={p.id}
-            title={p.address}
-            steps={[...intakeSteps, ...computeFilingSteps(rank)]}
-            uploading={uploading}
-            onFile={onFile}
-            isDragging={isDragging}
-            dropHandlers={dropHandlers}
-            first={i === 0}
-          />
-        );
-      })}
+      <JourneyBlock
+        key={activeProperty.id}
+        title={activeProperty.address}
+        steps={[...intakeSteps, ...computeFilingSteps(activeRank)]}
+        uploading={uploading}
+        onFile={onFile}
+        isDragging={isDragging}
+        dropHandlers={dropHandlers}
+      />
+      {properties.length > 1 && (
+        <nav aria-label="Select property" className="mt-6 flex flex-wrap items-center gap-2">
+          {properties.map((p, i) => (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => setPage(i)}
+              aria-current={i === currentPage ? "page" : undefined}
+              aria-label={p.address}
+              title={p.address}
+              className={`h-8 w-8 rounded-full text-xs font-semibold transition-colors ${
+                i === currentPage
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-secondary text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {i + 1}
+            </button>
+          ))}
+        </nav>
+      )}
     </section>
   );
 }
 
-function JourneyBlock({
+export function JourneyBlock({
   title,
   steps,
   uploading,
   onFile,
   isDragging,
   dropHandlers,
-  first,
 }: {
   title?: string;
   steps: boolean[];
@@ -231,7 +253,6 @@ function JourneyBlock({
   onFile: (file: File) => void;
   isDragging: boolean;
   dropHandlers: ReturnType<typeof useFileDrop>["dropHandlers"];
-  first: boolean;
 }) {
   const completedCount = steps.filter(Boolean).length;
   const firstIncomplete = steps.findIndex((done) => !done);
@@ -241,7 +262,7 @@ function JourneyBlock({
   const message = getMessage(currentStep, allDone);
 
   return (
-    <div className={first ? "mt-3" : "mt-8 border-t border-border pt-8"}>
+    <div className="mt-3">
       <div className="flex items-start justify-between flex-wrap gap-2">
         <div className="min-w-0 flex-1">
           <h2 className="font-serif text-xl font-semibold">

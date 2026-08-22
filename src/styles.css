@@ -49,7 +49,7 @@
 
 :root {
   --radius: 0.75rem;
-  /* Deep Texas navy + vivid blue accent */
+  /* Deep Texas navy + emerald green accent (matches the PT door's green in hub/hub.css) */
   --background: oklch(0.995 0.003 90);
   --foreground: oklch(0.20 0.04 250);
   --card: oklch(1 0 0);
@@ -62,8 +62,8 @@
   --secondary-foreground: oklch(0.25 0.05 255);
   --muted: oklch(0.96 0.008 250);
   --muted-foreground: oklch(0.48 0.02 255);
-  --accent: oklch(0.62 0.19 255);             /* vivid blue */
-  --accent-foreground: oklch(0.99 0.005 255);
+  --accent: oklch(0.596 0.145 163.225);        /* emerald, matching the PT door green */
+  --accent-foreground: oklch(0.99 0.01 163);
   --destructive: oklch(0.58 0.22 27);
   --destructive-foreground: oklch(0.985 0 0);
   --success: oklch(0.62 0.13 155);
@@ -72,7 +72,7 @@
   --warning-foreground: oklch(0.22 0.05 60);
   --border: oklch(0.90 0.012 250);
   --input: oklch(0.92 0.012 250);
-  --ring: oklch(0.55 0.12 255);
+  --ring: oklch(0.55 0.12 163);
   /* Fixed navy/white brand colors for things that must look the same regardless
      of theme (homepage hero overlay, the CorvusRF logo mark) — intentionally NOT
      overridden in the dark-mode media query below, since --primary/--primary-
@@ -117,11 +117,11 @@
     --secondary-foreground: oklch(0.98 0.003 90);
     --muted: oklch(0.26 0.04 250);
     --muted-foreground: oklch(0.75 0.02 250);
-    --accent: oklch(0.62 0.19 255);
-    --accent-foreground: oklch(0.99 0.005 255);
+    --accent: oklch(0.596 0.145 163.225);
+    --accent-foreground: oklch(0.99 0.01 163);
     --border: oklch(1 0 0 / 0.1);
     --input: oklch(1 0 0 / 0.14);
-    --ring: oklch(0.55 0.12 255);
+    --ring: oklch(0.55 0.12 163);
 
     --hero-sky-top: oklch(0.20 0.04 250);
     --hero-sky-bottom: oklch(0.15 0.03 250);
@@ -190,7 +190,7 @@ header .container-page {
     &:hover::after { background-position: -50% 0; }
   }
 }
-@utility btn-primary-hover { &:hover { background-color: oklch(0.54 0.19 255); } }
+@utility btn-primary-hover { &:hover { background-color: oklch(0.50 0.145 163); } }
 
 @utility btn-accent {
   display: inline-flex; align-items: center; justify-content: center;
@@ -205,7 +205,7 @@ header .container-page {
   box-shadow: var(--shadow-elev);
   transition: transform .15s ease, background-color .15s ease, box-shadow .15s ease;
   &:hover {
-    background-color: oklch(0.54 0.19 255);
+    background-color: oklch(0.50 0.145 163);
     transform: translateY(-1px);
     box-shadow: 0 14px 34px -14px oklch(0.18 0.06 250 / 0.32);
   }
@@ -278,14 +278,14 @@ header .container-page {
   display: inline-flex; align-items: center; gap: .35rem;
   padding: 0.25rem 0.6rem;
   border-radius: 999px;
-  background: oklch(0.93 0.04 255);
-  color: oklch(0.32 0.12 255);
+  background: oklch(0.93 0.05 163);
+  color: oklch(0.32 0.12 163);
   font-size: 0.75rem; font-weight: 600;
   transition: background-color .2s ease, color .2s ease;
 }
 
 /* Same shape as .badge-soft, warning/amber-tinted — used where a badge needs to read
-   as "premium" rather than the default informational blue (e.g. pricing's white-glove
+   as "premium" rather than the default informational green (e.g. pricing's white-glove
    tier), without changing badge-soft's own color for every other site-wide use. */
 @utility badge-soft-warning {
   display: inline-flex; align-items: center; gap: .35rem;
