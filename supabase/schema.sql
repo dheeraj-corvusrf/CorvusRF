@@ -667,7 +667,41 @@ create policy "Admins can view all tax bills"
 -- about brackets at all — only the checkout/pricing UI does.
 alter table public.profiles add column if not exists qty_under_2m integer not null default 0;
 alter table public.profiles add column if not exists qty_2m_10m integer not null default 0;
+-- Despite the name, this is now the capped $10M-$25M bracket, not open-ended —
+-- anything above $25M moved to billing.ts's CUSTOM_TIER, which has no quantity
+-- or checkout at all (contact-us only), so it needs no column here.
 alter table public.profiles add column if not exists qty_over_10m integer not null default 0;
+
+-- "Add Ownerships" — an LLC/ownership name the user has searched and added
+-- properties from (see src/components/AddOwnershipsModal.tsx and
+-- cad-owner-search, which already searches by owner name across every county
+-- that publishes one). Written once when properties are actually saved from a
+-- search, not on every search itself — same "insert once, never edit in
+-- place" shape as properties, so no update policy either.
+create table if not exists public.ownerships (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users (id) on delete cascade,
+  name text not null,
+  role text not null check (role in ('owner', 'agent', 'property_manager')),
+  created_at timestamptz not null default now()
+);
+
+alter table public.ownerships enable row level security;
+
+drop policy if exists "Users can view their own ownerships" on public.ownerships;
+create policy "Users can view their own ownerships"
+  on public.ownerships for select
+  using (auth.uid() = user_id);
+
+drop policy if exists "Users can insert their own ownerships" on public.ownerships;
+create policy "Users can insert their own ownerships"
+  on public.ownerships for insert
+  with check (auth.uid() = user_id);
+
+drop policy if exists "Users can delete their own ownerships" on public.ownerships;
+create policy "Users can delete their own ownerships"
+  on public.ownerships for delete
+  using (auth.uid() = user_id);
 
 -- ── ONE-TIME MANUAL STEP — do NOT run this as part of the routine schema paste ──
 -- After you have an account (sign up normally through the app first), run this once,

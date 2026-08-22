@@ -15,6 +15,7 @@ import { CaseDetailModal } from "@/components/CaseDetailModal";
 import { generateCasePrep } from "@/lib/protest-case";
 import { CopyButton } from "@/components/CopyButton";
 import { ImportPropertiesModal } from "@/components/ImportPropertiesModal";
+import { AddOwnershipsModal } from "@/components/AddOwnershipsModal";
 
 export const Route = createFileRoute("/dashboard/_layout/properties")({
   component: Properties,
@@ -46,6 +47,7 @@ function Properties() {
   const [authorizingProperty, setAuthorizingProperty] = useState<PropertyRecord | null>(null);
   const [caseProperty, setCaseProperty] = useState<PropertyRecord | null>(null);
   const [importOpen, setImportOpen] = useState(false);
+  const [ownershipsOpen, setOwnershipsOpen] = useState(false);
 
   useEffect(() => {
     if (!user) return;
@@ -113,6 +115,9 @@ function Properties() {
           <button type="button" onClick={() => setImportOpen(true)} className="btn-outline">
             Import CSV
           </button>
+          <button type="button" onClick={() => setOwnershipsOpen(true)} className="btn-outline">
+            Add Ownerships
+          </button>
           <Link
             to="/intake"
             onClick={() => resetIntake()}
@@ -128,6 +133,14 @@ function Properties() {
           userId={user.id}
           onImported={(imported) => setProperties((prev) => [...imported, ...prev])}
           onClose={() => setImportOpen(false)}
+        />
+      )}
+
+      {ownershipsOpen && user && (
+        <AddOwnershipsModal
+          userId={user.id}
+          onImported={(imported) => setProperties((prev) => [...imported, ...prev])}
+          onClose={() => setOwnershipsOpen(false)}
         />
       )}
 
@@ -177,8 +190,13 @@ function Properties() {
                     </div>
                     <div className="text-right shrink-0">
                       <div className="text-xs text-muted-foreground">Assessed value</div>
-                      <div className="text-2xl font-semibold">{currency(p.totalValue ?? undefined)}</div>
-                      <SavingsLine estimatedSavings={p.estimatedSavings} savingsBasis={p.savingsBasis} />
+                      <div className="text-2xl font-semibold">
+                        {currency(p.totalValue ?? undefined)}
+                      </div>
+                      <SavingsLine
+                        estimatedSavings={p.estimatedSavings}
+                        savingsBasis={p.savingsBasis}
+                      />
                     </div>
                   </div>
                   <div className="mt-4 flex gap-2 flex-wrap items-center">
@@ -207,10 +225,7 @@ function Properties() {
                         )}
                       </>
                     ) : (
-                      <button
-                        onClick={() => setAuthorizingProperty(p)}
-                        className="btn-outline"
-                      >
+                      <button onClick={() => setAuthorizingProperty(p)} className="btn-outline">
                         Request Protest Filing
                       </button>
                     )}
@@ -229,7 +244,9 @@ function Properties() {
         ) : (
           <div className="card-elev p-8 text-center">
             <h3 className="font-serif text-xl font-semibold">No properties yet.</h3>
-            <p className="text-muted-foreground mt-1">Start with an address or upload an appraisal notice.</p>
+            <p className="text-muted-foreground mt-1">
+              Start with an address or upload an appraisal notice.
+            </p>
             <Link
               to="/intake"
               onClick={() => resetIntake()}
@@ -328,7 +345,9 @@ function SavingsLine({
       <div className="text-lg font-semibold text-accent">
         {currency(estimatedSavings)}
         {(savingsBasis === "formula" || savingsBasis === "ai" || savingsBasis === "baseline") && (
-          <span className="ml-1 align-middle text-[10px] font-normal text-muted-foreground">(estimate)</span>
+          <span className="ml-1 align-middle text-[10px] font-normal text-muted-foreground">
+            (estimate)
+          </span>
         )}
       </div>
     </div>

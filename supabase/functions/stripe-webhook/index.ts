@@ -17,42 +17,42 @@ const corsHeaders = {
   "Content-Type": "application/json",
 };
 
-// Same 6 bracket-specific Price id secrets create-checkout-session uses, read
-// here too so a subscription's line items (each pinned to one of these six
-// Price ids) can be mapped back to "how many properties in which bracket" —
-// see BRACKET_COLUMN below. The old flat-rate STRIPE_PRICE_ID_OWNER_MANAGED/
-// STRIPE_PRICE_ID_CORVUSRF_MANAGED prices (same $99/$199 amounts as the
-// $0-$2M bracket, and what create-checkout-session falls back to for that
-// bracket when the dedicated secret isn't set) are registered as the same
-// qty_under_2m bucket too, so both old and new $0-$2M subscriptions count
-// correctly. Anything matching neither still counts toward
-// subscription_quantity below, just without a bracket breakdown.
-const BRACKET_COLUMN: Record<string, "qty_under_2m" | "qty_2m_10m" | "qty_over_10m"> = {};
-function registerBracketPrice(envVar: string, column: "qty_under_2m" | "qty_2m_10m" | "qty_over_10m") {
-  const id = Deno.env.get(envVar);
-  if (id) BRACKET_COLUMN[id] = column;
-}
-registerBracketPrice("STRIPE_PRICE_ID_OWNER_UNDER_2M", "qty_under_2m");
-registerBracketPrice("STRIPE_PRICE_ID_OWNER_MANAGED", "qty_under_2m");
-registerBracketPrice("STRIPE_PRICE_ID_CORVUSRF_MANAGED", "qty_under_2m");
-registerBracketPrice("STRIPE_PRICE_ID_OWNER_MID_2M_10M", "qty_2m_10m");
-registerBracketPrice("STRIPE_PRICE_ID_OWNER_OVER_10M", "qty_over_10m");
-registerBracketPrice("STRIPE_PRICE_ID_MANAGED_UNDER_2M", "qty_under_2m");
-registerBracketPrice("STRIPE_PRICE_ID_MANAGED_MID_2M_10M", "qty_2m_10m");
-registerBracketPrice("STRIPE_PRICE_ID_MANAGED_OVER_10M", "qty_over_10m");
+// create-checkout-session prices every bracket via ad hoc price_data (a fresh
+// Price/Product per checkout, to support the 15%-off-2nd-property discount),
+// so there's no fixed, known-ahead-of-time Price id to match line items
+// against any more. Instead it stamps { tier, bracket } as metadata on each
+// line item's Product (see that function), which persists on the Product for
+// the life of the subscription — read back here via BRACKET_COLUMN. This also
+// correctly re-derives brackets after a quantity change made through the
+// Stripe Billing Portal, not just at fresh-checkout time. Anything with no
+// recognizable bracket metadata (e.g. a manually-created test subscription)
+// still counts toward subscription_quantity below, just without a bracket
+// breakdown.
+const BRACKET_COLUMN: Record<string, "qty_under_2m" | "qty_2m_10m" | "qty_over_10m"> = {
+  under2m: "qty_under_2m",
+  mid2m10m: "qty_2m_10m",
+  over10m: "qty_over_10m",
+};
 
-// Sums every line item's quantity (a subscription now has up to 3 — one per
-// non-empty value bracket — instead of always exactly 1) for the total, and
-// separately buckets each line item's quantity into its matching bracket
-// column via BRACKET_COLUMN above.
+// Sums every line item's quantity (a subscription now has up to 6 — up to 2
+// per non-empty value bracket, full-price + discounted — instead of always
+// exactly 1) for the total, and separately buckets each line item's quantity
+// into its matching bracket column via the Product metadata BRACKET_COLUMN
+// reads. `items` must come from a subscription fetched with
+// `expand: ["items.data.price.product"]` so `item.price.product` is a full
+// object, not just an id string.
 function summarizeItems(items: Stripe.SubscriptionItem[]) {
   const totals = { qty_under_2m: 0, qty_2m_10m: 0, qty_over_10m: 0 };
   let quantity = 0;
   for (const item of items) {
     const q = item.quantity ?? 0;
     quantity += q;
-    const priceId = typeof item.price === "string" ? item.price : item.price?.id;
-    const column = priceId ? BRACKET_COLUMN[priceId] : undefined;
+    const product = item.price?.product;
+    const bracket =
+      product && typeof product === "object" && !product.deleted
+        ? (product as Stripe.Product).metadata?.bracket
+        : undefined;
+    const column = bracket ? BRACKET_COLUMN[bracket] : undefined;
     if (column) totals[column] += q;
   }
   return { quantity: quantity || 1, ...totals };
@@ -105,7 +105,9 @@ Deno.serve(async (req: Request) => {
       if (userId) {
         let summary = summarizeItems([]);
         if (typeof session.subscription === "string") {
-          const sub = await stripe.subscriptions.retrieve(session.subscription);
+          const sub = await stripe.subscriptions.retrieve(session.subscription, {
+            expand: ["items.data.price.product"],
+          });
           summary = summarizeItems(sub.items.data);
         }
         await adminClient
@@ -129,7 +131,13 @@ Deno.serve(async (req: Request) => {
       if (customerId) {
         const tier =
           subscription.metadata?.tier === "corvusrf_managed" ? "corvusrf_managed" : "owner_managed";
-        const summary = summarizeItems(subscription.items.data);
+        // The event payload's subscription.items.data isn't expanded to full
+        // Product objects — re-fetch so summarizeItems can read bracket
+        // metadata off item.price.product.
+        const expandedSub = await stripe.subscriptions.retrieve(subscription.id, {
+          expand: ["items.data.price.product"],
+        });
+        const summary = summarizeItems(expandedSub.items.data);
         const update: Record<string, string | number | boolean | null> = {
           subscription_status: subscription.status,
           subscription_quantity: summary.quantity,
