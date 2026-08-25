@@ -8,6 +8,7 @@ import {
   getCase,
   generateCasePrep,
   linkEvidenceDocument,
+  markFiled,
   recordSettlementOffer,
   acceptSettlement,
   scheduleHearing,
@@ -23,15 +24,21 @@ import { getAuthorization, type AuthorizationRecord } from "@/lib/protest-author
 import {
   getNoticeOfProtestDefaults,
   getAppointmentOfAgentDefaults,
+  getAdditionalOwnerPropertyFields,
   buildPdf,
+  signPdf,
   downloadPdf,
+  resolveDateFields,
   NOTICE_OF_PROTEST_SCHEMA,
   APPOINTMENT_OF_AGENT_SCHEMA,
   type FieldValues,
 } from "@/lib/protest-documents";
+import { getSubmission, saveDraft, signAndSubmit, type FormType } from "@/lib/protest-form-submissions";
+import { searchPropertiesByOwner } from "@/lib/cad-owner-search";
 import { PdfFormEditor } from "@/components/PdfFormEditor";
 import { Modal } from "@/components/Modal";
 import { Skeleton } from "@/components/ui/skeleton";
+import type { SignatureValue } from "@/components/SignaturePad";
 
 export function CaseDetailModal({
   userId,
@@ -79,9 +86,11 @@ export function CaseDetailModal({
           />
 
           <DocumentsSection
+            userId={userId}
             protest={current}
             property={property}
             strategyRecommendation={caseData?.strategyRecommendation ?? null}
+            onUpdate={(patch) => setCurrent((prev) => ({ ...prev, ...patch }))}
           />
 
           <CaseProgress
@@ -141,15 +150,21 @@ export function CasePlanSection({
   }
 
   async function handleUpload(itemId: string, e: ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
+    const files = Array.from(e.target.files ?? []);
     e.target.value = "";
-    if (!file) return;
+    if (files.length === 0) return;
     setUploadingItemId(itemId);
     try {
-      const doc = await uploadDocument(userId, property.id, file, "Protest Evidence");
-      await linkEvidenceDocument(itemId, doc.id);
+      // Sequential, not Promise.all — several checklist items genuinely need
+      // multiple files (e.g. 3 years of income statements), and uploading them
+      // one at a time keeps storage writes and the resulting toast/error in a
+      // predictable order rather than racing.
+      for (const file of files) {
+        const doc = await uploadDocument(userId, property.id, file, "Protest Evidence");
+        await linkEvidenceDocument(itemId, doc.id);
+      }
       onReload();
-      toast.success("Evidence uploaded.");
+      toast.success(files.length === 1 ? "Evidence uploaded." : `${files.length} files uploaded.`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not upload this file.");
     } finally {
@@ -158,7 +173,7 @@ export function CasePlanSection({
   }
 
   const hasAnyPlan = !!caseData && (!!caseData.strategyRecommendation || caseData.evidenceItems.length > 0);
-  const uploadedCount = caseData?.evidenceItems.filter((i) => i.documentId).length ?? 0;
+  const uploadedCount = caseData?.evidenceItems.filter((i) => i.documents.length > 0).length ?? 0;
   const totalCount = caseData?.evidenceItems.length ?? 0;
 
   if (!hasAnyPlan) {
@@ -220,26 +235,38 @@ export function CasePlanSection({
             {caseData!.evidenceItems.map((item, i) => (
               <div
                 key={item.id}
-                className="min-w-0 flex items-center justify-between gap-2 rounded-md border border-border p-2.5 text-sm list-item-enter transition-colors hover:bg-secondary/30"
+                className="min-w-0 grid gap-1.5 rounded-md border border-border p-2.5 text-sm list-item-enter transition-colors hover:bg-secondary/30"
                 style={{ animationDelay: `${Math.min(i * 50, 400)}ms` }}
               >
-                <span className="min-w-0 flex-1 truncate">{item.label}</span>
-                {item.documentFileName ? (
-                  <span className="shrink-0 text-xs text-success">✓ {item.documentFileName}</span>
-                ) : (
+                <div className="flex items-center justify-between gap-2">
+                  <span className="min-w-0 flex-1 truncate">{item.label}</span>
                   <label
                     className={`shrink-0 btn-outline text-xs py-1 cursor-pointer ${
                       uploadingItemId === item.id ? "opacity-60 pointer-events-none" : ""
                     }`}
                   >
-                    {uploadingItemId === item.id ? "Uploading…" : "Upload"}
+                    {uploadingItemId === item.id
+                      ? "Uploading…"
+                      : item.documents.length > 0
+                        ? "Add another file"
+                        : "Upload"}
                     <input
                       type="file"
+                      multiple
                       className="hidden"
                       accept=".pdf,image/*"
                       onChange={(e) => handleUpload(item.id, e)}
                     />
                   </label>
+                </div>
+                {item.documents.length > 0 && (
+                  <ul className="grid gap-0.5">
+                    {item.documents.map((doc) => (
+                      <li key={doc.id} className="truncate text-xs text-success">
+                        ✓ {doc.fileName}
+                      </li>
+                    ))}
+                  </ul>
                 )}
               </div>
             ))}
@@ -262,19 +289,33 @@ export function CasePlanSection({
 }
 
 export function DocumentsSection({
+  userId,
   protest,
   property,
   strategyRecommendation,
+  onUpdate,
+  // Staff must never sign a legal filing on a customer's behalf — the admin
+  // panel's copy of this section (AdminCaseProgressModal) passes false to
+  // hide signing entirely, keeping Save Progress/Download available for
+  // staff to help prep the form without ever touching the signature step.
+  allowSigning = true,
 }: {
+  userId: string;
   protest: ProtestRecord;
   property: PropertyRecord;
   strategyRecommendation: string | null;
+  onUpdate: (patch: Partial<ProtestRecord>) => void;
+  allowSigning?: boolean;
 }) {
   const [authorization, setAuthorization] = useState<AuthorizationRecord | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [editingForm, setEditingForm] = useState<"protest" | "agent" | null>(null);
   const [values, setValues] = useState<FieldValues>({});
   const [downloading, setDownloading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [signingOpen, setSigningOpen] = useState(false);
+  const [signature, setSignature] = useState<SignatureValue | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     getAuthorization(protest.id)
@@ -283,36 +324,143 @@ export function DocumentsSection({
       .finally(() => setAuthLoading(false));
   }, [protest.id]);
 
+  const formType: FormType | null =
+    editingForm === "protest" ? "notice_of_protest" : editingForm === "agent" ? "appointment_of_agent" : null;
+  const templatePath = editingForm === "protest" ? "forms/50-132.pdf" : "forms/50-162.pdf";
+  const schema = editingForm === "protest" ? NOTICE_OF_PROTEST_SCHEMA : APPOINTMENT_OF_AGENT_SCHEMA;
+
+  // Opens immediately with computed defaults (no loading state on click), then
+  // swaps in a saved draft/signed submission if one exists — a prior Save
+  // Progress or Sign & Submit always wins over freshly-computed defaults.
   function openProtestEditor() {
     setValues(getNoticeOfProtestDefaults(property, property.taxYear, strategyRecommendation, authorization));
     setEditingForm("protest");
+    setSigningOpen(false);
+    setSignature(null);
+    getSubmission(protest.id, "notice_of_protest")
+      .then((existing) => existing && setValues(existing.fieldValues))
+      .catch((err) => console.error("Could not load saved Notice of Protest draft:", err));
   }
 
   function openAgentEditor() {
     if (!authorization) return;
     setValues(getAppointmentOfAgentDefaults(authorization, property));
     setEditingForm("agent");
+    setSigningOpen(false);
+    setSignature(null);
+    getSubmission(protest.id, "appointment_of_agent")
+      .then((existing) => existing && setValues(existing.fieldValues))
+      .catch((err) => console.error("Could not load saved Appointment of Agent draft:", err))
+      .finally(fillAdditionalOwnerProperties);
+  }
+
+  // Form 50-162 authorizes an agent for possibly several properties at once —
+  // this case's own property already fills the first slot; this looks up any
+  // OTHER real properties on file under the same owner name, in the same
+  // appraisal district (an authorization is filed per-district, so a sibling
+  // property in a different county doesn't belong on this form), and fills
+  // the remaining slots. Reuses the exact same owner-name search Add
+  // Ownerships already uses — real CAD data, never guessed. Runs after the
+  // saved-draft check above (whichever wins) and only ever fills slots that
+  // are still empty, so it can never clobber a saved draft or an edit the
+  // user already made.
+  async function fillAdditionalOwnerProperties() {
+    const ownerName = property.ownerName || (authorization?.isEntity ? authorization.entityName : null);
+    if (!ownerName || !property.cad) return;
+    try {
+      const matches = await searchPropertiesByOwner(ownerName);
+      const isCurrentProperty = (m: (typeof matches)[number]) =>
+        property.accountNumber && m.accountNumber
+          ? m.accountNumber === property.accountNumber
+          : m.propertyAddress.trim().toLowerCase() === property.address.trim().toLowerCase();
+      const additional = matches.filter((m) => m.cad === property.cad && !isCurrentProperty(m));
+      if (additional.length === 0) return;
+      setValues((prev) =>
+        prev["Appraisal District Account Number_3"] || prev["Physical or Situs Address of Property_3"]
+          ? prev
+          : { ...prev, ...getAdditionalOwnerPropertyFields(additional) },
+      );
+    } catch (err) {
+      console.error("Could not search for other properties under this ownership:", err);
+    }
   }
 
   function handleFieldChange(name: string, value: string | boolean) {
     setValues((prev) => ({ ...prev, [name]: value }));
   }
 
+  async function handleSaveProgress() {
+    if (!formType) return;
+    setSaving(true);
+    try {
+      await saveDraft(userId, protest.id, formType, values);
+      toast.success("Progress saved.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not save your progress.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function handleDownload() {
     setDownloading(true);
     try {
-      const isProtest = editingForm === "protest";
-      const bytes = await buildPdf(
-        isProtest ? "forms/50-132.pdf" : "forms/50-162.pdf",
-        isProtest ? NOTICE_OF_PROTEST_SCHEMA : APPOINTMENT_OF_AGENT_SCHEMA,
-        values,
-      );
+      const bytes = await buildPdf(templatePath, schema, values);
       const filenameBase = property.accountNumber ?? property.id;
-      downloadPdf(bytes, isProtest ? `Notice-of-Protest-${filenameBase}.pdf` : `Appointment-of-Agent-${filenameBase}.pdf`);
+      downloadPdf(
+        bytes,
+        editingForm === "protest" ? `Notice-of-Protest-${filenameBase}.pdf` : `Appointment-of-Agent-${filenameBase}.pdf`,
+      );
+      // Downloading shouldn't be able to lose edits either — save silently
+      // alongside it, without its own toast (Download already has one).
+      if (formType) await saveDraft(userId, protest.id, formType, values).catch((err) => console.error(err));
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not generate this document.");
     } finally {
       setDownloading(false);
+    }
+  }
+
+  async function handleConfirmSign() {
+    if (!formType || !signature) return;
+    setSubmitting(true);
+    try {
+      // Last-chance correction — catches a date field that was never blurred
+      // (e.g. filled by clicking a suggestion chip last) before it's baked
+      // into the signed PDF and the saved record.
+      const resolvedValues = resolveDateFields(schema, values);
+      setValues(resolvedValues);
+      const signedAt = new Date();
+      const bytes = await signPdf(templatePath, schema, resolvedValues, signature, signedAt);
+      const filenameBase = property.accountNumber ?? property.id;
+      const fileName =
+        editingForm === "protest"
+          ? `Signed-Notice-of-Protest-${filenameBase}.pdf`
+          : `Signed-Appointment-of-Agent-${filenameBase}.pdf`;
+      const file = new File([bytes as BlobPart], fileName, { type: "application/pdf" });
+      const doc = await uploadDocument(
+        userId,
+        property.id,
+        file,
+        editingForm === "protest" ? "Signed Notice of Protest" : "Signed Appointment of Agent",
+      );
+      await signAndSubmit(userId, protest.id, formType, resolvedValues, signature, doc.id);
+      if (editingForm === "protest") {
+        await markFiled(protest.id);
+        onUpdate({ status: "filed" });
+      }
+      downloadPdf(bytes, fileName);
+      setSigningOpen(false);
+      setSignature(null);
+      toast.success(
+        editingForm === "protest"
+          ? "Signed and saved — this case is now marked Filed. Download or deliver this PDF to your appraisal district to complete filing."
+          : "Signed and saved.",
+      );
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not sign this document.");
+    } finally {
+      setSubmitting(false);
     }
   }
 
@@ -337,25 +485,36 @@ export function DocumentsSection({
         </button>
       </div>
 
-      {editingForm === "protest" && (
+      {editingForm && (
         <PdfFormEditor
-          title="Notice of Protest (Form 50-132)"
-          sections={NOTICE_OF_PROTEST_SCHEMA}
+          title={editingForm === "protest" ? "Notice of Protest (Form 50-132)" : "Appointment of Agent (Form 50-162)"}
+          sections={schema}
           values={values}
           onChange={handleFieldChange}
           onDownload={handleDownload}
           downloading={downloading}
-          onClose={() => setEditingForm(null)}
-        />
-      )}
-      {editingForm === "agent" && (
-        <PdfFormEditor
-          title="Appointment of Agent (Form 50-162)"
-          sections={APPOINTMENT_OF_AGENT_SCHEMA}
-          values={values}
-          onChange={handleFieldChange}
-          onDownload={handleDownload}
-          downloading={downloading}
+          onSaveProgress={handleSaveProgress}
+          saving={saving}
+          allowSigning={allowSigning}
+          signingOpen={signingOpen}
+          onOpenSigning={() => {
+            setSignature(null);
+            setSigningOpen(true);
+          }}
+          onCancelSigning={() => {
+            setSigningOpen(false);
+            setSignature(null);
+          }}
+          signature={signature}
+          onSignatureChange={setSignature}
+          onConfirmSign={handleConfirmSign}
+          submitting={submitting}
+          expectedSignerName={(() => {
+            const key =
+              editingForm === "protest" ? "Print Name of Property Owner or Authorized Representative" : "Name of Property Owner";
+            const v = values[key];
+            return typeof v === "string" && v ? v : undefined;
+          })()}
           onClose={() => setEditingForm(null)}
         />
       )}

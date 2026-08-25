@@ -411,6 +411,10 @@ create table if not exists public.protest_evidence_items (
   protest_id uuid not null references public.protests (id) on delete cascade,
   user_id uuid not null references auth.users (id) on delete cascade,
   label text not null,
+  -- Legacy — a checklist item now links to zero or more documents via
+  -- documents.evidence_item_id instead (see below), which supports more than one
+  -- file per item. Left in place (with a one-time backfill) so already-uploaded
+  -- evidence isn't lost, but no longer written to by new uploads.
   document_id uuid references public.documents (id) on delete set null,
   created_at timestamptz not null default now()
 );
@@ -482,6 +486,18 @@ create policy "Users can delete their own documents"
   on public.documents for delete
   using (auth.uid() = user_id);
 
+-- Needed so linkEvidenceDocument() (src/lib/protest-case.ts) can set
+-- evidence_item_id after upload — RLS only gates which rows are visible, not which
+-- columns are writable, so the column grant below (same pattern as profiles' own
+-- lockdown above) keeps this to exactly the one field a user should ever change on
+-- an existing document row.
+drop policy if exists "Users can update their own documents" on public.documents;
+create policy "Users can update their own documents"
+  on public.documents for update
+  using (auth.uid() = user_id);
+revoke update on public.documents from authenticated;
+grant update (evidence_item_id) on public.documents to authenticated;
+
 drop policy if exists "Admins can view all documents" on public.documents;
 create policy "Admins can view all documents"
   on public.documents for select
@@ -494,6 +510,32 @@ drop policy if exists "Admins can insert documents" on public.documents;
 create policy "Admins can insert documents"
   on public.documents for insert
   with check (public.is_admin());
+
+-- Lets staff link evidence on a customer's behalf from the admin panel's copy of
+-- CasePlanSection — the "Users can update ..." policy above only matches a
+-- document's own owner, not staff acting on someone else's row. Covered by the
+-- same evidence_item_id-only column grant above (grants are per-role, not
+-- per-policy).
+drop policy if exists "Admins can update all documents" on public.documents;
+create policy "Admins can update all documents"
+  on public.documents for update
+  using (public.is_admin());
+
+-- Links a document to the specific evidence-checklist item it satisfies. Nullable
+-- and one-directional (document -> item) rather than the old single document_id
+-- column on protest_evidence_items, so one checklist item — e.g. "Property Income
+-- and Expense Statements (3 Years)" — can hold several uploaded files instead of
+-- just one. See CaseDetailModal.tsx's evidence checklist.
+alter table public.documents add column if not exists evidence_item_id uuid
+  references public.protest_evidence_items (id) on delete set null;
+
+-- Backfill: earlier uploads used protest_evidence_items.document_id (now legacy —
+-- superseded by evidence_item_id above) to link a single file. Idempotent, so it's
+-- safe to re-run: only touches documents not already linked.
+update public.documents d
+set evidence_item_id = pei.id
+from public.protest_evidence_items pei
+where pei.document_id = d.id and d.evidence_item_id is null;
 
 -- Private bucket: objects are stored at "{user_id}/{property_id}/{filename}" so the
 -- storage.objects policies below can scope access by the first path segment alone.
@@ -529,6 +571,64 @@ create policy "Users can delete their own documents"
   using (
     bucket_id = 'documents' and (storage.foldername(name))[1] = auth.uid()::text
   );
+
+-- One row per (protest, form) — holds both in-progress edits (Save Progress,
+-- no signature) and the final signed record (Sign & Submit) for the two real
+-- Comptroller forms (Notice of Protest / Appointment of Agent, see
+-- protest-documents.ts). field_values is the whole (dynamic, ~30-40-key)
+-- FieldValues map, JSON-stringified into a plain text column rather than a
+-- jsonb column — this schema has none (see value_history's text[] precedent
+-- above) — since the field set is open-ended and doesn't fit fixed columns.
+create table if not exists public.protest_form_submissions (
+  id uuid primary key default gen_random_uuid(),
+  protest_id uuid not null references public.protests (id) on delete cascade,
+  user_id uuid not null references auth.users (id) on delete cascade,
+  form_type text not null check (form_type in ('notice_of_protest', 'appointment_of_agent')),
+  field_values text not null,
+  signature_type text,
+  signature_data text,
+  signed_at timestamptz,
+  document_id uuid references public.documents (id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (protest_id, form_type)
+);
+
+alter table public.protest_form_submissions enable row level security;
+
+drop policy if exists "Users can view their own form submissions" on public.protest_form_submissions;
+create policy "Users can view their own form submissions"
+  on public.protest_form_submissions for select
+  using (auth.uid() = user_id);
+
+drop policy if exists "Users can insert their own form submissions" on public.protest_form_submissions;
+create policy "Users can insert their own form submissions"
+  on public.protest_form_submissions for insert
+  with check (auth.uid() = user_id);
+
+drop policy if exists "Users can update their own form submissions" on public.protest_form_submissions;
+create policy "Users can update their own form submissions"
+  on public.protest_form_submissions for update
+  using (auth.uid() = user_id);
+
+drop policy if exists "Admins can view all form submissions" on public.protest_form_submissions;
+create policy "Admins can view all form submissions"
+  on public.protest_form_submissions for select
+  using (public.is_admin());
+
+-- Lets staff use Save Progress (and Download's silent save) on a customer's
+-- behalf from the admin panel — signing itself stays customer-only, enforced
+-- client-side (AdminCaseProgressModal passes allowSigning={false}), not by
+-- these policies; rows still carry the customer's own user_id either way.
+drop policy if exists "Admins can insert form submissions" on public.protest_form_submissions;
+create policy "Admins can insert form submissions"
+  on public.protest_form_submissions for insert
+  with check (public.is_admin());
+
+drop policy if exists "Admins can update all form submissions" on public.protest_form_submissions;
+create policy "Admins can update all form submissions"
+  on public.protest_form_submissions for update
+  using (public.is_admin());
 
 -- AI-computed "protest opportunity" score, generated once in the background right
 -- after a property is added (see src/lib/property-scores.ts) so the dashboard can
