@@ -1,7 +1,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Check } from "lucide-react";
+import { ArrowLeft, Check } from "lucide-react";
 import { AnimatedSteps } from "@/components/AnimatedSteps";
 import { CircularSearchLoader } from "@/components/CircularSearchLoader";
 import { ValueHistorySection } from "@/components/ValueHistorySection";
@@ -14,7 +14,7 @@ import {
   type IntakeState,
   type PropertyKind,
 } from "@/lib/intake-store";
-import { cadLookup } from "@/lib/cad-lookup";
+import { cadLookup, type CadRecord } from "@/lib/cad-lookup";
 import { classifyPropertyCategory } from "@/lib/texas-tax-rates";
 import { AddressAutocomplete } from "@/components/AddressAutocomplete";
 import { useAuth } from "@/lib/auth";
@@ -61,6 +61,12 @@ function Intake() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [alreadySaved, setAlreadySaved] = useState<PropertyRecord | null>(null);
+  const [nearby, setNearby] = useState<CadRecord[]>([]);
+  // Bumped on every new lookup and by cancelValidation() — an in-flight
+  // request checks this before ever touching state, so hitting Cancel (or
+  // starting a second search) can't have a stale response silently repaint
+  // the screen out from under whatever the user is looking at now.
+  const requestIdRef = useRef(0);
   // See estimateSavings() for the comps -> AI -> baseline cascade. null only
   // means we don't even have an assessed value to estimate from yet (the
   // savings step is skipped straight to confirm in that case).
@@ -82,106 +88,146 @@ function Intake() {
     }
   }, []);
 
+  // Shared by a real cadLookup() match and by picking one of the "nearby"
+  // suggestions on the notfound step (which already has a full real CadRecord
+  // in hand — no reason to make a second network round-trip for the same data).
+  async function applyCadRecord(record: CadRecord, requestId: number) {
+    // The commercial/residential toggle above is just the user's own guess
+    // — the CAD record is authoritative. Block here too (not just at the
+    // toggle) since someone can still reach this page with an address that
+    // turns out to be a true single-family home the county itself codes as
+    // residential (state code "A"/"C1" or descriptive text like "Single
+    // Family") — classifyPropertyCategory() already does this exact
+    // classification for the savings-estimate formula tier, so reuse it
+    // rather than inventing a second, possibly-inconsistent check.
+    if (requestIdRef.current !== requestId) return;
+    if (classifyPropertyCategory(record.propertyType) === "residential") {
+      setState(
+        updateIntake({
+          address: record.propertyAddress,
+          cad: record.cad,
+          propertyType: record.propertyType ?? undefined,
+        }),
+      );
+      setStep("residential-blocked");
+      return;
+    }
+    const next = updateIntake({
+      address: record.propertyAddress,
+      cad: record.cad,
+      accountNumber: record.accountNumber ?? undefined,
+      ownerName: record.ownerName ?? undefined,
+      propertyType: record.propertyType ?? undefined,
+      landValue: record.landValue ?? undefined,
+      improvementValue: record.improvementValue ?? undefined,
+      totalValue: record.totalValue ?? undefined,
+      taxYear: record.taxYear ?? undefined,
+      legalDescription: record.legalDescription ?? undefined,
+      subdivision: record.subdivision ?? undefined,
+      geoId: record.geoId ?? undefined,
+      mailingAddress: record.mailingAddress ?? undefined,
+      ownershipPct: record.ownershipPct ?? undefined,
+      protestStatus: record.protestStatus ?? undefined,
+      valueHistory: record.valueHistory ?? undefined,
+      deeds: record.deeds ?? undefined,
+    });
+    setState(next);
+
+    // See estimateSavings() for the comps -> formula cascade — both tiers are
+    // fully deterministic (no AI call), so the same property always produces
+    // the same number. Only null (no assessed value at all) skips the
+    // savings step straight to confirm.
+    //
+    // Still cached against this exact property (cad+accountNumber, or
+    // address when no account number exists) so refreshing the page or
+    // re-validating the same address mid-intake reuses the prior result
+    // instead of re-running the comps lookup for nothing — a performance
+    // nicety now, not a correctness requirement, since the estimate would
+    // come out identical either way.
+    const savingsKey = next.cad && next.accountNumber ? `${next.cad}::${next.accountNumber}` : next.address;
+    let nextSavings: SavingsEstimate;
+    if (savingsKey && next.cachedSavingsKey === savingsKey && next.cachedSavings !== undefined) {
+      nextSavings = next.cachedSavings;
+    } else {
+      nextSavings = await estimateSavings({
+        cad: next.cad,
+        accountNumber: next.accountNumber,
+        address: next.address,
+        propertyType: next.propertyType,
+        landValue: next.landValue,
+        improvementValue: next.improvementValue,
+        totalValue: next.totalValue,
+        taxYear: next.taxYear,
+        valueHistory: next.valueHistory,
+      });
+      updateIntake({ cachedSavings: nextSavings, cachedSavingsKey: savingsKey });
+    }
+    if (requestIdRef.current !== requestId) return;
+    setSavings(nextSavings);
+    setStep(nextSavings ? "savings" : "confirm");
+    // Check whether this exact CAD record is already on the user's account —
+    // shown as a notice on the confirm screen instead of letting them hit
+    // "Confirm Property" again for something already saved.
+    if (user && next.address) {
+      findExistingProperty(user.id, {
+        address: next.address,
+        cad: next.cad,
+        accountNumber: next.accountNumber,
+      })
+        .then(setAlreadySaved)
+        .catch((err) => console.error(err));
+    }
+  }
+
   async function runValidation(addr: string) {
+    const requestId = ++requestIdRef.current;
     setStep("validating");
     setError(null);
     setAlreadySaved(null);
+    setNearby([]);
     try {
       const res = await cadLookup(addr);
+      if (requestIdRef.current !== requestId) return;
       if (!res.matched) {
+        setNearby(res.nearby);
         setStep("notfound");
         return;
       }
-      // The commercial/residential toggle above is just the user's own guess
-      // — the CAD record is authoritative. Block here too (not just at the
-      // toggle) since someone can still reach this page with an address that
-      // turns out to be a true single-family home the county itself codes as
-      // residential (state code "A"/"C1" or descriptive text like "Single
-      // Family") — classifyPropertyCategory() already does this exact
-      // classification for the savings-estimate formula tier, so reuse it
-      // rather than inventing a second, possibly-inconsistent check.
-      if (classifyPropertyCategory(res.record.propertyType) === "residential") {
-        setState(
-          updateIntake({
-            address: res.record.propertyAddress,
-            cad: res.record.cad,
-            propertyType: res.record.propertyType ?? undefined,
-          }),
-        );
-        setStep("residential-blocked");
-        return;
-      }
-      const next = updateIntake({
-        address: res.record.propertyAddress,
-        cad: res.record.cad,
-        accountNumber: res.record.accountNumber ?? undefined,
-        ownerName: res.record.ownerName ?? undefined,
-        propertyType: res.record.propertyType ?? undefined,
-        landValue: res.record.landValue ?? undefined,
-        improvementValue: res.record.improvementValue ?? undefined,
-        totalValue: res.record.totalValue ?? undefined,
-        taxYear: res.record.taxYear ?? undefined,
-        legalDescription: res.record.legalDescription ?? undefined,
-        subdivision: res.record.subdivision ?? undefined,
-        geoId: res.record.geoId ?? undefined,
-        mailingAddress: res.record.mailingAddress ?? undefined,
-        ownershipPct: res.record.ownershipPct ?? undefined,
-        protestStatus: res.record.protestStatus ?? undefined,
-        valueHistory: res.record.valueHistory ?? undefined,
-        deeds: res.record.deeds ?? undefined,
-      });
-      setState(next);
-
-      // See estimateSavings() for the comps -> formula cascade — both tiers are
-      // fully deterministic (no AI call), so the same property always produces
-      // the same number. Only null (no assessed value at all) skips the
-      // savings step straight to confirm.
-      //
-      // Still cached against this exact property (cad+accountNumber, or
-      // address when no account number exists) so refreshing the page or
-      // re-validating the same address mid-intake reuses the prior result
-      // instead of re-running the comps lookup for nothing — a performance
-      // nicety now, not a correctness requirement, since the estimate would
-      // come out identical either way.
-      const savingsKey = next.cad && next.accountNumber ? `${next.cad}::${next.accountNumber}` : next.address;
-      let nextSavings: SavingsEstimate;
-      if (savingsKey && next.cachedSavingsKey === savingsKey && next.cachedSavings !== undefined) {
-        nextSavings = next.cachedSavings;
-      } else {
-        nextSavings = await estimateSavings({
-          cad: next.cad,
-          accountNumber: next.accountNumber,
-          address: next.address,
-          propertyType: next.propertyType,
-          landValue: next.landValue,
-          improvementValue: next.improvementValue,
-          totalValue: next.totalValue,
-          taxYear: next.taxYear,
-          valueHistory: next.valueHistory,
-        });
-        updateIntake({ cachedSavings: nextSavings, cachedSavingsKey: savingsKey });
-      }
-      setSavings(nextSavings);
-      setStep(nextSavings ? "savings" : "confirm");
-      // Check whether this exact CAD record is already on the user's account —
-      // shown as a notice on the confirm screen instead of letting them hit
-      // "Confirm Property" again for something already saved.
-      if (user && next.address) {
-        findExistingProperty(user.id, {
-          address: next.address,
-          cad: next.cad,
-          accountNumber: next.accountNumber,
-        })
-          .then(setAlreadySaved)
-          .catch((err) => console.error(err));
-      }
+      await applyCadRecord(res.record, requestId);
     } catch (err) {
+      if (requestIdRef.current !== requestId) return;
       console.error(err);
       const message =
         err instanceof Error ? err.message : "Could not look up this property. Please try again.";
       toast.error(message);
       setStep("address");
     }
+  }
+
+  async function selectNearby(record: CadRecord) {
+    const requestId = ++requestIdRef.current;
+    setStep("validating");
+    setError(null);
+    setAlreadySaved(null);
+    try {
+      await applyCadRecord(record, requestId);
+    } catch (err) {
+      if (requestIdRef.current !== requestId) return;
+      console.error(err);
+      const message =
+        err instanceof Error ? err.message : "Could not use this property. Please try again.";
+      toast.error(message);
+      setStep("notfound");
+    }
+  }
+
+  // Bails out of an in-flight lookup — invalidates it (see requestIdRef
+  // above) so its eventual response can never repaint the screen after the
+  // user has already left, and returns straight to an editable address field
+  // rather than the notfound/residential-blocked dead ends.
+  function cancelValidation() {
+    requestIdRef.current++;
+    setStep("address");
   }
 
   async function onFile(f: File) {
@@ -306,7 +352,15 @@ function Intake() {
       )}
 
       {step === "validating" && (
-        <section className="mt-8 card-elev p-10 text-center">
+        <section className="mt-8 card-elev p-10 text-center relative">
+          <button
+            type="button"
+            onClick={cancelValidation}
+            className="btn-outline absolute left-4 top-4 gap-1.5 text-xs py-1.5"
+          >
+            <ArrowLeft className="h-3.5 w-3.5" />
+            Cancel
+          </button>
           <CircularSearchLoader className="h-48 w-48 mx-auto" />
           <h2 className="mt-6 font-serif text-2xl font-semibold">Searching for your property…</h2>
           {address && <p className="mt-2 text-muted-foreground">{address}</p>}
@@ -345,6 +399,60 @@ function Intake() {
               Search Again
             </button>
           </div>
+
+          {nearby.length > 0 && (
+            <div className="mt-6 border-t border-border pt-5">
+              <h3 className="text-sm font-semibold">
+                We didn't find that exact address, but found these nearby:
+              </h3>
+              <div className="mt-3 grid gap-2">
+                {nearby.map((r, i) => {
+                  // The county's own record is authoritative, same check
+                  // applyCadRecord() itself makes — this app only serves
+                  // commercial properties, so a residential one is shown but
+                  // disabled rather than left clickable into a dead end.
+                  const category = classifyPropertyCategory(r.propertyType);
+                  const isResidential = category === "residential";
+                  return (
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={() => !isResidential && selectNearby(r)}
+                      disabled={isResidential}
+                      title={isResidential ? "Residential — CorvusPT currently serves commercial properties only" : undefined}
+                      className={`row-hover flex items-center justify-between gap-3 rounded-lg border border-border p-3 text-left ${
+                        isResidential ? "opacity-50 grayscale cursor-not-allowed" : ""
+                      }`}
+                    >
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-semibold">{r.propertyAddress}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {r.cad}
+                          {r.totalValue != null && <> · Assessed {currency(r.totalValue)}</>}
+                        </div>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <span
+                          className={`rounded-full px-2 py-0.5 text-[11px] font-medium capitalize ${
+                            isResidential
+                              ? "bg-secondary text-muted-foreground"
+                              : category === "commercial"
+                                ? "badge-soft"
+                                : "bg-secondary text-muted-foreground"
+                          }`}
+                        >
+                          {category === "unknown" ? "Type unknown" : category}
+                        </span>
+                        {!isResidential && (
+                          <span className="text-sm font-semibold text-accent">Check this →</span>
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </section>
       )}
 

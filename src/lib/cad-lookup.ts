@@ -40,7 +40,12 @@ export type CadRecord = {
   deeds?: CadDeed[];
 };
 
-export type CadLookupResult = { matched: false } | { matched: true; record: CadRecord };
+// nearby: real parcels on the same street (any house number), from the same
+// county sources — never fabricated — surfaced only when the exact match
+// failed and there was a real city to filter by. Empty when there's nothing
+// real to suggest (e.g. the address is in one of the many Texas counties
+// this app has no data source for at all).
+export type CadLookupResult = { matched: false; nearby: CadRecord[] } | { matched: true; record: CadRecord };
 
 export async function cadLookup(address: string): Promise<CadLookupResult> {
   return invokeEdgeFunction<CadLookupResult>("cad-lookup", { address });
