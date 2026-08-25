@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { readIntake, classifyAndStoreDocument, type IntakeState } from "@/lib/intake-store";
 import { useAuth } from "@/lib/auth";
 import { listProtests, type ProtestRecord, type ProtestStatus } from "@/lib/protests";
 import { listProperties, type PropertyRecord } from "@/lib/properties";
 import { useFileDrop } from "@/hooks/use-file-drop";
+import { ProtestAuthorizationFlow } from "@/components/ProtestAuthorizationFlow";
 
 const STEP_LABELS = [
   "Start",
@@ -39,17 +40,22 @@ const STATUS_RANK: Record<ProtestStatus, number> = {
   resolved: 5,
 };
 
-type Action = { label: string; to?: string; upload?: boolean };
+type Action = { label: string; to?: string; upload?: boolean; protestLaunch?: boolean };
 type StepMessage = { title: string; actions?: Action[] };
 
 // `state` reflects only the CURRENT browser session's intake flow, which resets
 // every time a new property is started (resetIntake() on the homepage) — a
-// returning user beginning their second property would otherwise look like
-// they'd regressed on steps already completed for their first one. `hasSavedProperty`
-// (a real, persisted, account-wide signal) is OR'd in so completing the pipeline
-// once keeps steps 1-5 checked forever, while a fresh in-progress session still
-// fills in normally for a first-time user.
-function computeIntakeSteps(state: IntakeState, hasSavedProperty: boolean): boolean[] {
+// returning user looking at an OLDER property (added in a past session, or a
+// different one than whatever's currently mid-flow) would otherwise look like
+// they'd regressed on steps that property already completed, since none of
+// this session's state describes it. `assumeCompleteFallback` (true for any
+// property that isn't the one this session's own state describes — see
+// propertyMatchesIntakeState below) papers over that by treating steps 1-5 as
+// already done. For the property THIS session's state actually IS about, the
+// fallback must stay false — otherwise a property just added via a plain
+// address search would still show "Upload Documents" checked off, which is
+// exactly wrong: it didn't happen for this property, session or not.
+function computeIntakeSteps(state: IntakeState, assumeCompleteFallback: boolean): boolean[] {
   const hasStarted = !!(state.address || state.extraction || state.noticeFileName);
   const hasCounty = !!(state.cad || state.extraction?.county || state.extraction?.cadName);
   const hasProperty = !!(
@@ -60,8 +66,23 @@ function computeIntakeSteps(state: IntakeState, hasSavedProperty: boolean): bool
   const hasDocument = !!(state.noticeFileName || state.extraction);
   const hasReview = !!state.extractionConfirmed;
   return [hasStarted, hasCounty, hasProperty, hasDocument, hasReview].map(
-    (done) => done || hasSavedProperty,
+    (done) => done || assumeCompleteFallback,
   );
+}
+
+// True when the current browser session's in-progress intake state is
+// actually ABOUT this specific saved property — i.e. it's the one the user
+// just searched/confirmed, not some other property from an earlier session.
+// Matched by CAD account number first (the real unique key), falling back to
+// address when either side lacks one.
+function propertyMatchesIntakeState(property: PropertyRecord, state: IntakeState): boolean {
+  if (state.cad && state.accountNumber && property.cad && property.accountNumber) {
+    return state.cad === property.cad && state.accountNumber === property.accountNumber;
+  }
+  if (state.address && property.address) {
+    return state.address.trim().toLowerCase() === property.address.trim().toLowerCase();
+  }
+  return false;
 }
 
 function computeFilingSteps(rank: number): boolean[] {
@@ -116,7 +137,7 @@ function getMessage(currentStep: number, allDone: boolean): StepMessage | null {
       return {
         title: "Ready to save on your property taxes? Choose a service to get started.",
         actions: [
-          { label: "Protest My Property", to: "/property-protest" },
+          { label: "Protest My Property", to: "/property-protest", protestLaunch: true },
           { label: "File BPP Rendition", to: "/bpp-rendition" },
         ],
       };
@@ -144,16 +165,26 @@ export function JourneyTracker() {
   const [properties, setProperties] = useState<PropertyRecord[]>([]);
   const [uploading, setUploading] = useState(false);
   const [page, setPage] = useState(0);
+  const [authorizingProperty, setAuthorizingProperty] = useState<PropertyRecord | null>(null);
+  // This component lives in __root.tsx, so it mounts once and persists across
+  // every route change in the app — it never remounts just because the user
+  // navigated from /intake (after adding a property) to /dashboard, so a plain
+  // `useEffect(..., [user])` only ever fetched once per sign-in and then went
+  // stale, requiring a manual page reload to see a newly-added property or a
+  // freshly-loaded session's intake state. Re-running on every pathname change
+  // (not just user identity) fixes that without needing a dedicated pub/sub
+  // "something changed" event.
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
 
   useEffect(() => {
     setState(readIntake());
-  }, []);
+  }, [pathname]);
 
   useEffect(() => {
     if (!user) return;
     listProtests(user.id).then(setProtests).catch((err) => console.error(err));
     listProperties(user.id).then(setProperties).catch((err) => console.error(err));
-  }, [user]);
+  }, [user, pathname]);
 
   async function onFile(f: File) {
     setUploading(true);
@@ -168,8 +199,12 @@ export function JourneyTracker() {
 
   const { isDragging, dropHandlers } = useFileDrop(onFile, uploading);
 
+  // "/" and "/dashboard" each already have their own address/upload widget
+  // built directly into the page — showing JourneyTracker's generic action
+  // buttons there too duplicates the exact same action right next to itself.
+  const suppressActions = pathname === "/" || pathname === "/dashboard";
+
   const hasSavedProperty = properties.length > 0;
-  const intakeSteps = computeIntakeSteps(state, hasSavedProperty);
   // Clamp rather than reset to 0 outright, so losing the last property on the
   // last page (e.g. it gets removed) lands on the new last page instead of
   // always yanking back to the first one.
@@ -183,11 +218,12 @@ export function JourneyTracker() {
       <section className="card-elev p-6">
         <span className="badge-soft">Your Journey</span>
         <JourneyBlock
-          steps={[...intakeSteps, false, false, false, false, false, false]}
+          steps={[...computeIntakeSteps(state, false), false, false, false, false, false, false]}
           uploading={uploading}
           onFile={onFile}
           isDragging={isDragging}
           dropHandlers={dropHandlers}
+          suppressActions={suppressActions}
         />
       </section>
     );
@@ -201,6 +237,12 @@ export function JourneyTracker() {
   const activeProperty = properties[currentPage];
   const activeProtest = protests.find((pr) => pr.propertyId === activeProperty.id);
   const activeRank = activeProtest ? STATUS_RANK[activeProtest.status] : 0;
+  // Only trust this session's real intake signals (no document uploaded, no
+  // county identified yet, etc.) when the session is actually ABOUT this
+  // property. For any other property — added in an earlier session, or a
+  // different one than whatever's currently mid-flow — assume steps 1-5 are
+  // already done rather than showing it as having regressed.
+  const intakeSteps = computeIntakeSteps(state, !propertyMatchesIntakeState(activeProperty, state));
 
   return (
     <section className="card-elev p-6">
@@ -213,7 +255,24 @@ export function JourneyTracker() {
         onFile={onFile}
         isDragging={isDragging}
         dropHandlers={dropHandlers}
+        suppressActions={suppressActions}
+        onProtestClick={() => setAuthorizingProperty(activeProperty)}
       />
+      {user && (
+        <ProtestAuthorizationFlow
+          userId={user.id}
+          property={activeProperty}
+          userEmail={user.email}
+          open={!!authorizingProperty}
+          onOpenChange={(open) => {
+            if (!open) setAuthorizingProperty(null);
+          }}
+          onDone={(created) => {
+            setProtests((prev) => [created, ...prev]);
+            setAuthorizingProperty(null);
+          }}
+        />
+      )}
       {properties.length > 1 && (
         <nav aria-label="Select property" className="mt-6 flex flex-wrap items-center gap-2">
           {properties.map((p, i) => (
@@ -246,6 +305,8 @@ export function JourneyBlock({
   onFile,
   isDragging,
   dropHandlers,
+  suppressActions,
+  onProtestClick,
 }: {
   title?: string;
   steps: boolean[];
@@ -253,6 +314,8 @@ export function JourneyBlock({
   onFile: (file: File) => void;
   isDragging: boolean;
   dropHandlers: ReturnType<typeof useFileDrop>["dropHandlers"];
+  suppressActions?: boolean;
+  onProtestClick?: () => void;
 }) {
   const completedCount = steps.filter(Boolean).length;
   const firstIncomplete = steps.findIndex((done) => !done);
@@ -311,10 +374,19 @@ export function JourneyBlock({
       {message && (
         <div className="mt-5 rounded-lg bg-secondary/50 p-4">
           <p className="text-sm font-medium">{message.title}</p>
-          {message.actions && (
+          {message.actions && !suppressActions && (
             <div className="mt-3 flex flex-wrap gap-2">
               {message.actions.map((a) =>
-                a.upload ? (
+                a.protestLaunch && onProtestClick ? (
+                  <button
+                    key={a.label}
+                    type="button"
+                    onClick={onProtestClick}
+                    className="btn-outline text-sm py-2"
+                  >
+                    {a.label}
+                  </button>
+                ) : a.upload ? (
                   <label
                     key={a.label}
                     className={`btn-primary btn-primary-hover text-sm py-2 cursor-pointer ${

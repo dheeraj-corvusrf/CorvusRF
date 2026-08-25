@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { Modal } from "@/components/Modal";
@@ -38,10 +38,15 @@ export function AddOwnershipsModal({
   userId,
   onImported,
   onClose,
+  initialMatch,
 }: {
   userId: string;
   onImported: (properties: PropertyRecord[]) => void;
   onClose: () => void;
+  // When the caller has already searched (e.g. sign-up's post-signup owner
+  // lookup), skip the entry step and land straight on these results instead
+  // of re-running the same search a second time.
+  initialMatch?: { name: string; role: OwnershipRole; records: CadRecord[] };
 }) {
   const nav = useNavigate();
   const [step, setStep] = useState<Step>("entry");
@@ -61,6 +66,55 @@ export function AddOwnershipsModal({
   function removeEntryRow(i: number) {
     setEntries((prev) => prev.filter((_, idx) => idx !== i));
   }
+
+  // Shared by a fresh search and by the initialMatch fast-path below: takes
+  // already-deduped rows, shows them, and kicks off the (slower) per-row
+  // savings estimate without blocking the results table from appearing.
+  async function presentResults(rows: ResultRow[]) {
+    setResults(rows);
+    setSelected(new Set(rows.map((_, i) => i)));
+    setStep("results");
+
+    setSavingsLoading(true);
+    const savingsResults = await Promise.all(
+      rows.map((row) =>
+        estimateSavings({
+          cad: row.record.cad,
+          accountNumber: row.record.accountNumber,
+          address: row.record.propertyAddress,
+          propertyType: row.record.propertyType,
+          landValue: row.record.landValue,
+          improvementValue: row.record.improvementValue,
+          totalValue: row.record.totalValue,
+          taxYear: row.record.taxYear,
+        })
+          .then((est) => est?.amount ?? null)
+          .catch((err) => {
+            console.error("Savings estimate failed for", row.record.propertyAddress, err);
+            return null;
+          }),
+      ),
+    );
+    setResults((prev) => prev.map((row, i) => ({ ...row, savings: savingsResults[i] })));
+    setSavingsLoading(false);
+  }
+
+  // Sign-up's post-signup owner search already ran and found matches by the
+  // time this modal opens — jump straight to results instead of making the
+  // user re-run the same search they've already (invisibly) done.
+  useEffect(() => {
+    if (!initialMatch) return;
+    setEntries([{ name: initialMatch.name, role: initialMatch.role }]);
+    const byKey = new Map<string, ResultRow>();
+    for (const record of initialMatch.records) {
+      const key = dedupeKey(record);
+      if (!byKey.has(key)) {
+        byKey.set(key, { record, ownershipName: initialMatch.name, savings: null });
+      }
+    }
+    presentResults([...byKey.values()]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function onSearch() {
     const valid = entries.filter((e) => e.name.trim().length >= 3);
@@ -89,33 +143,7 @@ export function AddOwnershipsModal({
           }
         }
       }
-      const rows = [...byKey.values()];
-      setResults(rows);
-      setSelected(new Set(rows.map((_, i) => i)));
-      setStep("results");
-
-      setSavingsLoading(true);
-      const savingsResults = await Promise.all(
-        rows.map((row) =>
-          estimateSavings({
-            cad: row.record.cad,
-            accountNumber: row.record.accountNumber,
-            address: row.record.propertyAddress,
-            propertyType: row.record.propertyType,
-            landValue: row.record.landValue,
-            improvementValue: row.record.improvementValue,
-            totalValue: row.record.totalValue,
-            taxYear: row.record.taxYear,
-          })
-            .then((est) => est?.amount ?? null)
-            .catch((err) => {
-              console.error("Savings estimate failed for", row.record.propertyAddress, err);
-              return null;
-            }),
-        ),
-      );
-      setResults((prev) => prev.map((row, i) => ({ ...row, savings: savingsResults[i] })));
-      setSavingsLoading(false);
+      await presentResults([...byKey.values()]);
     } finally {
       setSearching(false);
     }

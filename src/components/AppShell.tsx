@@ -8,11 +8,12 @@ import {
   CalendarClock,
   CalendarDays,
   Receipt,
-  CreditCard,
-  Settings as SettingsIcon,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 
+// Billing and Settings live in the profile dropdown (SiteChrome.tsx) instead
+// of here — they're account-level, not a property-tax workflow section, so
+// grouping them with Sign out reads more clearly than sitting in this row.
 const NAV = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { to: "/dashboard/properties", label: "Properties", icon: Building2 },
@@ -21,8 +22,6 @@ const NAV = [
   { to: "/dashboard/deadlines", label: "Deadlines", icon: CalendarClock },
   { to: "/dashboard/calendar", label: "Calendar", icon: CalendarDays },
   { to: "/dashboard/tax-bills", label: "Tax Bills", icon: Receipt },
-  { to: "/dashboard/billing", label: "Billing", icon: CreditCard },
-  { to: "/dashboard/settings", label: "Settings", icon: SettingsIcon },
 ] as const;
 
 // Pages that keep their own full-width marketing/tooling layout instead of the
@@ -31,7 +30,11 @@ const NAV = [
 // signed-out visitor a dashboard for).
 const NO_SHELL_PREFIXES = ["/admin", "/admin-login", "/sign-in"];
 
-function shouldShowShell(pathname: string): boolean {
+// Exported so SiteNav (SiteChrome.tsx) can tell whether this tab bar's own
+// "Dashboard" entry is about to render on the current page — its top nav
+// injects a "Dashboard" link for signed-in users, which would otherwise sit
+// right on top of this tab bar's first item once both are horizontal rows.
+export function shouldShowShell(pathname: string): boolean {
   if (pathname === "/") return false;
   return !NO_SHELL_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 }
@@ -60,8 +63,8 @@ function usePageTransitionReplay(pathname: string) {
   return ref;
 }
 
-// Puts the same account sidebar (Properties, BPP, Documents, Deadlines, Billing,
-// Settings) around every signed-in page site-wide, not just /dashboard/* — so
+// Puts the same account tab bar (Properties, BPP, Documents, Deadlines, Billing,
+// Settings) above every signed-in page site-wide, not just /dashboard/* — so
 // switching between, say, the AI report and Properties doesn't mean losing this
 // navigation and going back through the top nav.
 export function AppShell({ children }: { children: ReactNode }) {
@@ -79,16 +82,16 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <div className="w-full px-6 py-10 sm:px-10 lg:px-16">
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[220px_1fr]">
-        <nav className="flex min-w-0 gap-1 overflow-x-auto pb-2 lg:flex-col lg:overflow-visible lg:pb-0">
+      <div className="grid grid-cols-1 gap-2">
+        <nav className="flex min-w-0 justify-center gap-1 overflow-x-auto pb-2">
           {NAV.map((item) => {
             const Icon = item.icon;
             return (
               <Link
                 key={item.to}
                 to={item.to}
-                className="flex items-center gap-2 whitespace-nowrap rounded-md px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                activeProps={{ className: "bg-secondary text-foreground" }}
+                className="flex items-center gap-2 whitespace-nowrap rounded-md px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-nav-highlight hover:text-nav-highlight-foreground"
+                activeProps={{ className: "bg-nav-highlight text-nav-highlight-foreground" }}
                 activeOptions={{ exact: item.to === "/dashboard" }}
               >
                 <Icon className="h-4 w-4" />

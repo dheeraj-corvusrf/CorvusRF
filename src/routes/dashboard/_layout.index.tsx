@@ -353,237 +353,251 @@ function Overview() {
       )}
 
       {/* Entry points */}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Link
-          to="/intake"
-          onClick={() => resetIntake()}
-          className="card-elev p-4 transition-all hover:-translate-y-0.5 hover:bg-secondary/40 hover:shadow-elev"
-        >
-          <span
-            className={`grid h-9 w-9 place-items-center rounded-lg ${ICON_COLORS[0].bg} ${ICON_COLORS[0].text}`}
+      <div>
+        <h2 className="font-serif text-lg font-semibold">Quick Actions</h2>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <Link
+            to="/intake"
+            onClick={() => resetIntake()}
+            className="card-elev p-4 transition-all hover:-translate-y-0.5 hover:bg-secondary/40 hover:shadow-elev"
           >
-            <Plus className="h-4 w-4" />
-          </span>
-          <div className="mt-3 flex items-center gap-1 font-medium">
-            Add Property <ArrowUpRight className="h-3.5 w-3.5" />
-          </div>
-          <p className="mt-1 text-xs text-muted-foreground">
-            AI normalizes, checks county records, flags mismatches.
-          </p>
-        </Link>
+            <span
+              className={`grid h-9 w-9 place-items-center rounded-lg ${ICON_COLORS[0].bg} ${ICON_COLORS[0].text}`}
+            >
+              <Plus className="h-4 w-4" />
+            </span>
+            <div className="mt-3 flex items-center gap-1 font-medium">
+              Add Property <ArrowUpRight className="h-3.5 w-3.5" />
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              AI normalizes, checks county records, flags mismatches.
+            </p>
+          </Link>
 
-        <Link
-          to="/dashboard/bpp-accounts"
-          className="card-elev p-4 transition-all hover:-translate-y-0.5 hover:bg-secondary/40 hover:shadow-elev"
-          style={{ animationDelay: "60ms" }}
-        >
-          <span
-            className={`grid h-9 w-9 place-items-center rounded-lg ${ICON_COLORS[1].bg} ${ICON_COLORS[1].text}`}
+          <Link
+            to="/dashboard/bpp-accounts"
+            className="card-elev p-4 transition-all hover:-translate-y-0.5 hover:bg-secondary/40 hover:shadow-elev"
+            style={{ animationDelay: "60ms" }}
           >
-            <Briefcase className="h-4 w-4" />
-          </span>
-          <div className="mt-3 flex items-center gap-1 font-medium">
-            Add BPP Account <ArrowUpRight className="h-3.5 w-3.5" />
-          </div>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Track a business personal property account.
-          </p>
-        </Link>
+            <span
+              className={`grid h-9 w-9 place-items-center rounded-lg ${ICON_COLORS[1].bg} ${ICON_COLORS[1].text}`}
+            >
+              <Briefcase className="h-4 w-4" />
+            </span>
+            <div className="mt-3 flex items-center gap-1 font-medium">
+              Add BPP Account <ArrowUpRight className="h-3.5 w-3.5" />
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Track a business personal property account.
+            </p>
+          </Link>
 
-        <label
-          className={`card-elev p-4 cursor-pointer block transition-all ${
-            uploading
-              ? "opacity-60 pointer-events-none"
-              : "hover:-translate-y-0.5 hover:bg-secondary/40 hover:shadow-elev"
-          } ${isDraggingNotice ? "border-accent bg-accent/5" : ""}`}
-          style={{ animationDelay: "120ms" }}
-          {...noticeDropHandlers}
-        >
-          <span
-            className={`grid h-9 w-9 place-items-center rounded-lg ${ICON_COLORS[2].bg} ${ICON_COLORS[2].text}`}
+          <label
+            className={`card-elev p-4 cursor-pointer block transition-all ${
+              uploading
+                ? "opacity-60 pointer-events-none"
+                : "hover:-translate-y-0.5 hover:bg-secondary/40 hover:shadow-elev"
+            } ${isDraggingNotice ? "border-accent bg-accent/5" : ""}`}
+            style={{ animationDelay: "120ms" }}
+            {...noticeDropHandlers}
           >
-            <Upload className="h-4 w-4" />
-          </span>
-          <div className="mt-3 font-medium">
-            {isDraggingNotice
-              ? "Drop to upload"
-              : uploading
-                ? "Reading document…"
-                : "Upload Notice"}
-          </div>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Drop any tax notice — AI extracts fields and routes it.
-          </p>
-          <input
-            type="file"
-            className="hidden"
-            accept=".pdf,image/*"
-            disabled={uploading}
-            onChange={(e) => {
-              const f = e.target.files?.[0];
-              if (f) onUploadNotice(f);
-            }}
-          />
-        </label>
+            <span
+              className={`grid h-9 w-9 place-items-center rounded-lg ${ICON_COLORS[2].bg} ${ICON_COLORS[2].text}`}
+            >
+              <Upload className="h-4 w-4" />
+            </span>
+            <div className="mt-3 font-medium">
+              {isDraggingNotice
+                ? "Drop to upload"
+                : uploading
+                  ? "Reading document…"
+                  : "Upload Notice"}
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Drop any tax notice — AI extracts fields and routes it.
+            </p>
+            <input
+              type="file"
+              className="hidden"
+              accept=".pdf,image/*"
+              disabled={uploading}
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) onUploadNotice(f);
+              }}
+            />
+          </label>
 
-        <form
-          onSubmit={submitAsk}
-          className="card-elev p-4 transition-all hover:-translate-y-0.5 hover:shadow-elev"
-          style={{ animationDelay: "180ms" }}
-        >
-          <span
-            className={`grid h-9 w-9 place-items-center rounded-lg ${ICON_COLORS[4].bg} ${ICON_COLORS[4].text}`}
+          <form
+            onSubmit={submitAsk}
+            className="card-elev p-4 transition-all hover:-translate-y-0.5 hover:shadow-elev"
+            style={{ animationDelay: "180ms" }}
           >
-            <Sparkles className="h-4 w-4" />
-          </span>
-          <div className="mt-3 font-medium">Ask AI</div>
-          <input
-            value={askQuery}
-            onChange={(e) => setAskQuery(e.target.value)}
-            placeholder="Describe the situation…"
-            disabled={asking}
-            className="mt-2 w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs outline-none placeholder:text-muted-foreground disabled:opacity-60"
-          />
-        </form>
+            <span
+              className={`grid h-9 w-9 place-items-center rounded-lg ${ICON_COLORS[4].bg} ${ICON_COLORS[4].text}`}
+            >
+              <Sparkles className="h-4 w-4" />
+            </span>
+            <div className="mt-3 font-medium">Ask AI</div>
+            <input
+              value={askQuery}
+              onChange={(e) => setAskQuery(e.target.value)}
+              placeholder="Describe the situation…"
+              disabled={asking}
+              className="mt-2 w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs outline-none placeholder:text-muted-foreground disabled:opacity-60"
+            />
+          </form>
+        </div>
       </div>
 
       {/* Stats */}
-      <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-5">
-        <StatCard
-          label="Properties"
-          value={loaded ? properties.length : null}
-          to="/dashboard/properties"
-          delayMs={0}
-          icon={Building2}
-          color={ICON_COLORS[0]}
-        />
-        <StatCard
-          label="BPP Accounts"
-          value={loaded ? bppAccounts.length : null}
-          to="/dashboard/bpp-accounts"
-          delayMs={40}
-          icon={Briefcase}
-          color={ICON_COLORS[1]}
-        />
-        <StatCard
-          label="Documents"
-          value={loaded ? documents.length : null}
-          to="/dashboard/documents"
-          delayMs={80}
-          icon={FileText}
-          color={ICON_COLORS[2]}
-        />
-        <StatCard
-          label="Cases"
-          value={loaded ? protests.length : null}
-          to="/dashboard/properties"
-          delayMs={120}
-          icon={Scale}
-          color={ICON_COLORS[4]}
-        />
-        <StatCard
-          label="Est. Savings"
-          value={loaded ? estimatedSavings : null}
-          format={currency}
-          delayMs={160}
-          icon={TrendingDown}
-          color={ICON_COLORS[5]}
-        />
-      </div>
-
-      {properties.length > 0 && (
-        <div className="card-elev p-5 min-w-0">
-          <h3 className="font-semibold">Portfolio Value</h3>
-          <PortfolioValueChart properties={properties} onOpenReport={openAiReport} />
-        </div>
-      )}
-
-      {properties.length > 0 && (
-        <div className="card-elev p-5 min-w-0">
-          <h3 className="font-semibold">Top Protest Opportunities</h3>
-          <TopOpportunities
-            properties={properties}
-            healthScores={healthScores}
-            onOpenReport={openAiReport}
+      <div>
+        <h2 className="font-serif text-lg font-semibold">Your Portfolio at a Glance</h2>
+        <div className="mt-3 grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-5">
+          <StatCard
+            label="Properties"
+            value={loaded ? properties.length : null}
+            to="/dashboard/properties"
+            delayMs={0}
+            icon={Building2}
+            color={ICON_COLORS[0]}
+          />
+          <StatCard
+            label="BPP Accounts"
+            value={loaded ? bppAccounts.length : null}
+            to="/dashboard/bpp-accounts"
+            delayMs={40}
+            icon={Briefcase}
+            color={ICON_COLORS[1]}
+          />
+          <StatCard
+            label="Documents"
+            value={loaded ? documents.length : null}
+            to="/dashboard/documents"
+            delayMs={80}
+            icon={FileText}
+            color={ICON_COLORS[2]}
+          />
+          <StatCard
+            label="Cases"
+            value={loaded ? protests.length : null}
+            to="/dashboard/properties"
+            delayMs={120}
+            icon={Scale}
+            color={ICON_COLORS[4]}
+          />
+          <StatCard
+            label="Est. Savings"
+            value={loaded ? estimatedSavings : null}
+            format={currency}
+            delayMs={160}
+            icon={TrendingDown}
+            color={ICON_COLORS[5]}
           />
         </div>
-      )}
-
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <div className="card-elev p-5 min-w-0">
-          <h3 className="font-semibold">Cases & AI Recommendations</h3>
-          {protests.length > 0 ? (
-            <ProtestStatusChart protests={protests} addressFor={addressFor} />
-          ) : (
-            <p className="mt-2 text-sm text-muted-foreground">
-              No cases yet. Use an entry point above.
-            </p>
-          )}
-        </div>
-
-        <div className="card-elev p-5 min-w-0">
-          <div className="flex items-center justify-between">
-            <h3 className="font-semibold">Deadlines</h3>
-            <Link to="/dashboard/deadlines" className="text-xs text-accent hover:underline">
-              View all
-            </Link>
-          </div>
-          {upcoming.length > 0 ? (
-            <div className="mt-3 grid min-w-0 gap-2">
-              {upcoming.map((u, i) => (
-                <div key={i} className="flex items-center justify-between gap-2 text-sm min-w-0">
-                  <span className="truncate min-w-0">
-                    {u.label} — {u.property.address}
-                  </span>
-                  <span className="shrink-0 text-xs text-muted-foreground">
-                    {u.when.toLocaleDateString()}
-                  </span>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="mt-2 text-sm text-muted-foreground">
-              No deadlines yet. AI will surface them as you add properties.
-            </p>
-          )}
-        </div>
       </div>
 
-      <div className="card-elev p-5 min-w-0">
-        <h3 className="font-semibold">Recent Activity</h3>
-        {activity.length > 0 ? (
-          <div className="mt-3 grid min-w-0 gap-2">
-            {activity.map((a, i) => (
-              <div
-                key={i}
-                className="group row-hover rounded-md flex items-center justify-between gap-2 px-2 py-1 text-sm min-w-0"
-              >
-                <span className="shrink-0 text-muted-foreground">{a.label}</span>
-                <span className="truncate min-w-0">{a.detail}</span>
-                <span className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
-                  {new Date(a.ts).toLocaleDateString()}
-                  {a.propertyId && (
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <button
-                          onClick={() => handleDeleteProperty(a.propertyId!)}
-                          disabled={deletingId === a.propertyId}
-                          aria-label="Delete property"
-                          className="opacity-100 transition-all hover:scale-110 hover:text-destructive disabled:opacity-60 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100 text-muted-foreground"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                      </TooltipTrigger>
-                      <TooltipContent>Delete property</TooltipContent>
-                    </Tooltip>
-                  )}
-                </span>
+      <div>
+        <h2 className="font-serif text-lg font-semibold">Insights &amp; Activity</h2>
+        <div className="mt-3 grid grid-cols-1 gap-6">
+          {properties.length > 0 && (
+            <div className="card-elev p-5 min-w-0">
+              <h3 className="font-semibold">Portfolio Value</h3>
+              <PortfolioValueChart properties={properties} onOpenReport={openAiReport} />
+            </div>
+          )}
+
+          {properties.length > 0 && (
+            <div className="card-elev p-5 min-w-0">
+              <h3 className="font-semibold">Top Protest Opportunities</h3>
+              <TopOpportunities
+                properties={properties}
+                healthScores={healthScores}
+                onOpenReport={openAiReport}
+              />
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div className="card-elev p-5 min-w-0">
+              <h3 className="font-semibold">Cases & AI Recommendations</h3>
+              {protests.length > 0 ? (
+                <ProtestStatusChart protests={protests} addressFor={addressFor} />
+              ) : (
+                <p className="mt-2 text-sm text-muted-foreground">
+                  No cases yet. Use an entry point above.
+                </p>
+              )}
+            </div>
+
+            <div className="card-elev p-5 min-w-0">
+              <div className="flex items-center justify-between">
+                <h3 className="font-semibold">Deadlines</h3>
+                <Link to="/dashboard/deadlines" className="text-xs text-accent hover:underline">
+                  View all
+                </Link>
               </div>
-            ))}
+              {upcoming.length > 0 ? (
+                <div className="mt-3 grid min-w-0 gap-2">
+                  {upcoming.map((u, i) => (
+                    <div
+                      key={i}
+                      className="flex items-center justify-between gap-2 text-sm min-w-0"
+                    >
+                      <span className="truncate min-w-0">
+                        {u.label} — {u.property.address}
+                      </span>
+                      <span className="shrink-0 text-xs text-muted-foreground">
+                        {u.when.toLocaleDateString()}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="mt-2 text-sm text-muted-foreground">
+                  No deadlines yet. AI will surface them as you add properties.
+                </p>
+              )}
+            </div>
           </div>
-        ) : (
-          <p className="mt-2 text-sm text-muted-foreground">No activity yet.</p>
-        )}
+
+          <div className="card-elev p-5 min-w-0">
+            <h3 className="font-semibold">Recent Activity</h3>
+            {activity.length > 0 ? (
+              <div className="mt-3 grid min-w-0 gap-2">
+                {activity.map((a, i) => (
+                  <div
+                    key={i}
+                    className="group row-hover rounded-md flex items-center justify-between gap-2 px-2 py-1 text-sm min-w-0"
+                  >
+                    <span className="shrink-0 text-muted-foreground">{a.label}</span>
+                    <span className="truncate min-w-0">{a.detail}</span>
+                    <span className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
+                      {new Date(a.ts).toLocaleDateString()}
+                      {a.propertyId && (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              onClick={() => handleDeleteProperty(a.propertyId!)}
+                              disabled={deletingId === a.propertyId}
+                              aria-label="Delete property"
+                              className="opacity-100 transition-all hover:scale-110 hover:text-destructive disabled:opacity-60 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100 text-muted-foreground"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent>Delete property</TooltipContent>
+                        </Tooltip>
+                      )}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-2 text-sm text-muted-foreground">No activity yet.</p>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );
