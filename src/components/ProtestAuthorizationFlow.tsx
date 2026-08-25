@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -10,6 +10,7 @@ import {
 import { SignaturePad, type SignatureValue } from "@/components/SignaturePad";
 import { requestProtest, type ProtestRecord } from "@/lib/protests";
 import { createAuthorization } from "@/lib/protest-authorizations";
+import { getMyProfile } from "@/lib/profile";
 import type { PropertyRecord } from "@/lib/properties";
 
 // The TDLR regulatory line is intentionally omitted until registration is
@@ -54,6 +55,22 @@ export function ProtestAuthorizationFlow({
   const [signature, setSignature] = useState<SignatureValue | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Real account info, not guessed — fetched fresh each time the modal opens
+  // rather than passed in as a prop, so every call site gets this for free.
+  // Only fills fields still empty, so it can never clobber something the
+  // user already typed if this resolves late.
+  useEffect(() => {
+    if (!open) return;
+    getMyProfile(userId)
+      .then((profile) => {
+        setFirstName((prev) => prev || (profile.firstName ?? ""));
+        setLastName((prev) => prev || (profile.lastName ?? ""));
+        setPhone((prev) => prev || (profile.phone ?? ""));
+      })
+      .catch((err) => console.error("Could not load profile for autofill:", err));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, userId]);
 
   function reset() {
     setStep("owner");
@@ -175,16 +192,34 @@ export function ProtestAuthorizationFlow({
                 />
               </label>
             </div>
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-sm">Is this property owned by a trust, LLC, or other entity?</span>
-              <div className="flex gap-3 text-sm">
-                <label className="flex items-center gap-1.5">
-                  <input type="radio" checked={isEntity} onChange={() => setIsEntity(true)} /> Yes
-                </label>
-                <label className="flex items-center gap-1.5">
-                  <input type="radio" checked={!isEntity} onChange={() => setIsEntity(false)} /> No
-                </label>
+            <div>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-sm">Is this property owned by a trust, LLC, or other entity?</span>
+                <div className="flex gap-3 text-sm">
+                  <label className="flex items-center gap-1.5">
+                    <input
+                      type="radio"
+                      checked={isEntity}
+                      onChange={() => {
+                        setIsEntity(true);
+                        // The county's own owner-of-record — only offered once the
+                        // user has confirmed entity ownership themselves; never
+                        // auto-selects Yes/No on its own.
+                        if (!entityName.trim() && property.ownerName) setEntityName(property.ownerName);
+                      }}
+                    />{" "}
+                    Yes
+                  </label>
+                  <label className="flex items-center gap-1.5">
+                    <input type="radio" checked={!isEntity} onChange={() => setIsEntity(false)} /> No
+                  </label>
+                </div>
               </div>
+              {property.ownerName && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  County record shows owner: <span className="font-medium">{property.ownerName}</span>
+                </p>
+              )}
             </div>
             {isEntity && (
               <div className="grid gap-4 rounded-lg bg-secondary/40 p-4">

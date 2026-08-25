@@ -89,9 +89,9 @@ function Home() {
           <span className="beta-flyby-rope" aria-hidden="true" />
           <div className="beta-flyby-banner">
             <span className="text-sm font-medium">
-              🎉 Sign up as a beta user and get a free property protest evaluation — no card
-              required.
+              🎉 Sign up as a beta user and get a free property protest evaluation.
             </span>
+            <span className="text-sm font-bold">Free to start. No card required.</span>
             <Link
               to="/sign-in"
               className="text-sm font-semibold text-accent underline underline-offset-2"
@@ -103,11 +103,9 @@ function Home() {
         <div className="container-page pt-8 pb-0 md:pt-12 md:pb-2">
           <div className="mx-auto max-w-3xl text-center">
             <h1 className="font-serif text-3xl sm:text-4xl md:text-6xl font-semibold leading-[1.15] md:leading-[1.1]">
-              AI-Powered Property Tax
+              AI Property Tax Management
               <br className="hidden md:block" />{" "}
-              <span className="text-emerald-600 dark:text-emerald-400">
-                &amp; Protest Management
-              </span>
+              <span className="text-emerald-600 dark:text-emerald-400">Protest and Save</span>
             </h1>
             <p className="mt-3 text-lg sm:text-xl font-medium text-foreground/80">
               From Notice to Savings.

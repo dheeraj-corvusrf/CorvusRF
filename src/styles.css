@@ -470,7 +470,10 @@ header .container-page {
   filter: drop-shadow(0 2px 5px oklch(0 0 0 / 0.25));
 }
 @media (prefers-reduced-motion: no-preference) {
-  .beta-flyby-plane { animation: fly-across 32s linear infinite; }
+  /* Slower than a first pass might suggest — the banner now carries an extra
+     bolded line, so it needs more time on screen to stay readable as it
+     crosses. */
+  .beta-flyby-plane { animation: fly-across 48s linear infinite; }
 }
 /* Reduced-motion: no flight, just a centered, static plane+banner. */
 @media (prefers-reduced-motion: reduce) {

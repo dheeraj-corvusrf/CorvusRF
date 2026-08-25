@@ -10,12 +10,13 @@ import { getEffectiveTaxRate } from "./texas-tax-rates";
 // produces something real instead of just a status row. See the
 // protest_evidence_items table and the new protests.strategy_* columns in
 // supabase/schema.sql.
+export type EvidenceDocument = { id: string; fileName: string };
+
 export type EvidenceItemRecord = {
   id: string;
   protestId: string;
   label: string;
-  documentId: string | null;
-  documentFileName: string | null;
+  documents: EvidenceDocument[];
   createdAt: string;
 };
 
@@ -38,7 +39,6 @@ type EvidenceItemRow = {
   id: string;
   protest_id: string;
   label: string;
-  document_id: string | null;
   created_at: string;
 };
 
@@ -116,18 +116,24 @@ export async function getCase(protestId: string): Promise<ProtestCase> {
 
   const { data: itemRows, error: itemsErr } = await supabase
     .from("protest_evidence_items")
-    .select("id, protest_id, label, document_id, created_at")
+    .select("id, protest_id, label, created_at")
     .eq("protest_id", protestId)
     .order("created_at", { ascending: true });
   if (itemsErr) throw itemsErr;
 
   const rows = (itemRows as EvidenceItemRow[]) ?? [];
-  const documentIds = rows.map((r) => r.document_id).filter((id): id is string => !!id);
-  const fileNameById = new Map<string, string>();
-  if (documentIds.length > 0) {
-    const { data: docs } = await supabase.from("documents").select("id, file_name").in("id", documentIds);
-    for (const d of (docs as Array<{ id: string; file_name: string }>) ?? []) {
-      fileNameById.set(d.id, d.file_name);
+  const itemIds = rows.map((r) => r.id);
+  const documentsByItemId = new Map<string, EvidenceDocument[]>();
+  if (itemIds.length > 0) {
+    const { data: docs } = await supabase
+      .from("documents")
+      .select("id, file_name, evidence_item_id")
+      .in("evidence_item_id", itemIds)
+      .order("uploaded_at", { ascending: true });
+    for (const d of (docs as Array<{ id: string; file_name: string; evidence_item_id: string }>) ?? []) {
+      const list = documentsByItemId.get(d.evidence_item_id) ?? [];
+      list.push({ id: d.id, fileName: d.file_name });
+      documentsByItemId.set(d.evidence_item_id, list);
     }
   }
 
@@ -141,18 +147,19 @@ export async function getCase(protestId: string): Promise<ProtestCase> {
       id: r.id,
       protestId: r.protest_id,
       label: r.label,
-      documentId: r.document_id,
-      documentFileName: r.document_id ? (fileNameById.get(r.document_id) ?? null) : null,
+      documents: documentsByItemId.get(r.id) ?? [],
       createdAt: r.created_at,
     })),
   };
 }
 
+// A checklist item can hold several documents — call once per uploaded file
+// (see CaseDetailModal's handleUpload, which loops a multi-file <input>).
 export async function linkEvidenceDocument(itemId: string, documentId: string): Promise<void> {
   const { error } = await supabase
-    .from("protest_evidence_items")
-    .update({ document_id: documentId })
-    .eq("id", itemId);
+    .from("documents")
+    .update({ evidence_item_id: itemId })
+    .eq("id", documentId);
   if (error) throw error;
 }
 
@@ -162,6 +169,20 @@ export async function linkEvidenceDocument(itemId: string, documentId: string): 
 // live county API, so someone has to enter what actually happened, same
 // precedent as tax_bills.
 // ---------------------------------------------------------------------------
+
+// Called when the owner signs the Notice of Protest in-app (see
+// CaseDetailModal's Sign & Submit). Only advances a case that's still at its
+// starting status — if staff or the owner already moved it further along
+// (offer received, hearing scheduled, etc.) by other means, this leaves that
+// alone rather than regressing it back to "filed".
+export async function markFiled(protestId: string): Promise<void> {
+  const { error } = await supabase
+    .from("protests")
+    .update({ status: "filed" })
+    .eq("id", protestId)
+    .eq("status", "requested");
+  if (error) throw error;
+}
 
 export async function recordSettlementOffer(
   protestId: string,
@@ -212,10 +233,14 @@ export function getHearingPrep(caseData: ProtestCase, propertyAddress: string): 
   }
 
   if (caseData.evidenceItems.length > 0) {
-    const ready = caseData.evidenceItems.filter((i) => i.documentId);
-    const missing = caseData.evidenceItems.filter((i) => !i.documentId);
+    const ready = caseData.evidenceItems.filter((i) => i.documents.length > 0);
+    const missing = caseData.evidenceItems.filter((i) => i.documents.length === 0);
     lines.push("Evidence ready to present:");
-    lines.push(...(ready.length > 0 ? ready.map((i) => `  - ${i.label} (${i.documentFileName})`) : ["  (none uploaded yet)"]));
+    lines.push(
+      ...(ready.length > 0
+        ? ready.map((i) => `  - ${i.label} (${i.documents.map((d) => d.fileName).join(", ")})`)
+        : ["  (none uploaded yet)"]),
+    );
     if (missing.length > 0) {
       lines.push("");
       lines.push("Not yet gathered:");
