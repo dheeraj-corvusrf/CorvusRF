@@ -12,6 +12,7 @@ import { requestProtest, type ProtestRecord } from "@/lib/protests";
 import { createAuthorization } from "@/lib/protest-authorizations";
 import { getMyProfile } from "@/lib/profile";
 import type { PropertyRecord } from "@/lib/properties";
+import { getErrorMessage } from "@/lib/error-message";
 
 // The TDLR regulatory line is intentionally omitted until registration is
 // confirmed. Fee (25%) and service scope were explicitly confirmed as
@@ -127,7 +128,7 @@ export function ProtestAuthorizationFlow({
       onDone(protest);
       close();
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Could not submit your authorization.";
+      const message = getErrorMessage(err, "Could not submit your authorization.");
       setError(message);
       toast.error(message);
     } finally {
