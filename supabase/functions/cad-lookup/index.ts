@@ -109,6 +109,40 @@ function parseHouseAndStreet(
   return { house: noComma[1], street: noComma[2].trim(), cityStateZip: noComma[3].trim() };
 }
 
+// Same idea as parseHouseAndStreet, but for a bare road/street with no leading
+// house number at all — e.g. "FM 1957, San Antonio, TX 78245" (a highway name,
+// not a numbered street address). Used only for the "nearby" search fallback:
+// there's no single parcel to exact-match without a house number, but a street
+// name alone is still enough to search by and suggest real nearby options.
+function parseStreetOnly(address: string): { street: string; cityStateZip: string } | null {
+  const withComma = address.match(/^\s*([^,]+?)\s*,(.*)$/);
+  if (withComma) return { street: withComma[1].trim(), cityStateZip: withComma[2].trim() };
+
+  const noComma = address.match(new RegExp(`^\\s*(.+?\\b(?:${STREET_SUFFIX_ALT})\\.?)\\b\\s*(.*)$`, "i"));
+  if (!noComma) return null;
+  return { street: noComma[1].trim(), cityStateZip: noComma[2].trim() };
+}
+
+// Every county query below used to call parseHouseAndStreet(address) directly
+// and bail out to [] whenever it failed — including in "nearby" mode, which
+// is specifically meant to work WITHOUT a house number. That made the nearby
+// fallback silently do nothing for any address that didn't start with a house
+// number (a bare road name like "FM 1957" or "Loop 410"), even though nearby
+// mode's own WHERE clause (coreClauseOr) never actually needed one. Exact
+// mode still requires a real parse, since there's no way to pick one specific
+// parcel on a whole road without a house number.
+function parseAddressForQuery(
+  address: string,
+  mode: QueryMode,
+): { house: string; street: string; cityStateZip: string } | null {
+  const parsed = parseHouseAndStreet(address);
+  if (parsed) return parsed;
+  if (mode !== "nearby") return null;
+  const streetOnly = parseStreetOnly(address);
+  if (!streetOnly) return null;
+  return { house: "", street: streetOnly.street, cityStateZip: streetOnly.cityStateZip };
+}
+
 // Best-effort extraction of just the city name from the "city, state, zip" tail —
 // used only as a tiebreaker (see the comment in Deno.serve below), so approximate
 // is fine. Takes everything before the first comma (if any), then strips a
@@ -271,7 +305,7 @@ function coreClauseOr(field: string, core: string): string {
 }
 
 async function queryCollin(address: string, mode: QueryMode = "exact"): Promise<CadRecord[]> {
-  const parsed = parseHouseAndStreet(address);
+  const parsed = parseAddressForQuery(address, mode);
   if (!parsed) return [];
   const core = coreStreetName(parsed.street);
   const where = mode === "nearby" ? coreClauseOr("situsConcat", core) : singleFieldWhere("situsConcat", parsed.house, core);
@@ -306,7 +340,7 @@ async function queryCollin(address: string, mode: QueryMode = "exact"): Promise<
 }
 
 async function queryMontgomery(address: string, mode: QueryMode = "exact"): Promise<CadRecord[]> {
-  const parsed = parseHouseAndStreet(address);
+  const parsed = parseAddressForQuery(address, mode);
   if (!parsed) return [];
   const core = coreStreetName(parsed.street);
   const where = mode === "nearby" ? coreClauseOr("situs", core) : singleFieldWhere("situs", parsed.house, core);
@@ -341,7 +375,7 @@ function parseMoneyField(v: string | number | null): number | null {
 }
 
 async function queryDenton(address: string, mode: QueryMode = "exact"): Promise<CadRecord[]> {
-  const parsed = parseHouseAndStreet(address);
+  const parsed = parseAddressForQuery(address, mode);
   if (!parsed) return [];
   // Denton County's own GIS (gis.dentoncounty.gov) — full ~382k-parcel countywide
   // dataset, not the earlier "TAD_Parcels" service this used to point at, which
@@ -390,7 +424,7 @@ async function queryDenton(address: string, mode: QueryMode = "exact"): Promise<
 }
 
 async function queryHarris(address: string, mode: QueryMode = "exact"): Promise<CadRecord[]> {
-  const parsed = parseHouseAndStreet(address);
+  const parsed = parseAddressForQuery(address, mode);
   if (!parsed) return [];
   const core = coreStreetName(parsed.street);
   const streetClause = coreClauseOr("site_str_name", core);
@@ -497,7 +531,7 @@ const TARRANT_CITY_CODES: Record<string, string> = {
 };
 
 async function queryTarrant(address: string, mode: QueryMode = "exact"): Promise<CadRecord[]> {
-  const parsed = parseHouseAndStreet(address);
+  const parsed = parseAddressForQuery(address, mode);
   if (!parsed) return [];
   const core = coreStreetName(parsed.street);
   const where = mode === "nearby" ? coreClauseOr("Situs_Addr", core) : singleFieldWhere("Situs_Addr", parsed.house, core);
@@ -533,7 +567,7 @@ async function queryTarrant(address: string, mode: QueryMode = "exact"): Promise
 }
 
 async function queryFortBend(address: string, mode: QueryMode = "exact"): Promise<CadRecord[]> {
-  const parsed = parseHouseAndStreet(address);
+  const parsed = parseAddressForQuery(address, mode);
   if (!parsed) return [];
   const core = coreStreetName(parsed.street);
   const where = mode === "nearby" ? coreClauseOr("SITUS", core) : singleFieldWhere("SITUS", parsed.house, core);
@@ -562,7 +596,7 @@ async function queryFortBend(address: string, mode: QueryMode = "exact"): Promis
 }
 
 async function queryWilliamson(address: string, mode: QueryMode = "exact"): Promise<CadRecord[]> {
-  const parsed = parseHouseAndStreet(address);
+  const parsed = parseAddressForQuery(address, mode);
   if (!parsed) return [];
   const core = coreStreetName(parsed.street);
   const where = mode === "nearby" ? coreClauseOr("SITEADDRESS", core) : singleFieldWhere("SITEADDRESS", parsed.house, core);
@@ -591,7 +625,7 @@ async function queryWilliamson(address: string, mode: QueryMode = "exact"): Prom
 }
 
 async function queryGrayson(address: string, mode: QueryMode = "exact"): Promise<CadRecord[]> {
-  const parsed = parseHouseAndStreet(address);
+  const parsed = parseAddressForQuery(address, mode);
   if (!parsed) return [];
   const core = coreStreetName(parsed.street);
   const streetClause = coreClauseOr("SitusStreet", core);
@@ -637,7 +671,7 @@ async function queryGrayson(address: string, mode: QueryMode = "exact"): Promise
 }
 
 async function queryTravis(address: string, mode: QueryMode = "exact"): Promise<CadRecord[]> {
-  const parsed = parseHouseAndStreet(address);
+  const parsed = parseAddressForQuery(address, mode);
   if (!parsed) return [];
   const core = coreStreetName(parsed.street);
   const streetClause = coreClauseOr("situs_street", core);
@@ -711,7 +745,7 @@ const BCAD_FIELDS = {
 };
 
 async function queryBexar(address: string, mode: QueryMode = "exact"): Promise<CadRecord[]> {
-  const parsed = parseHouseAndStreet(address);
+  const parsed = parseAddressForQuery(address, mode);
   if (!parsed) return [];
   const core = coreStreetName(parsed.street);
   const where =
@@ -751,7 +785,7 @@ async function queryBexar(address: string, mode: QueryMode = "exact"): Promise<C
 // this layer at all (checked — no companion table either), so those are honestly
 // null here, same pattern as Montgomery/Travis.
 async function queryDallas(address: string, mode: QueryMode = "exact"): Promise<CadRecord[]> {
-  const parsed = parseHouseAndStreet(address);
+  const parsed = parseAddressForQuery(address, mode);
   if (!parsed) return [];
   const core = coreStreetName(parsed.street);
   const streetClause = coreClauseOr("FULL_STREET_NAME", core);
@@ -1221,9 +1255,15 @@ async function findNearby(
   address: string,
   cityGuess: string,
 ): Promise<CadRecord[]> {
+  // A bare road with no leading house number (e.g. "FM 1957, San Antonio")
+  // can't be proximity-sorted by house number below, but it can still be
+  // searched by street name — targetHouse just becomes NaN, so every
+  // candidate's distance comes out Infinity (see the sort below) and results
+  // return in whatever order the counties gave them, unsorted but real.
+  // Previously this whole function returned [] whenever there was no house
+  // number, silently skipping every county query rather than ever trying.
   const parsed = parseHouseAndStreet(address);
-  if (!parsed) return [];
-  const targetHouse = parseInt(parsed.house, 10);
+  const targetHouse = parsed ? parseInt(parsed.house, 10) : NaN;
 
   const results = await Promise.allSettled(
     countyQueries.map((query) =>
@@ -1252,17 +1292,31 @@ async function findNearby(
   return inCity.slice(0, 8);
 }
 
+// Texas road names are commonly typed/pasted without a space before the
+// number ("FM1957", "CR304", "Loop410") — county CAD systems store these
+// with a space ("FM 1957"), so an un-normalized query's street-core token
+// never matches. Mirrors the same normalization already applied client-side
+// before querying Nominatim (src/components/AddressAutocomplete.tsx) so a
+// user who pastes a raw address (skipping the autocomplete dropdown) still
+// gets a real match instead of silently finding nothing.
+const TX_ROAD_PREFIX = /\b(FM|RM|CR|SH|US|IH|LP|LOOP|SPUR)(\d)/gi;
+
+function normalizeRoadPrefix(address: string): string {
+  return address.replace(TX_ROAD_PREFIX, "$1 $2");
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   try {
-    const { address } = await req.json();
-    if (!address || typeof address !== "string") {
+    const { address: rawAddress } = await req.json();
+    if (!rawAddress || typeof rawAddress !== "string") {
       return new Response(JSON.stringify({ error: "address is required" }), {
         status: 400,
         headers: corsHeaders,
       });
     }
+    const address = normalizeRoadPrefix(rawAddress);
 
     // Queries every supported county concurrently (see the comment above) — no
     // city-name filtering on WHICH counties to try. A single county's transient

@@ -81,6 +81,18 @@ function formatAddress(r: NominatimResult): string | null {
   return formatted || null;
 }
 
+// Texas road names are commonly typed without a space before the number
+// ("FM1957", "CR304", "Loop410"), but Nominatim's search tokenizes on
+// whitespace and returns zero results unless it's "FM 1957" — confirmed via
+// direct testing (FM1957 → [], FM 1957 → the real road; same for CR/Loop).
+// Insert the space Nominatim needs without changing what the user sees or
+// types.
+const TX_ROAD_PREFIX = /\b(FM|RM|CR|SH|US|IH|LP|LOOP|SPUR)(\d)/gi;
+
+function normalizeForNominatim(query: string): string {
+  return query.replace(TX_ROAD_PREFIX, "$1 $2");
+}
+
 async function fetchSuggestions(query: string, signal: AbortSignal): Promise<Suggestion[]> {
   const params = new URLSearchParams({
     format: "jsonv2",
@@ -89,7 +101,7 @@ async function fetchSuggestions(query: string, signal: AbortSignal): Promise<Sug
     viewbox: TEXAS_VIEWBOX,
     bounded: "1",
     limit: "8",
-    q: query,
+    q: normalizeForNominatim(query),
   });
   const res = await fetch(`https://nominatim.openstreetmap.org/search?${params}`, { signal });
   if (!res.ok) throw new Error(`Nominatim request failed: ${res.status}`);
