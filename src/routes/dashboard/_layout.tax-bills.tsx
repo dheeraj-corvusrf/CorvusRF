@@ -14,7 +14,6 @@ import {
   type TaxBillRecord,
 } from "@/lib/tax-bills";
 import { Skeleton } from "@/components/ui/skeleton";
-import { PortfolioTabs } from "@/components/PortfolioTabs";
 import { Modal } from "@/components/Modal";
 
 export const Route = createFileRoute("/dashboard/_layout/tax-bills")({
@@ -163,10 +162,6 @@ function TaxBills() {
         <button onClick={() => setShowAddForm((v) => !v)} className="btn-primary btn-primary-hover">
           {showAddForm ? "Cancel" : "Add Tax Bill"}
         </button>
-      </div>
-
-      <div className="mt-4">
-        <PortfolioTabs />
       </div>
 
       {bills.length > 0 && (

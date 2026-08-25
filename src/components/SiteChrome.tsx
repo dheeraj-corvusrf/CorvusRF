@@ -3,6 +3,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "re
 import { useAuth } from "@/lib/auth";
 import { supabase } from "@/lib/supabase";
 import { checkIsAdmin } from "@/lib/admin";
+import { shouldShowShell } from "@/components/AppShell";
 
 const NAV = [
   { to: "/", label: "Home" },
@@ -28,8 +29,14 @@ export function SiteNav() {
   const { user } = useAuth();
   const signedIn = !!user;
   const [isAdmin, setIsAdmin] = useState(false);
+  // AppShell renders its own "Dashboard"-first tab bar directly under this
+  // nav on every signed-in page except "/" and a few auth/admin routes (see
+  // shouldShowShell) — skip injecting a second "Dashboard" link here on those
+  // pages so the two rows don't repeat the same entry right on top of each other.
   const navItems = signedIn
-    ? [NAV[0], { to: "/dashboard", label: "Dashboard" } as const, ...NAV.slice(1)]
+    ? shouldShowShell(pathname)
+      ? NAV
+      : [NAV[0], { to: "/dashboard", label: "Dashboard" } as const, ...NAV.slice(1)]
     : NAV;
 
   useEffect(() => {
@@ -111,7 +118,7 @@ export function SiteNav() {
         <nav ref={navContainerRef} className="relative hidden lg:flex items-center gap-1">
           <span
             aria-hidden
-            className="absolute inset-y-1 rounded-md bg-secondary transition-[left,width] duration-300 ease-out"
+            className="absolute inset-y-1 rounded-md bg-nav-highlight transition-[left,width] duration-300 ease-out"
             style={{
               left: indicator.left,
               width: indicator.width,
@@ -125,7 +132,7 @@ export function SiteNav() {
                 linkRefs.current[item.to] = el;
               }}
               to={item.to}
-              className="relative rounded-md px-3 py-2 text-sm font-medium text-foreground/80 transition-colors hover:bg-secondary/60 hover:text-foreground"
+              className="relative rounded-md px-3 py-2 text-sm font-medium text-foreground/80 transition-colors hover:bg-nav-highlight hover:text-nav-highlight-foreground"
               activeProps={{ className: "text-foreground" }}
               activeOptions={{ exact: item.to === "/" }}
             >
@@ -159,6 +166,20 @@ export function SiteNav() {
                     className="block rounded-md px-3 py-2 transition-colors hover:bg-secondary"
                   >
                     Subscription
+                  </Link>
+                  <Link
+                    to="/dashboard/billing"
+                    onClick={() => setProfileOpen(false)}
+                    className="block rounded-md px-3 py-2 transition-colors hover:bg-secondary"
+                  >
+                    Billing
+                  </Link>
+                  <Link
+                    to="/dashboard/settings"
+                    onClick={() => setProfileOpen(false)}
+                    className="block rounded-md px-3 py-2 transition-colors hover:bg-secondary"
+                  >
+                    Settings
                   </Link>
                   {isAdmin && (
                     <Link

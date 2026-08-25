@@ -5,12 +5,11 @@ import { currency, resetIntake, updateIntake } from "@/lib/intake-store";
 import { useAuth } from "@/lib/auth";
 import { listProperties, deleteProperty, type PropertyRecord } from "@/lib/properties";
 import { useSavingsBackfill } from "@/hooks/use-savings-backfill";
-import { listProtests, type ProtestRecord, type ProtestStatus } from "@/lib/protests";
+import { listProtests, type ProtestRecord } from "@/lib/protests";
 import { listHealthScores, type PropertyAiScore } from "@/lib/property-scores";
 import { getPropertyProtestStatus, type ActionStatus } from "@/lib/portfolio-status";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ProtestAuthorizationFlow } from "@/components/ProtestAuthorizationFlow";
-import { PortfolioTabs } from "@/components/PortfolioTabs";
 import { CaseDetailModal } from "@/components/CaseDetailModal";
 import { generateCasePrep } from "@/lib/protest-case";
 import { CopyButton } from "@/components/CopyButton";
@@ -22,18 +21,6 @@ export const Route = createFileRoute("/dashboard/_layout/properties")({
 });
 
 const CURRENT_YEAR = new Date().getFullYear();
-
-const STATUS_LABEL: Record<ProtestStatus, string> = {
-  requested: "Requested",
-  filed: "Filed",
-  under_review: "Under Review",
-  offer_received: "Offer Received",
-  hearing_scheduled: "Hearing Scheduled",
-  decision_received: "Decision Received",
-  appealing: "Appealing",
-  arbitrating: "Arbitrating",
-  resolved: "Resolved",
-};
 
 function Properties() {
   const navigate = useNavigate();
@@ -144,10 +131,6 @@ function Properties() {
         />
       )}
 
-      <div className="mt-4">
-        <PortfolioTabs />
-      </div>
-
       <div className="mt-6">
         {listError && <p className="mb-4 text-sm text-destructive">{listError}</p>}
         {propertiesLoading ? (
@@ -208,10 +191,6 @@ function Properties() {
                     </Link>
                     {existingProtest ? (
                       <>
-                        <span className="badge-soft">
-                          Protest {STATUS_LABEL[existingProtest.status]}
-                          {existingProtest.taxYear ? ` (${existingProtest.taxYear})` : ""}
-                        </span>
                         <button onClick={() => setCaseProperty(p)} className="btn-outline">
                           View Case
                         </button>
