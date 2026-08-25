@@ -1204,6 +1204,13 @@ function nearbyDedupeKey(r: CadRecord): string {
 // (which has no time bound) — a genuinely slow county just contributes
 // nothing this round rather than holding up the whole response for everyone.
 const NEARBY_QUERY_TIMEOUT_MS = 6000;
+// The exact-match sweep is normally faster (a more selective, house-number-
+// anchored WHERE clause), but a single county source going slow or getting
+// rate-limited isn't otherwise bounded at all — found live 2026-08-25 that a
+// plain exact-match "900 Willowwood St" query took 97+ seconds this way. A
+// bit more generous than the nearby timeout since a real exact match is
+// worth waiting a little longer for than an optional suggestion is.
+const EXACT_QUERY_TIMEOUT_MS = 10000;
 
 function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
   return Promise.race([promise, new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms))]);
@@ -1275,7 +1282,36 @@ Deno.serve(async (req: Request) => {
       queryDallas,
     ];
 
-    const results = await Promise.allSettled(countyQueriesInOrder.map((query) => query(address)));
+    // cityGuess only depends on the raw address text, not on anything the
+    // exact sweep finds — computed up front so the nearby sweep below can
+    // start immediately, in parallel with the exact sweep, instead of only
+    // starting after it finishes.
+    const parsedForCity = parseHouseAndStreet(address);
+    const cityGuess = parsedForCity ? guessCity(parsedForCity.cityStateZip) : "";
+
+    // Fired now, not awaited yet — a real address search used to pay the
+    // exact sweep's full latency AND THEN the nearby sweep's full latency
+    // back-to-back whenever nothing matched, since nearby only ever started
+    // after `!record` was already known. Calling findNearby() here starts its
+    // own concurrent county queries immediately; `await`ing the *result* is
+    // deferred until after the tiebreak below decides whether it's even
+    // needed. If an exact match is found, this promise is simply never
+    // awaited — its in-flight requests cost nothing to the response, since
+    // nothing here ever reads their result.
+    const nearbyPromise = findNearby(countyQueriesInOrder, address, cityGuess);
+
+    // Found live 2026-08-25, a real report ("900 Willowwood St" taking 97+
+    // seconds): a single slow/rate-limited county source could block the
+    // ENTIRE lookup, since Promise.allSettled alone has no time bound of its
+    // own — it just waits for every promise to settle, however long that
+    // takes. Same fix as the nearby sweep's own per-county timeout (see
+    // NEARBY_QUERY_TIMEOUT_MS above): a county that doesn't answer in time
+    // just contributes nothing this round, exactly like a real query error
+    // already does, rather than holding up every other (fast) county's real
+    // answer.
+    const results = await Promise.allSettled(
+      countyQueriesInOrder.map((query) => withTimeout(query(address), EXACT_QUERY_TIMEOUT_MS, [] as CadRecord[])),
+    );
     // Flattened in county-priority order, then row order within each county — each
     // county now returns up to MULTI_CANDIDATE_LIMIT real rows instead of just one
     // (see the comment above that constant), so the tiebreak below has every real
@@ -1291,8 +1327,6 @@ Deno.serve(async (req: Request) => {
     // address actually mentions that city over one that doesn't, before falling
     // back to priority order (still needed for Tarrant, whose source has no city
     // field at all, and any other candidate where this can't be determined).
-    const parsedForCity = parseHouseAndStreet(address);
-    const cityGuess = parsedForCity ? guessCity(parsedForCity.cityStateZip) : "";
     let record: CadRecord | null = null;
     if (cityGuess) {
       record =
@@ -1334,7 +1368,9 @@ Deno.serve(async (req: Request) => {
     }
 
     if (!record) {
-      const nearby = await findNearby(countyQueriesInOrder, address, cityGuess);
+      // Already well underway (started before the exact sweep even began) —
+      // usually resolves close to immediately from here, not from scratch.
+      const nearby = await nearbyPromise;
       return new Response(JSON.stringify({ matched: false, nearby }), {
         status: 200,
         headers: corsHeaders,
