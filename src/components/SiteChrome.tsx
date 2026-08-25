@@ -10,7 +10,7 @@ const NAV = [
   { to: "/how-it-works", label: "How It Works" },
   { to: "/property-protest", label: "Protest" },
   { to: "/bpp-rendition", label: "Personal Property" },
-  { to: "/tax-payment", label: "Pay Tax" },
+  { to: "/tax-payment", label: "Pay Taxes" },
   { to: "/pricing", label: "Pricing" },
   { to: "/contact", label: "Contact Us" },
 ] as const;
@@ -281,7 +281,7 @@ export function SiteFooter() {
           links={[
             ["Protest", "/property-protest"],
             ["Personal Property", "/bpp-rendition"],
-            ["Pay Tax", "/tax-payment"],
+            ["Pay Taxes", "/tax-payment"],
           ]}
         />
         <FooterCol
