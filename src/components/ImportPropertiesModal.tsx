@@ -59,7 +59,7 @@ export function ImportPropertiesModal({
 
     // Sequential (not Promise.all) so "Importing N of M" progress is meaningful
     // and one failing row can't be blamed on/confused with another — same posture
-    // as OwnerMatchModal's addSelected() loop.
+    // as AddOwnershipsModal's onConfirmAdd() loop.
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
       setProgress(i + 1);

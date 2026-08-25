@@ -3,7 +3,7 @@ import { useState } from "react";
 import { supabase, isSupabaseConfigured } from "@/lib/supabase";
 import { searchPropertiesByOwner } from "@/lib/cad-owner-search";
 import type { CadRecord } from "@/lib/cad-lookup";
-import { OwnerMatchModal } from "@/components/OwnerMatchModal";
+import { AddOwnershipsModal } from "@/components/AddOwnershipsModal";
 
 export const Route = createFileRoute("/sign-in")({
   head: () => ({
@@ -356,11 +356,15 @@ function SignIn() {
           </button>
         </form>
         {ownerMatches && (
-          <OwnerMatchModal
+          <AddOwnershipsModal
             userId={ownerMatches.userId}
-            companyName={ownerMatches.companyName}
-            matches={ownerMatches.matches}
-            onDone={() => {
+            initialMatch={{
+              name: ownerMatches.companyName,
+              role: "owner",
+              records: ownerMatches.matches,
+            }}
+            onImported={() => {}}
+            onClose={() => {
               setOwnerMatches(null);
               nav({ to: returnTo });
             }}
