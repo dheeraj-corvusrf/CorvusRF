@@ -137,6 +137,7 @@ export type BetaLead = {
   useCase: string | null;
   sourceDoor: string | null;
   createdAt: string;
+  invitedAt: string | null;
 };
 
 type BetaLeadRow = {
@@ -148,6 +149,7 @@ type BetaLeadRow = {
   use_case: string | null;
   source_door: string | null;
   created_at: string;
+  invited_at: string | null;
 };
 
 // Submissions from hub/index.html's public "Request Beta Access" form (see
@@ -158,7 +160,7 @@ export async function listBetaLeads(): Promise<BetaLead[]> {
   const { data, error } = await supabase
     .from("beta_leads")
     .select(
-      "id, full_name, work_email, company, area_of_interest, use_case, source_door, created_at",
+      "id, full_name, work_email, company, area_of_interest, use_case, source_door, created_at, invited_at",
     )
     .order("created_at", { ascending: false });
   if (error) throw error;
@@ -171,7 +173,27 @@ export async function listBetaLeads(): Promise<BetaLead[]> {
     useCase: row.use_case,
     sourceDoor: row.source_door,
     createdAt: row.created_at,
+    invitedAt: row.invited_at,
   }));
+}
+
+// Called after createUserAccount() successfully sends the real invite email
+// (see below) — this only records that it happened, it's a separate write
+// from the invite itself since invited_at lives on beta_leads, not
+// anything the admin-create-user edge function touches.
+export async function markBetaLeadInvited(id: string): Promise<string> {
+  const invitedAt = new Date().toISOString();
+  const { error } = await supabase
+    .from("beta_leads")
+    .update({ invited_at: invitedAt })
+    .eq("id", id);
+  if (error) throw error;
+  return invitedAt;
+}
+
+export async function deleteBetaLead(id: string): Promise<void> {
+  const { error } = await supabase.from("beta_leads").delete().eq("id", id);
+  if (error) throw error;
 }
 
 // Both of these now go through a service-role edge function rather than a direct
