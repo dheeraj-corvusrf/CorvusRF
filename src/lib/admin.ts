@@ -177,10 +177,10 @@ export async function listBetaLeads(): Promise<BetaLead[]> {
   }));
 }
 
-// Called after createUserAccount() successfully sends the real invite email
-// (see below) — this only records that it happened, it's a separate write
-// from the invite itself since invited_at lives on beta_leads, not
-// anything the admin-create-user edge function touches.
+// Called after the admin panel copies/mailtos the invite link (see
+// buildSignupInviteLink below) — this only records that it happened, for
+// display purposes; nothing about actually sending the link goes through
+// here.
 export async function markBetaLeadInvited(id: string): Promise<string> {
   const invitedAt = new Date().toISOString();
   const { error } = await supabase
@@ -233,16 +233,48 @@ export async function deleteUserAccount(userId: string): Promise<void> {
   await invokeEdgeFunction("admin-delete-user", { userId });
 }
 
-export async function createUserAccount(input: {
+// Deliberately NOT the old admin-create-user/inviteUserByEmail flow —
+// that pre-created a real auth.users (and profiles) row the instant staff
+// clicked "Invite," before the invitee had done anything, so they showed
+// up in the Users list immediately with a half-filled profile. This just
+// builds a link into the app's own sign-up form (prefilled), with no
+// server call and no account created until the invitee actually finishes
+// signing up themselves — password or Google, same as any organic
+// visitor. beta:"1" pre-checks the sign-up form's "beta" plan checkbox
+// (see sign-in.tsx) for invites coming from a beta lead.
+export function buildSignupInviteLink(input: {
   email: string;
-  firstName: string;
-  lastName: string;
-  phone: string;
-}): Promise<void> {
-  await invokeEdgeFunction("admin-create-user", {
-    ...input,
-    redirectPath: `${import.meta.env.BASE_URL}reset-password`,
-  });
+  firstName?: string;
+  lastName?: string;
+  wantsBeta?: boolean;
+}): string {
+  const base = `${window.location.origin}${import.meta.env.BASE_URL}sign-in`;
+  const params = new URLSearchParams({ mode: "signup", email: input.email });
+  if (input.firstName) params.set("firstName", input.firstName);
+  if (input.lastName) params.set("lastName", input.lastName);
+  if (input.wantsBeta) params.set("beta", "1");
+  return `${base}?${params.toString()}`;
+}
+
+// Opens the admin's own email client with the invite pre-composed —
+// deliberately not an automated send: this project has no working
+// transactional email sender configured (Web3Forms only relays TO the
+// site's own inbox, it can't send to a third party; custom SMTP was
+// attempted and rolled back). Using mailto: sends from the admin's own
+// real address with zero new infrastructure, at the cost of needing a
+// mail client configured to handle mailto: links — callers should treat
+// this as a nice-to-have on top of copying the link (via
+// buildSignupInviteLink) to the clipboard as the reliable fallback.
+export function buildInviteMailto(input: {
+  toEmail: string;
+  firstName?: string;
+  signupUrl: string;
+}): string {
+  const greeting = input.firstName ? input.firstName : "there";
+  const subject = "You're invited to CorvusPT";
+  const body = `Hi ${greeting},\n\nYou're invited to create your CorvusPT account. Follow the link below to set up your own password (or sign in with Google):\n\n${input.signupUrl}\n\nSee you there!`;
+  const params = new URLSearchParams({ subject, body });
+  return `mailto:${input.toEmail}?${params.toString()}`;
 }
 
 export const PROTEST_STATUS_OPTIONS: { value: ProtestStatus; label: string }[] = [
