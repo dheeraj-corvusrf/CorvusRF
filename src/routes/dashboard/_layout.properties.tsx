@@ -15,6 +15,7 @@ import { generateCasePrep } from "@/lib/protest-case";
 import { CopyButton } from "@/components/CopyButton";
 import { ImportPropertiesModal } from "@/components/ImportPropertiesModal";
 import { AddOwnershipsModal } from "@/components/AddOwnershipsModal";
+import { BulkProtestAuthorizationFlow } from "@/components/BulkProtestAuthorizationFlow";
 
 export const Route = createFileRoute("/dashboard/_layout/properties")({
   component: Properties,
@@ -35,6 +36,7 @@ function Properties() {
   const [caseProperty, setCaseProperty] = useState<PropertyRecord | null>(null);
   const [importOpen, setImportOpen] = useState(false);
   const [ownershipsOpen, setOwnershipsOpen] = useState(false);
+  const [authorizingBatch, setAuthorizingBatch] = useState<PropertyRecord[] | null>(null);
 
   useEffect(() => {
     if (!user) return;
@@ -126,7 +128,14 @@ function Properties() {
       {ownershipsOpen && user && (
         <AddOwnershipsModal
           userId={user.id}
-          onImported={(imported) => setProperties((prev) => [...imported, ...prev])}
+          onImported={(imported) => {
+            setProperties((prev) => [...imported, ...prev]);
+            // Proceed straight into protest authorization for exactly the
+            // properties just added, one at a time — see
+            // BulkProtestAuthorizationFlow for why this is still N real
+            // per-property authorizations, not one merged signature.
+            if (imported.length > 0) setAuthorizingBatch(imported);
+          }}
           onClose={() => setOwnershipsOpen(false)}
         />
       )}
@@ -253,6 +262,29 @@ function Properties() {
             generateCasePrep(created.id, user.id, authorizingProperty).catch((err) =>
               console.error("Case prep generation failed:", err),
             );
+          }}
+        />
+      )}
+
+      {authorizingBatch && user && (
+        <BulkProtestAuthorizationFlow
+          userId={user.id}
+          properties={authorizingBatch}
+          userEmail={user.email}
+          open={!!authorizingBatch}
+          onOpenChange={(open) => {
+            if (!open) setAuthorizingBatch(null);
+          }}
+          onAllDone={(completedProtests) => {
+            setProtests((prev) => [...completedProtests, ...prev]);
+            for (const created of completedProtests) {
+              const property = authorizingBatch.find((p) => p.id === created.propertyId);
+              if (!property) continue;
+              generateCasePrep(created.id, user.id, property).catch((err) =>
+                console.error("Case prep generation failed:", err),
+              );
+            }
+            setAuthorizingBatch(null);
           }}
         />
       )}

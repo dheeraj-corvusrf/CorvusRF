@@ -17,6 +17,7 @@ import {
   toProtestRecord,
   toPropertyRecordStub,
   listAdminAuditLog,
+  listBetaLeads,
   PLAN_OPTIONS,
   PROTEST_STATUS_OPTIONS,
   type AdminUserRecord,
@@ -25,6 +26,7 @@ import {
   type AdminDocumentRecord,
   type CaseSummaryResult,
   type AdminAuditEntry,
+  type BetaLead,
 } from "@/lib/admin";
 import type { ProtestRecord, ProtestStatus } from "@/lib/protests";
 import { listProperties, addProperty, deleteProperty, type PropertyRecord } from "@/lib/properties";
@@ -41,10 +43,13 @@ export const Route = createFileRoute("/admin")({
   component: AdminPanel,
 });
 
+type AdminTab = "users" | "beta" | "activity";
+
 function AdminPanel() {
   const nav = useNavigate();
   const { user, loading } = useAuth();
   const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
+  const [activeTab, setActiveTab] = useState<AdminTab>("users");
   const [users, setUsers] = useState<AdminUserRecord[]>([]);
   const [usersLoading, setUsersLoading] = useState(true);
   const [usersError, setUsersError] = useState<string | null>(null);
@@ -57,6 +62,9 @@ function AdminPanel() {
 
   const [auditLog, setAuditLog] = useState<AdminAuditEntry[]>([]);
   const [auditLogLoading, setAuditLogLoading] = useState(true);
+
+  const [betaLeads, setBetaLeads] = useState<BetaLead[]>([]);
+  const [betaLeadsLoading, setBetaLeadsLoading] = useState(true);
 
   useEffect(() => {
     if (loading) return;
@@ -83,6 +91,10 @@ function AdminPanel() {
       .then(setProtests)
       .catch((err) => console.error(err))
       .finally(() => setProtestsLoading(false));
+    listBetaLeads()
+      .then(setBetaLeads)
+      .catch((err) => console.error(err))
+      .finally(() => setBetaLeadsLoading(false));
     refreshAuditLog();
   }, [isAdmin]);
 
@@ -177,108 +189,126 @@ function AdminPanel() {
 
   if (loading || !user || !isAdmin) return null;
 
+  const TABS: { key: AdminTab; label: string; count: number | null }[] = [
+    { key: "users", label: "Users", count: usersLoading ? null : users.length },
+    { key: "beta", label: "Beta Signups", count: betaLeadsLoading ? null : betaLeads.length },
+    { key: "activity", label: "Activity Log", count: auditLogLoading ? null : auditLog.length },
+  ];
+
   return (
     <div className="container-page py-10">
       <span className="badge-soft">Admin</span>
-      <h1 className="mt-2 font-serif text-3xl font-semibold">All Users</h1>
-      <p className="text-muted-foreground">Manage every user, their properties, and their plan.</p>
+      <h1 className="mt-2 font-serif text-3xl font-semibold">Admin</h1>
+      <p className="text-muted-foreground">
+        Users, protest requests, beta signups, and staff activity.
+      </p>
 
-      <AddUserForm
-        onCreated={(u) => {
-          setUsers((prev) => [u, ...prev]);
-          refreshAuditLog();
-        }}
-      />
-
-      <section className="mt-10">
-        <h2 className="font-serif text-xl font-semibold">Protest Requests</h2>
-        <p className="text-sm text-muted-foreground">
-          Real requests from users clicking "Request Protest Filing" on their dashboard. Update
-          status as staff progress each one.
-        </p>
-        <div className="mt-4 grid gap-6">
-          {protestsLoading ? (
-            <PropertyRowSkeleton />
-          ) : protests.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No protest requests yet.</p>
-          ) : (
-            groupProtestsByYear(protests).map((group) => (
-              <div key={group.year ?? "unknown"}>
-                <h3 className="text-sm font-semibold text-muted-foreground">
-                  {group.year ? `Tax Year ${group.year}` : "Year not on file"}
-                  <span className="ml-2 font-normal">
-                    ({group.records.length} request{group.records.length === 1 ? "" : "s"})
-                  </span>
-                </h3>
-                <div className="mt-3 grid gap-3">
-                  {group.records.map((p, i) => {
-                    const requester = users.find((u) => u.id === p.userId);
-                    return (
-                      <ProtestRow
-                        key={p.id}
-                        record={p}
-                        requesterEmail={requester?.email ?? p.userId}
-                        expanded={expandedProtestId === p.id}
-                        onToggleExpand={() =>
-                          setExpandedProtestId(expandedProtestId === p.id ? null : p.id)
-                        }
-                        onStatusChange={(status) => handleProtestStatusChange(p.id, status)}
-                        onNotesChange={(notes) => handleProtestNotesChange(p.id, notes)}
-                        onOpenCase={() => setCaseRecord(p)}
-                        delayMs={Math.min(i * 40, 320)}
-                      />
-                    );
-                  })}
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-      </section>
-
-      <h2 className="mt-10 font-serif text-xl font-semibold">Users</h2>
-      {usersError && <p className="mt-4 text-sm text-destructive">{usersError}</p>}
-
-      <div className="mt-6 grid gap-4">
-        {usersLoading ? (
-          <>
-            <UserRowSkeleton />
-            <UserRowSkeleton />
-            <UserRowSkeleton />
-          </>
-        ) : (
-          users.map((u, i) => (
-            <UserRow
-              key={u.id}
-              record={u}
-              isSelf={u.id === user.id}
-              expanded={expandedId === u.id}
-              onToggleExpand={() => setExpandedId(expandedId === u.id ? null : u.id)}
-              onPlanChange={(plan) => handlePlanChange(u.id, plan)}
-              onToggleAdmin={(makeAdmin) => handleToggleAdmin(u.id, makeAdmin)}
-              onDelete={() => handleDeleteUser(u.id)}
-              delayMs={Math.min(i * 40, 320)}
-            />
-          ))
-        )}
+      <div className="mt-6 flex gap-1 overflow-x-auto border-b border-border">
+        {TABS.map((tab) => (
+          <button
+            key={tab.key}
+            type="button"
+            onClick={() => setActiveTab(tab.key)}
+            className={`-mb-px whitespace-nowrap border-b-2 px-4 py-2 text-sm font-medium transition-colors ${
+              activeTab === tab.key
+                ? "border-accent text-foreground"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {tab.label}
+            {tab.count != null && <span className="ml-1.5 text-xs opacity-70">({tab.count})</span>}
+          </button>
+        ))}
       </div>
 
-      <section className="mt-10">
-        <h2 className="font-serif text-xl font-semibold">Activity Log</h2>
-        <p className="text-sm text-muted-foreground">
-          Who on staff did what — plan changes, admin access, invites, deletions, and protest edits.
-          Most recent 50.
-        </p>
-        <div className="mt-4 grid gap-2">
-          {auditLogLoading ? (
-            <PropertyRowSkeleton />
-          ) : auditLog.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No admin activity logged yet.</p>
-          ) : (
-            auditLog.map((entry) => <AuditLogRow key={entry.id} entry={entry} />)
-          )}
+      {activeTab === "users" && (
+        <div className="mt-8">
+          <h2 className="font-serif text-xl font-semibold">Users</h2>
+          <p className="text-sm text-muted-foreground">
+            Manage every user, their properties, and their plan.
+          </p>
+
+          <AddUserForm
+            onCreated={(u) => {
+              setUsers((prev) => [u, ...prev]);
+              refreshAuditLog();
+            }}
+          />
+
+          {usersError && <p className="mt-4 text-sm text-destructive">{usersError}</p>}
+
+          <div className="mt-6 grid gap-4">
+            {usersLoading ? (
+              <>
+                <UserRowSkeleton />
+                <UserRowSkeleton />
+                <UserRowSkeleton />
+              </>
+            ) : (
+              users.map((u, i) => (
+                <UserRow
+                  key={u.id}
+                  record={u}
+                  isSelf={u.id === user.id}
+                  expanded={expandedId === u.id}
+                  onToggleExpand={() => setExpandedId(expandedId === u.id ? null : u.id)}
+                  onPlanChange={(plan) => handlePlanChange(u.id, plan)}
+                  onToggleAdmin={(makeAdmin) => handleToggleAdmin(u.id, makeAdmin)}
+                  onDelete={() => handleDeleteUser(u.id)}
+                  delayMs={Math.min(i * 40, 320)}
+                  protests={protests.filter((p) => p.userId === u.id)}
+                  protestsLoading={protestsLoading}
+                  expandedProtestId={expandedProtestId}
+                  onToggleExpandProtest={(protestId) =>
+                    setExpandedProtestId(expandedProtestId === protestId ? null : protestId)
+                  }
+                  onProtestStatusChange={handleProtestStatusChange}
+                  onProtestNotesChange={handleProtestNotesChange}
+                  onOpenCase={setCaseRecord}
+                />
+              ))
+            )}
+          </div>
         </div>
-      </section>
+      )}
+
+      {activeTab === "beta" && (
+        <section className="mt-8">
+          <h2 className="font-serif text-xl font-semibold">Beta Signups</h2>
+          <p className="text-sm text-muted-foreground">
+            Everyone who submitted the "Request Beta Access" form on the hub site. Most recent
+            first.
+          </p>
+          <div className="mt-4 grid gap-2">
+            {betaLeadsLoading ? (
+              <PropertyRowSkeleton />
+            ) : betaLeads.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No beta signups yet.</p>
+            ) : (
+              betaLeads.map((lead) => <BetaLeadRow key={lead.id} lead={lead} />)
+            )}
+          </div>
+        </section>
+      )}
+
+      {activeTab === "activity" && (
+        <section className="mt-8">
+          <h2 className="font-serif text-xl font-semibold">Activity Log</h2>
+          <p className="text-sm text-muted-foreground">
+            Who on staff did what — plan changes, admin access, invites, deletions, and protest
+            edits. Most recent 50.
+          </p>
+          <div className="mt-4 grid gap-2">
+            {auditLogLoading ? (
+              <PropertyRowSkeleton />
+            ) : auditLog.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No admin activity logged yet.</p>
+            ) : (
+              auditLog.map((entry) => <AuditLogRow key={entry.id} entry={entry} />)
+            )}
+          </div>
+        </section>
+      )}
 
       {caseRecord && (
         <AdminCaseProgressModal
@@ -477,7 +507,8 @@ function ProtestRow({
         record.taxYear && `Tax year: ${record.taxYear}`,
         record.totalValue != null && `Total value: ${currency(record.totalValue)}`,
         record.landValue != null && `Land value: ${currency(record.landValue)}`,
-        record.improvementValue != null && `Improvement value: ${currency(record.improvementValue)}`,
+        record.improvementValue != null &&
+          `Improvement value: ${currency(record.improvementValue)}`,
         record.protestDeadline && `Protest deadline: ${record.protestDeadline}`,
       ]
         .filter(Boolean)
@@ -492,7 +523,10 @@ function ProtestRow({
         .join("\n");
       const documentsContext = documents?.length
         ? documents
-            .map((d) => `- ${d.fileName} (${d.documentType ?? "unknown type"}), uploaded ${new Date(d.uploadedAt).toLocaleDateString()}`)
+            .map(
+              (d) =>
+                `- ${d.fileName} (${d.documentType ?? "unknown type"}), uploaded ${new Date(d.uploadedAt).toLocaleDateString()}`,
+            )
             .join("\n")
         : "(none uploaded)";
       const result = await getCaseSummary({ propertyContext, protestContext, documentsContext });
@@ -546,88 +580,88 @@ function ProtestRow({
         aria-hidden={!expanded}
       >
         <div className="min-h-0 overflow-hidden">
-        <div className="mt-4 border-t border-border pt-4 grid gap-4">
-          <div className="grid gap-1 text-sm text-muted-foreground sm:grid-cols-2">
-            {record.propertyCad && <div>CAD: {record.propertyCad}</div>}
-            {record.accountNumber && (
-              <div className="inline-flex items-center gap-1">
-                Account #: {record.accountNumber}
-                <CopyButton value={record.accountNumber} label="Account number copied" />
-              </div>
-            )}
-            {record.taxYear && <div>Tax year: {record.taxYear}</div>}
-            {record.totalValue != null && <div>Total value: {currency(record.totalValue)}</div>}
-          </div>
+          <div className="mt-4 border-t border-border pt-4 grid gap-4">
+            <div className="grid gap-1 text-sm text-muted-foreground sm:grid-cols-2">
+              {record.propertyCad && <div>CAD: {record.propertyCad}</div>}
+              {record.accountNumber && (
+                <div className="inline-flex items-center gap-1">
+                  Account #: {record.accountNumber}
+                  <CopyButton value={record.accountNumber} label="Account number copied" />
+                </div>
+              )}
+              {record.taxYear && <div>Tax year: {record.taxYear}</div>}
+              {record.totalValue != null && <div>Total value: {currency(record.totalValue)}</div>}
+            </div>
 
-          <div>
-            <div className="text-sm font-medium mb-1">Documents</div>
-            {docsError ? (
-              <p className="text-sm text-destructive">{docsError}</p>
-            ) : documents === null ? (
-              <Skeleton className="h-4 w-40" />
-            ) : documents.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No documents uploaded.</p>
-            ) : (
-              <ul className="text-sm text-muted-foreground grid gap-1">
-                {documents.map((d) => (
-                  <li key={d.id}>
-                    {d.fileName} — {d.documentType ?? "unknown type"} •{" "}
-                    {new Date(d.uploadedAt).toLocaleDateString()}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
+            <div>
+              <div className="text-sm font-medium mb-1">Documents</div>
+              {docsError ? (
+                <p className="text-sm text-destructive">{docsError}</p>
+              ) : documents === null ? (
+                <Skeleton className="h-4 w-40" />
+              ) : documents.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No documents uploaded.</p>
+              ) : (
+                <ul className="text-sm text-muted-foreground grid gap-1">
+                  {documents.map((d) => (
+                    <li key={d.id}>
+                      {d.fileName} — {d.documentType ?? "unknown type"} •{" "}
+                      {new Date(d.uploadedAt).toLocaleDateString()}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
 
-          <div>
-            <div className="text-sm font-medium mb-1">Staff Notes</div>
-            <textarea
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              rows={3}
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-              placeholder="Internal notes about this case…"
-            />
-            <button
-              onClick={handleSaveNotes}
-              disabled={savingNotes}
-              className="btn-outline text-sm mt-2 disabled:opacity-60"
-            >
-              {savingNotes ? "Saving…" : "Save Notes"}
-            </button>
-          </div>
+            <div>
+              <div className="text-sm font-medium mb-1">Staff Notes</div>
+              <textarea
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                rows={3}
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                placeholder="Internal notes about this case…"
+              />
+              <button
+                onClick={handleSaveNotes}
+                disabled={savingNotes}
+                className="btn-outline text-sm mt-2 disabled:opacity-60"
+              >
+                {savingNotes ? "Saving…" : "Save Notes"}
+              </button>
+            </div>
 
-          <div>
-            <button
-              onClick={handleAiSummary}
-              disabled={summaryLoading}
-              className="btn-primary btn-primary-hover text-sm disabled:opacity-60"
-            >
-              {summaryLoading ? "Generating…" : "AI Case Summary"}
-            </button>
-            {summaryError && <p className="mt-2 text-sm text-destructive">{summaryError}</p>}
-            {summary && (
-              <div className="mt-3 rounded-md bg-secondary/50 p-3 text-sm grid gap-2">
-                <p>{summary.summary}</p>
-                {summary.nextAction && (
-                  <p>
-                    <span className="font-medium">Next action:</span> {summary.nextAction}
-                  </p>
-                )}
-                {summary.evidenceGaps.length > 0 && (
-                  <div>
-                    <span className="font-medium">Evidence gaps:</span>
-                    <ul className="list-disc list-inside">
-                      {summary.evidenceGaps.map((g, i) => (
-                        <li key={i}>{g}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-              </div>
-            )}
+            <div>
+              <button
+                onClick={handleAiSummary}
+                disabled={summaryLoading}
+                className="btn-primary btn-primary-hover text-sm disabled:opacity-60"
+              >
+                {summaryLoading ? "Generating…" : "AI Case Summary"}
+              </button>
+              {summaryError && <p className="mt-2 text-sm text-destructive">{summaryError}</p>}
+              {summary && (
+                <div className="mt-3 rounded-md bg-secondary/50 p-3 text-sm grid gap-2">
+                  <p>{summary.summary}</p>
+                  {summary.nextAction && (
+                    <p>
+                      <span className="font-medium">Next action:</span> {summary.nextAction}
+                    </p>
+                  )}
+                  {summary.evidenceGaps.length > 0 && (
+                    <div>
+                      <span className="font-medium">Evidence gaps:</span>
+                      <ul className="list-disc list-inside">
+                        {summary.evidenceGaps.map((g, i) => (
+                          <li key={i}>{g}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
-        </div>
         </div>
       </div>
     </div>
@@ -643,6 +677,13 @@ function UserRow({
   onToggleAdmin,
   onDelete,
   delayMs = 0,
+  protests,
+  protestsLoading,
+  expandedProtestId,
+  onToggleExpandProtest,
+  onProtestStatusChange,
+  onProtestNotesChange,
+  onOpenCase,
 }: {
   record: AdminUserRecord;
   isSelf: boolean;
@@ -652,6 +693,18 @@ function UserRow({
   onToggleAdmin: (makeAdmin: boolean) => void;
   onDelete: () => void;
   delayMs?: number;
+  // Protest requests filed by this specific user — folded into this row's
+  // own expanded panel (alongside UserProperties below) rather than a
+  // separate top-level "Protest Requests" tab, so the admin page doesn't
+  // keep growing as more requests come in; you only see a user's requests
+  // when you actually expand that user.
+  protests: AdminProtestRecord[];
+  protestsLoading: boolean;
+  expandedProtestId: string | null;
+  onToggleExpandProtest: (protestId: string) => void;
+  onProtestStatusChange: (protestId: string, status: ProtestStatus) => void;
+  onProtestNotesChange: (protestId: string, notes: string) => Promise<void>;
+  onOpenCase: (record: AdminProtestRecord) => void;
 }) {
   return (
     <div className="card-elev row-hover p-6" style={{ animationDelay: `${delayMs}ms` }}>
@@ -684,7 +737,12 @@ function UserRow({
             ))}
           </select>
           <button onClick={onToggleExpand} className="btn-outline text-sm">
-            {expanded ? "Hide properties" : "View properties"}
+            {expanded ? "Hide details" : "View details"}
+            {protests.length > 0 && (
+              <span className="ml-1 opacity-70">
+                ({protests.length} protest{protests.length === 1 ? "" : "s"})
+              </span>
+            )}
           </button>
           {/* Hidden for yourself so an admin can't accidentally revoke their own access. */}
           {!isSelf && (
@@ -708,6 +766,47 @@ function UserRow({
       {expanded && (
         <div className="animate-in fade-in slide-in-from-top-2 duration-300">
           <UserProperties userId={record.id} />
+
+          <div className="mt-6">
+            <h4 className="text-sm font-semibold text-muted-foreground">Protest Requests</h4>
+            {protestsLoading ? (
+              <div className="mt-3">
+                <PropertyRowSkeleton />
+              </div>
+            ) : protests.length === 0 ? (
+              <p className="mt-2 text-sm text-muted-foreground">
+                No protest requests from this user.
+              </p>
+            ) : (
+              <div className="mt-3 grid gap-6">
+                {groupProtestsByYear(protests).map((group) => (
+                  <div key={group.year ?? "unknown"}>
+                    <h5 className="text-xs font-semibold text-muted-foreground">
+                      {group.year ? `Tax Year ${group.year}` : "Year not on file"}
+                      <span className="ml-2 font-normal">
+                        ({group.records.length} request{group.records.length === 1 ? "" : "s"})
+                      </span>
+                    </h5>
+                    <div className="mt-2 grid gap-3">
+                      {group.records.map((p, i) => (
+                        <ProtestRow
+                          key={p.id}
+                          record={p}
+                          requesterEmail={record.email}
+                          expanded={expandedProtestId === p.id}
+                          onToggleExpand={() => onToggleExpandProtest(p.id)}
+                          onStatusChange={(status) => onProtestStatusChange(p.id, status)}
+                          onNotesChange={(notes) => onProtestNotesChange(p.id, notes)}
+                          onOpenCase={() => onOpenCase(p)}
+                          delayMs={Math.min(i * 40, 320)}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>
@@ -843,6 +942,32 @@ const AUDIT_ACTION_LABELS: Record<string, string> = {
   update_protest_status: "Updated protest status",
   update_protest_notes: "Updated protest notes",
 };
+
+function BetaLeadRow({ lead }: { lead: BetaLead }) {
+  return (
+    <div className="rounded-md bg-secondary/40 px-3 py-2 text-sm">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <span className="font-medium">{lead.fullName}</span>
+          <span className="text-muted-foreground"> — {lead.company}</span>
+          <div className="flex items-center gap-1 text-xs text-muted-foreground">
+            {lead.workEmail}
+            <CopyButton value={lead.workEmail} label="Email copied" />
+          </div>
+        </div>
+        <div className="shrink-0 text-right text-xs text-muted-foreground">
+          {lead.sourceDoor && <div>via {lead.sourceDoor}</div>}
+          <div>{new Date(lead.createdAt).toLocaleString()}</div>
+        </div>
+      </div>
+      <div className="mt-1.5 text-xs">
+        <span className="font-medium text-muted-foreground">Interested in:</span>{" "}
+        {lead.areaOfInterest}
+      </div>
+      {lead.useCase && <div className="mt-1 text-xs text-muted-foreground">"{lead.useCase}"</div>}
+    </div>
+  );
+}
 
 function AuditLogRow({ entry }: { entry: AdminAuditEntry }) {
   return (

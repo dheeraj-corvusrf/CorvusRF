@@ -419,12 +419,39 @@
         submitBtn.disabled = true;
         submitBtn.textContent = "Sending…";
         var formData = new FormData(form);
+        var areaJoined = checkedAreas.join(", ");
         // Replace the individual same-named checkbox entries with one
         // clean, comma-joined value so the notification email shows a
         // readable list instead of several repeated "area_of_interest"
         // fields.
         formData.delete("area_of_interest");
-        formData.set("area_of_interest", checkedAreas.join(", "));
+        formData.set("area_of_interest", areaJoined);
+
+        // Best-effort — the submit-beta-lead edge function persists this
+        // to Supabase's beta_leads table (visible in the admin panel's
+        // "Beta Signups" section) so submissions are queryable in one
+        // place, not just scattered across inbox emails. Web3Forms (below)
+        // is the tested, already-relied-on path that actually gates the
+        // success/error UI, so a Supabase hiccup here never blocks or
+        // fails a real submission — it's only logged.
+        fetch("https://iotzuhuajbsxxuccuihn.supabase.co/functions/v1/submit-beta-lead", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            apikey: "sb_publishable_RpyqtM6EeGiT7qc3FyN5Iw_vm0aiuM3",
+          },
+          body: JSON.stringify({
+            fullName: formData.get("full_name"),
+            workEmail: formData.get("work_email"),
+            company: formData.get("company"),
+            areaOfInterest: areaJoined,
+            useCase: formData.get("use_case"),
+            sourceDoor: formData.get("source_door"),
+          }),
+        }).catch(function (err) {
+          console.error("Beta lead Supabase storage failed (non-blocking):", err);
+        });
+
         fetch("https://api.web3forms.com/submit", { method: "POST", body: formData })
           .then(function (res) { return res.json(); })
           .then(function (data) {
