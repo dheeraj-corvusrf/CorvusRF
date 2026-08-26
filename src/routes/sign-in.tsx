@@ -17,27 +17,47 @@ export const Route = createFileRoute("/sign-in")({
   // Lets any page that sends a signed-out visitor here (the dashboard guard,
   // pricing's "sign in to subscribe" prompt, etc.) say where to return to
   // afterward — without this, every sign-in landed on "/" regardless of what
-  // the visitor was actually trying to do.
-  validateSearch: (search: Record<string, unknown>): { redirect?: string } => ({
+  // the visitor was actually trying to do. mode/email/firstName/lastName/beta
+  // are for the admin panel's invite links (see buildSignupInviteLink in
+  // src/lib/admin.ts) — they only prefill the form; no account exists until
+  // the invitee actually completes sign-up themselves (password or Google).
+  validateSearch: (
+    search: Record<string, unknown>,
+  ): {
+    redirect?: string;
+    mode?: "signup";
+    email?: string;
+    firstName?: string;
+    lastName?: string;
+    beta?: string;
+  } => ({
     redirect: typeof search.redirect === "string" ? search.redirect : undefined,
+    mode: search.mode === "signup" ? "signup" : undefined,
+    email: typeof search.email === "string" ? search.email : undefined,
+    firstName: typeof search.firstName === "string" ? search.firstName : undefined,
+    lastName: typeof search.lastName === "string" ? search.lastName : undefined,
+    beta: typeof search.beta === "string" ? search.beta : undefined,
   }),
   component: SignIn,
 });
 
 function SignIn() {
   const nav = useNavigate();
-  const { redirect } = Route.useSearch();
+  const searchParams = Route.useSearch();
+  const { redirect } = searchParams;
   const returnTo =
     redirect && redirect.startsWith("/") && !redirect.startsWith("//") ? redirect : "/";
-  const [mode, setMode] = useState<"signin" | "signup">("signin");
-  const [firstName, setFirstName] = useState("");
-  const [lastName, setLastName] = useState("");
+  const [mode, setMode] = useState<"signin" | "signup">(
+    searchParams.mode === "signup" ? "signup" : "signin",
+  );
+  const [firstName, setFirstName] = useState(searchParams.firstName ?? "");
+  const [lastName, setLastName] = useState(searchParams.lastName ?? "");
   const [phone, setPhone] = useState("");
   const [companyName, setCompanyName] = useState("");
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useState(searchParams.email ?? "");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [wantsBeta, setWantsBeta] = useState(false);
+  const [wantsBeta, setWantsBeta] = useState(searchParams.beta === "1");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [checkEmail, setCheckEmail] = useState(false);
@@ -195,11 +215,7 @@ function SignIn() {
 
       <div className="container-page pb-16 max-w-2xl">
         <form onSubmit={onSubmit} className="mt-8 card-elev p-6 grid gap-4">
-          <button
-            type="button"
-            onClick={handleGoogleSignIn}
-            className="btn-outline w-full"
-          >
+          <button type="button" onClick={handleGoogleSignIn} className="btn-outline w-full">
             <svg viewBox="0 0 48 48" className="h-4 w-4 shrink-0" aria-hidden="true">
               <path
                 fill="#FFC107"

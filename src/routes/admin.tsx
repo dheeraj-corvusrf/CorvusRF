@@ -8,7 +8,8 @@ import {
   updateUserPlan,
   updateUserAdminStatus,
   deleteUserAccount,
-  createUserAccount,
+  buildSignupInviteLink,
+  buildInviteMailto,
   listAllProtests,
   updateProtestStatus,
   updateProtestNotes,
@@ -83,21 +84,33 @@ function AdminPanel() {
     });
   }, [loading, user, nav]);
 
-  useEffect(() => {
-    if (!isAdmin) return;
+  // Shared by the initial load and the manual "Refresh" button next to the
+  // tabs — nothing here auto-updates otherwise, so anything submitted after
+  // this page was first opened (a new beta signup, a user finishing their
+  // own sign-up, etc.) stays invisible until one of these two runs again.
+  function refreshAll() {
+    setUsersLoading(true);
     listAllUsers()
       .then(setUsers)
       .catch((err) => setUsersError(err instanceof Error ? err.message : "Could not load users."))
       .finally(() => setUsersLoading(false));
+    setProtestsLoading(true);
     listAllProtests()
       .then(setProtests)
       .catch((err) => console.error(err))
       .finally(() => setProtestsLoading(false));
+    setBetaLeadsLoading(true);
     listBetaLeads()
       .then(setBetaLeads)
       .catch((err) => console.error(err))
       .finally(() => setBetaLeadsLoading(false));
     refreshAuditLog();
+  }
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    refreshAll();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAdmin]);
 
   function refreshAuditLog() {
@@ -205,22 +218,32 @@ function AdminPanel() {
         Users, protest requests, beta signups, and staff activity.
       </p>
 
-      <div className="mt-6 flex gap-1 overflow-x-auto border-b border-border">
-        {TABS.map((tab) => (
-          <button
-            key={tab.key}
-            type="button"
-            onClick={() => setActiveTab(tab.key)}
-            className={`-mb-px whitespace-nowrap border-b-2 px-4 py-2 text-sm font-medium transition-colors ${
-              activeTab === tab.key
-                ? "border-accent text-foreground"
-                : "border-transparent text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            {tab.label}
-            {tab.count != null && <span className="ml-1.5 text-xs opacity-70">({tab.count})</span>}
-          </button>
-        ))}
+      <div className="mt-6 flex items-center justify-between gap-2 border-b border-border">
+        <div className="flex gap-1 overflow-x-auto">
+          {TABS.map((tab) => (
+            <button
+              key={tab.key}
+              type="button"
+              onClick={() => setActiveTab(tab.key)}
+              className={`-mb-px whitespace-nowrap border-b-2 px-4 py-2 text-sm font-medium transition-colors ${
+                activeTab === tab.key
+                  ? "border-accent text-foreground"
+                  : "border-transparent text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {tab.label}
+              {tab.count != null && (
+                <span className="ml-1.5 text-xs opacity-70">({tab.count})</span>
+              )}
+            </button>
+          ))}
+        </div>
+        {/* Nothing on this page updates live — this is the only way to see
+            anything submitted/changed after the page first loaded without a
+            full reload. */}
+        <button type="button" onClick={refreshAll} className="btn-outline mb-2 shrink-0 text-xs">
+          Refresh
+        </button>
       </div>
 
       {activeTab === "users" && (
@@ -230,12 +253,7 @@ function AdminPanel() {
             Manage every user, their properties, and their plan.
           </p>
 
-          <AddUserForm
-            onCreated={(u) => {
-              setUsers((prev) => [u, ...prev]);
-              refreshAuditLog();
-            }}
-          />
+          <AddUserForm />
 
           {usersError && <p className="mt-4 text-sm text-destructive">{usersError}</p>}
 
@@ -334,35 +352,26 @@ function AdminPanel() {
   );
 }
 
-function AddUserForm({ onCreated }: { onCreated: (u: AdminUserRecord) => void }) {
+function AddUserForm() {
   const [open, setOpen] = useState(false);
   const [email, setEmail] = useState("");
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
-  const [phone, setPhone] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
-  async function onSubmit(e: React.FormEvent) {
+  // No account is created here — see buildSignupInviteLink's doc comment
+  // in src/lib/admin.ts. This just gets the link in front of the invitee
+  // however the admin sends it (clipboard is the reliable path; mailto is
+  // a bonus if they have a mail client configured for it).
+  function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setError(null);
-    setSubmitting(true);
-    try {
-      await createUserAccount({ email, firstName, lastName, phone });
-      const updated = await listAllUsers();
-      const created = updated.find((u) => u.email === email);
-      if (created) onCreated(created);
-      toast.success("Invite sent.");
-      setOpen(false);
-      setEmail("");
-      setFirstName("");
-      setLastName("");
-      setPhone("");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not send the invite.");
-    } finally {
-      setSubmitting(false);
-    }
+    const signupUrl = buildSignupInviteLink({ email, firstName, lastName });
+    navigator.clipboard?.writeText(signupUrl).catch(() => {});
+    window.location.href = buildInviteMailto({ toEmail: email, firstName, signupUrl });
+    toast.success(`Invite link copied to your clipboard for ${email}.`);
+    setOpen(false);
+    setEmail("");
+    setFirstName("");
+    setLastName("");
   }
 
   if (!open) {
@@ -403,24 +412,12 @@ function AddUserForm({ onCreated }: { onCreated: (u: AdminUserRecord) => void })
           className="rounded-md border border-input bg-background px-3 py-2"
         />
       </label>
-      <label className="grid gap-1 text-sm">
-        <span className="font-medium">Phone</span>
-        <input
-          required
-          value={phone}
-          onChange={(e) => setPhone(e.target.value)}
-          className="rounded-md border border-input bg-background px-3 py-2"
-        />
-      </label>
       <p className="sm:col-span-2 text-xs text-muted-foreground">
-        We'll email them a link to confirm their address and set their own password — you never
-        choose or see it.
+        Copies a sign-up link to your clipboard (and tries to open your email client) — no account
+        exists until they actually finish signing up themselves, with their own password or Google.
       </p>
-      {error && <p className="sm:col-span-2 text-sm text-destructive">{error}</p>}
       <div className="sm:col-span-2 flex gap-2">
-        <button disabled={submitting} className="btn-primary btn-primary-hover disabled:opacity-60">
-          {submitting ? "Sending…" : "Send Invite"}
-        </button>
+        <button className="btn-primary btn-primary-hover">Copy Invite Link</button>
         <button type="button" onClick={() => setOpen(false)} className="btn-outline">
           Cancel
         </button>
@@ -966,23 +963,34 @@ function BetaLeadRow({
   const [inviting, setInviting] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
-  // Real account invite via the same admin-create-user edge function/
-  // inviteUserByEmail flow AddUserForm above uses — Supabase's own invite
-  // email carries the actual link into the app, not a second bespoke email
-  // system. Splits the lead's one free-text name into first/last since
-  // createUserAccount (like the rest of the app) expects them separately;
+  // Same link-only invite AddUserForm above uses (see buildSignupInviteLink
+  // in src/lib/admin.ts) — no account created here, just a prefilled
+  // sign-up link copied/mailto'd to the lead. wantsBeta:true pre-checks
+  // their sign-up form's beta-plan checkbox, since that's the whole point
+  // of this list. Splits the lead's one free-text name into first/last;
   // a single-word name becomes both.
   async function handleInvite() {
     setInviting(true);
     try {
       const [firstName, ...rest] = lead.fullName.trim().split(/\s+/);
       const lastName = rest.join(" ") || firstName;
-      await createUserAccount({ email: lead.workEmail, firstName, lastName, phone: "" });
+      const signupUrl = buildSignupInviteLink({
+        email: lead.workEmail,
+        firstName,
+        lastName,
+        wantsBeta: true,
+      });
+      navigator.clipboard?.writeText(signupUrl).catch(() => {});
+      window.location.href = buildInviteMailto({
+        toEmail: lead.workEmail,
+        firstName,
+        signupUrl,
+      });
       const invitedAt = await markBetaLeadInvited(lead.id);
       onInvited(lead.id, invitedAt);
-      toast.success(`Invite sent to ${lead.workEmail}.`);
+      toast.success(`Invite link copied to your clipboard for ${lead.workEmail}.`);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not send the invite.");
+      toast.error(err instanceof Error ? err.message : "Could not record the invite.");
     } finally {
       setInviting(false);
     }
@@ -1017,21 +1025,26 @@ function BetaLeadRow({
             {lead.sourceDoor && <div>via {lead.sourceDoor}</div>}
             <div>{new Date(lead.createdAt).toLocaleString()}</div>
           </div>
-          <div className="flex gap-1.5">
-            {lead.invitedAt ? (
-              <span className="self-center text-xs text-muted-foreground">
+          <div className="flex items-center gap-1.5">
+            {/* Always clickable, even after a prior invite — the invited
+                account may since have been deleted (a real, clean delete
+                on Supabase's side, so the same email can be re-invited
+                fine), and there's no reliable way to tell from here
+                whether that happened, so this never locks the button out
+                on its own say-so. The date is just a hint, not a block. */}
+            {lead.invitedAt && (
+              <span className="text-xs text-muted-foreground">
                 Invited {new Date(lead.invitedAt).toLocaleDateString()}
               </span>
-            ) : (
-              <button
-                type="button"
-                onClick={handleInvite}
-                disabled={inviting}
-                className="btn-outline text-xs disabled:opacity-60"
-              >
-                {inviting ? "Inviting…" : "Invite User"}
-              </button>
             )}
+            <button
+              type="button"
+              onClick={handleInvite}
+              disabled={inviting}
+              className="btn-outline text-xs disabled:opacity-60"
+            >
+              {inviting ? "Inviting…" : lead.invitedAt ? "Re-invite" : "Invite User"}
+            </button>
             <button
               type="button"
               onClick={handleDelete}
