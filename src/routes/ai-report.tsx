@@ -11,6 +11,13 @@ import {
   FileText,
   BarChart3,
   ArrowRight,
+  MapPin,
+  Building2,
+  Home,
+  Percent,
+  DollarSign,
+  Award,
+  type LucideIcon,
 } from "lucide-react";
 import {
   RadialBarChart,
@@ -34,6 +41,7 @@ import {
   type IntakeState,
 } from "@/lib/intake-store";
 import { MODULES, type Module } from "@/lib/modules";
+import type { IconColor } from "@/lib/icon-colors";
 import { useAuth } from "@/lib/auth";
 import { getMyBilling } from "@/lib/billing";
 import { getHealthScore, type HealthScoreResult } from "@/lib/ai-health-score";
@@ -44,7 +52,7 @@ import {
 } from "@/lib/ai-report-modules";
 import { getComps, type CompsResult } from "@/lib/cad-comps";
 import { estimateSavings } from "@/lib/savings-estimate";
-import { CompsMap } from "@/components/CompsMap";
+import { CompsMap, useLeaflet } from "@/components/CompsMap";
 import { findExistingProperty, addProperty, type PropertyRecord } from "@/lib/properties";
 import { listProtests, type ProtestRecord } from "@/lib/protests";
 import { generateCasePrep } from "@/lib/protest-case";
@@ -520,6 +528,7 @@ function Report() {
               compsMap={compsMap}
               estimated={estimated}
               propertyType={state.propertyType}
+              totalValue={state.totalValue}
               onOpen={() => openModule(m)}
             />
           ))}
@@ -558,6 +567,7 @@ function Report() {
                 estimated={estimated}
                 state={state}
                 moduleState={moduleData[m.id]}
+                moduleData={moduleData}
                 compsMap={compsMap}
                 onRetry={() => {}}
                 allowEvidenceUpload={false}
@@ -575,7 +585,10 @@ function Report() {
       {openModel && (
         <Modal onClose={() => setOpenId(null)}>
           <span className="badge-soft">{hasFullAccess ? "Unlocked" : "Free Preview"}</span>
-          <h3 className="mt-2 font-serif text-2xl font-semibold">{openModel.shortName}</h3>
+          <div className="mt-2 flex items-center gap-2">
+            <NumberBadge n={openModel.n} color={openModel.color} size="lg" />
+            <h3 className="font-serif text-2xl font-semibold">{openModel.shortName}</h3>
+          </div>
           <div className="text-sm font-medium text-muted-foreground">{openModel.title}</div>
           <p className="text-muted-foreground">{openModel.question}</p>
           <ModulePreviewBody
@@ -583,6 +596,7 @@ function Report() {
             estimated={estimated}
             state={state}
             moduleState={moduleData[openModel.id]}
+            moduleData={moduleData}
             compsMap={compsMap}
             onRetry={() => loadModule(openModel.id)}
             allowEvidenceUpload
@@ -665,6 +679,7 @@ function ModuleCard({
   compsMap,
   estimated,
   propertyType,
+  totalValue,
   onOpen,
 }: {
   m: Module;
@@ -680,6 +695,7 @@ function ModuleCard({
     effectiveTaxRatePct: number;
   };
   propertyType?: string;
+  totalValue?: number | null;
   onOpen: () => void;
 }) {
   // Reflects what's actually happening now that the grid eager-loads real
@@ -697,35 +713,35 @@ function ModuleCard({
           : moduleState.error
             ? "Error"
             : "Completed";
+  const insight = unlocked ? moduleInsight(m, moduleState, compsMap, estimated, totalValue) : null;
   return (
-    <div className="card-elev p-5 flex flex-col">
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex items-start gap-3 min-w-0">
-          <span
-            className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg ${m.color.bg} ${m.color.text}`}
-          >
-            <m.icon className="h-4 w-4" />
-          </span>
-          <div className="min-w-0">
-            <h3 className="font-semibold leading-tight">{m.shortName}</h3>
-            <div className="text-xs font-medium text-muted-foreground">{m.title}</div>
+    <div className="card-elev overflow-hidden flex flex-col">
+      <div className="p-5 flex-1 flex flex-col">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <NumberBadge n={m.n} color={m.color} size="lg" />
+            <h3 className="min-w-0 truncate font-serif text-sm font-bold uppercase tracking-wide">
+              {m.shortName}
+            </h3>
           </div>
+          <StatusChip status={status} />
         </div>
-        <StatusChip status={status} />
+        <div className="mt-4 flex-1 flex flex-col justify-center">
+          <ModuleVisual
+            m={m}
+            unlocked={unlocked}
+            moduleState={moduleState}
+            moduleData={moduleData}
+            compsMap={compsMap}
+            estimated={estimated}
+            propertyType={propertyType}
+            totalValue={totalValue}
+            onOpen={onOpen}
+          />
+        </div>
       </div>
-      <div className="mt-4 flex-1 flex flex-col justify-center">
-        <ModuleVisual
-          m={m}
-          unlocked={unlocked}
-          moduleState={moduleState}
-          moduleData={moduleData}
-          compsMap={compsMap}
-          estimated={estimated}
-          propertyType={propertyType}
-          onOpen={onOpen}
-        />
-      </div>
-      <div className="mt-4 flex items-center justify-between gap-2">
+      {insight && <InsightBanner text={insight} color={m.color} />}
+      <div className="px-5 pb-5 pt-3 flex items-center justify-between gap-2">
         {hasFullAccess ? (
           <span className="text-xs font-medium text-success">Included</span>
         ) : unlocked ? (
@@ -772,6 +788,7 @@ function ModuleVisual({
   compsMap,
   estimated,
   propertyType,
+  totalValue,
   onOpen,
 }: {
   m: Module;
@@ -786,6 +803,7 @@ function ModuleVisual({
     effectiveTaxRatePct: number;
   };
   propertyType?: string;
+  totalValue?: number | null;
   onOpen: () => void;
 }) {
   if (!unlocked) {
@@ -799,11 +817,14 @@ function ModuleVisual({
 
   if (m.id === "savings") {
     return (
-      <FormulaChain
-        reduction={estimated.reduction}
-        ratePct={estimated.effectiveTaxRatePct}
-        savings={estimated.savings}
-      />
+      <div className="grid gap-1.5">
+        <FormulaChain
+          reduction={estimated.reduction}
+          ratePct={estimated.effectiveTaxRatePct}
+          savings={estimated.savings}
+        />
+        {estimated.savings > 0 && <CostBenefitRow savings={estimated.savings} />}
+      </div>
     );
   }
 
@@ -817,6 +838,9 @@ function ModuleVisual({
   }
 
   if (m.id === "comps" && compsMap.data?.comps.length) {
+    const compValues = compsMap.data.comps
+      .map((c) => c.marketValue)
+      .filter((v): v is number => v != null);
     return (
       <div>
         <div className="flex items-baseline gap-1.5">
@@ -829,6 +853,25 @@ function ModuleVisual({
             subjectValue={compsMap.data.subject?.marketValue ?? null}
           />
         </div>
+        {compValues.length > 0 && (
+          <div className="mt-1.5 grid grid-cols-2 gap-1.5">
+            <div className="rounded-md bg-success/10 px-2 py-1">
+              <div className="text-[8px] uppercase tracking-wide text-success">Market Range</div>
+              <div className="truncate text-[11px] font-semibold text-success">
+                {compactCurrency(Math.min(...compValues))}–
+                {compactCurrency(Math.max(...compValues))}
+              </div>
+            </div>
+            {totalValue != null && (
+              <div className="rounded-md bg-destructive/10 px-2 py-1">
+                <div className="text-[8px] uppercase tracking-wide text-destructive">CAD Value</div>
+                <div className="truncate text-[11px] font-semibold text-destructive">
+                  {compactCurrency(totalValue)}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     );
   }
@@ -870,7 +913,7 @@ function ModuleVisual({
         return (
           <div>
             <div className="mb-1.5 text-xs font-medium truncate">{d.recommendation}</div>
-            <FactorBarsChart factors={d.factorScores} />
+            <RankedFactorList factors={d.factorScores} color={m.color} />
           </div>
         );
       }
@@ -897,14 +940,36 @@ function ModuleVisual({
         </div>
       );
     }
-    case "site":
+    case "site": {
+      const d = moduleState.data as ModuleResultMap["site"];
+      const subject = compsMap.data?.subject;
+      return (
+        <div className="grid grid-cols-[5rem_1fr] gap-2">
+          {subject ? (
+            <SiteMapThumb lat={subject.latitude} lng={subject.longitude} height={80} />
+          ) : (
+            <div className="grid h-20 place-items-center rounded-lg bg-secondary/40">
+              <MapPin className="h-5 w-5 text-muted-foreground" />
+            </div>
+          )}
+          <div className="min-w-0">
+            <MiniMeter value={d.priorityScore} label="documentation priority" />
+            {d.checklist.length > 0 && (
+              <div className="mt-1.5">
+                <ChecklistIconRows items={d.checklist.slice(0, 2)} color={m.color} />
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
     case "improvement": {
-      const d = moduleState.data as ModuleResultMap["site"] | ModuleResultMap["improvement"];
+      const d = moduleState.data as ModuleResultMap["improvement"];
       return (
         <div>
-          <MiniMeter value={d.priorityScore} label="documentation priority" />
-          <div className="mt-1 text-[11px] text-muted-foreground">
-            {d.checklist.length} factor{d.checklist.length === 1 ? "" : "s"} worth documenting
+          <ImprovementIconRing items={d.checklist} color={m.color} />
+          <div className="mt-1.5">
+            <MiniMeter value={d.priorityScore} label="condition priority" />
           </div>
         </div>
       );
@@ -912,7 +977,7 @@ function ModuleVisual({
     case "zoning": {
       const d = moduleState.data as ModuleResultMap["zoning"];
       return (
-        <MiniZoningBadge
+        <ZoningFlow
           matches={d.matches}
           stated={propertyType}
           typical={d.typicalClassification || undefined}
@@ -940,12 +1005,21 @@ function ModuleVisual({
           ? `${compactCurrency(Math.min(...comps.map((c) => c.marketValue)))}–${compactCurrency(Math.max(...comps.map((c) => c.marketValue)))}`
           : null;
       return (
-        <ExecutiveBadges
-          strategy={strategyData?.recommendation ?? null}
-          keyEvidence={keyEvidence}
-          valueRange={valueRange}
-          nextStep={d.nextStep}
-        />
+        <div>
+          <div className="mb-1.5 flex justify-center">
+            <span
+              className={`grid h-10 w-10 place-items-center rounded-full ${m.color.bg} ${m.color.text}`}
+            >
+              <Award className="h-5 w-5" />
+            </span>
+          </div>
+          <ExecutiveBadges
+            strategy={strategyData?.recommendation ?? null}
+            keyEvidence={keyEvidence}
+            valueRange={valueRange}
+            nextStep={d.nextStep}
+          />
+        </div>
       );
     }
     default:
@@ -997,29 +1071,6 @@ function CompsScatter({
   );
 }
 
-function FactorBarsChart({ factors }: { factors: { label: string; score: number }[] }) {
-  return (
-    <div className="grid gap-1.5">
-      {factors.map((f, i) => (
-        <div key={i} className="grid grid-cols-[1fr_2rem] items-center gap-2">
-          <div className="min-w-0">
-            <div className="truncate text-[10px] text-muted-foreground">{f.label}</div>
-            <div className="h-1.5 rounded-full bg-secondary/60">
-              <div
-                className="h-1.5 rounded-full"
-                style={{ width: `${f.score}%`, backgroundColor: scoreColor(f.score) }}
-              />
-            </div>
-          </div>
-          <div className="text-right text-xs font-semibold" style={{ color: scoreColor(f.score) }}>
-            {f.score}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 function MiniMeter({ value, label }: { value: number; label: string }) {
   const color = scoreColor(value);
   return (
@@ -1066,19 +1117,59 @@ function EvidenceQuadrant({ items }: { items: ModuleResultMap["evidence"]["items
   ];
   return (
     <div>
-      <div className="grid grid-cols-2 gap-1.5">
-        {quadrants.map((q) => (
-          <div key={q.label} className={`rounded-md px-2 py-1.5 ${q.tone}`}>
-            <div className="text-[8px] font-semibold uppercase tracking-wide">{q.label}</div>
-            <div className="text-lg font-bold leading-tight">{q.count}</div>
+      <div className="flex gap-1">
+        <div className="flex w-3 shrink-0 items-center justify-center">
+          <span
+            className="whitespace-nowrap text-[7px] uppercase tracking-wide text-muted-foreground"
+            style={{ writingMode: "vertical-rl", transform: "rotate(180deg)" }}
+          >
+            Importance
+          </span>
+        </div>
+        <div className="flex-1">
+          <div className="grid grid-cols-2 gap-1.5">
+            {quadrants.map((q) => (
+              <div key={q.label} className={`rounded-md px-2 py-1.5 ${q.tone}`}>
+                <div className="text-[8px] font-semibold uppercase tracking-wide">{q.label}</div>
+                <div className="text-lg font-bold leading-tight">{q.count}</div>
+              </div>
+            ))}
           </div>
-        ))}
+          <div className="mt-0.5 text-center text-[7px] uppercase tracking-wide text-muted-foreground">
+            Availability
+          </div>
+        </div>
       </div>
       {focus.length > 0 && (
-        <div className="mt-1.5 truncate text-[11px] text-muted-foreground">
-          Focus first: {focus.map((i) => i.item).join(", ")}
+        <div className="mt-1.5 flex items-center justify-between gap-2 rounded-md bg-destructive/10 px-2.5 py-1.5 text-xs font-semibold text-destructive">
+          <span className="truncate">Focus Here First: {focus.map((i) => i.item).join(", ")}</span>
+          <ArrowRight className="h-3.5 w-3.5 shrink-0" />
         </div>
       )}
+    </div>
+  );
+}
+
+function FormulaIcon({
+  Icon,
+  value,
+  label,
+  tone,
+}: {
+  Icon: LucideIcon;
+  value: string;
+  label: string;
+  tone: string;
+}) {
+  return (
+    <div className="flex flex-col items-center gap-1">
+      <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-full ${tone}`}>
+        <Icon className="h-4 w-4" />
+      </span>
+      <div className="text-center leading-tight">
+        <div className="text-sm font-bold">{value}</div>
+        <div className="text-[9px] text-muted-foreground">{label}</div>
+      </div>
     </div>
   );
 }
@@ -1093,21 +1184,27 @@ function FormulaChain({
   savings: number;
 }) {
   return (
-    <div className="flex items-center gap-1.5">
-      <div>
-        <div className="text-sm font-bold">{compactCurrency(reduction)}</div>
-        <div className="text-[9px] text-muted-foreground">value reduction</div>
-      </div>
-      <span className="text-xs text-muted-foreground">×</span>
-      <div>
-        <div className="text-sm font-bold">{ratePct}%</div>
-        <div className="text-[9px] text-muted-foreground">tax rate</div>
-      </div>
-      <span className="text-xs text-muted-foreground">=</span>
-      <div>
-        <div className="text-sm font-bold text-success">{compactCurrency(savings)}</div>
-        <div className="text-[9px] text-muted-foreground">savings</div>
-      </div>
+    <div className="flex items-center justify-center gap-1.5">
+      <FormulaIcon
+        Icon={Home}
+        value={compactCurrency(reduction)}
+        label="value reduction"
+        tone="bg-sky-500/15 text-sky-600"
+      />
+      <span className="text-sm text-muted-foreground">×</span>
+      <FormulaIcon
+        Icon={Percent}
+        value={`${ratePct}%`}
+        label="tax rate"
+        tone="bg-warning/20 text-warning-foreground"
+      />
+      <span className="text-sm text-muted-foreground">=</span>
+      <FormulaIcon
+        Icon={DollarSign}
+        value={compactCurrency(savings)}
+        label="savings"
+        tone="bg-success/15 text-success"
+      />
     </div>
   );
 }
@@ -1130,21 +1227,337 @@ function ExecutiveBadges({
     { icon: ArrowRight, label: "Next Step", value: nextStep },
   ];
   return (
-    <div className="grid grid-cols-2 gap-1.5">
+    <div className="grid grid-cols-4 gap-1">
       {badges.map((b) => (
         <div
           key={b.label}
-          className="flex items-start gap-1.5 rounded-md bg-secondary/40 px-2 py-1.5"
+          className="flex flex-col items-center gap-0.5 rounded-md bg-secondary/40 px-1 py-1.5 text-center"
         >
-          <b.icon className="h-3.5 w-3.5 shrink-0 mt-0.5 text-accent" />
-          <div className="min-w-0">
-            <div className="text-[8px] uppercase tracking-wide text-muted-foreground">
-              {b.label}
-            </div>
-            <div className="truncate text-[11px] font-medium">{b.value || "—"}</div>
+          <b.icon className="h-3.5 w-3.5 shrink-0 text-accent" />
+          <div className="w-full truncate text-[7px] uppercase tracking-wide text-muted-foreground">
+            {b.label}
           </div>
+          <div className="w-full truncate text-[9px] font-semibold">{b.value || "—"}</div>
         </div>
       ))}
+    </div>
+  );
+}
+
+// ---------- Reference-infographic chrome shared by every module: a
+// numbered badge (ModuleCard header + modal header) and a one-line colored
+// insight banner on each card, derived from data already loaded elsewhere
+// in this file — no new AI calls, just a deterministic read of state that's
+// already here (score thresholds, sorted factors, etc.).
+function NumberBadge({
+  n,
+  color,
+  size = "sm",
+}: {
+  n: number;
+  color: IconColor;
+  size?: "sm" | "lg";
+}) {
+  const dim = size === "lg" ? "h-8 w-8 text-sm" : "h-5 w-5 text-[10px]";
+  return (
+    <span
+      className={`grid shrink-0 place-items-center rounded-full font-bold text-white ${dim}`}
+      style={{ backgroundColor: color.solid }}
+    >
+      {n}
+    </span>
+  );
+}
+
+function moduleInsight(
+  m: Module,
+  moduleState: ModuleAsyncState | undefined,
+  compsMap: { data: CompsResult | null; loading: boolean },
+  estimated: { savings: number },
+  totalValue: number | null | undefined,
+): string | null {
+  if (m.id === "income") return "Upload financials to unlock";
+  if (m.id === "savings") return estimated.savings > 0 ? "Strong Potential Savings" : null;
+  if (!moduleState?.data) return null;
+  switch (m.id) {
+    case "health": {
+      const d = moduleState.data as HealthScoreResult;
+      return d.score >= 70
+        ? "Strong Opportunity"
+        : d.score >= 40
+          ? "Moderate Opportunity"
+          : "Limited Opportunity";
+    }
+    case "strategy": {
+      const d = moduleState.data as ModuleResultMap["strategy"];
+      if (d.factorScores.length === 0) return null;
+      const top = [...d.factorScores].sort((a, b) => b.score - a.score)[0];
+      return `AI recommends focus on ${top.label}`;
+    }
+    case "comps": {
+      const comps =
+        compsMap.data?.comps.filter(
+          (c): c is typeof c & { marketValue: number } => c.marketValue != null,
+        ) ?? [];
+      if (comps.length === 0 || totalValue == null) return null;
+      const sorted = comps.map((c) => c.marketValue).sort((a, b) => a - b);
+      const median = sorted[Math.floor(sorted.length / 2)];
+      return totalValue > median ? "Potential Overvaluation" : "Fairly Valued";
+    }
+    case "site":
+    case "improvement": {
+      const d = moduleState.data as ModuleResultMap["site"] | ModuleResultMap["improvement"];
+      return d.priorityScore >= 70
+        ? "High Documentation Priority"
+        : d.priorityScore >= 40
+          ? "Moderate Documentation Priority"
+          : "Low Documentation Priority";
+    }
+    case "zoning": {
+      const d = moduleState.data as ModuleResultMap["zoning"];
+      return ZONING_STATUS[d.matches].label;
+    }
+    case "evidence": {
+      const d = moduleState.data as ModuleResultMap["evidence"];
+      const gaps = d.items.filter((i) => i.importance === "High" && i.availability === "Low");
+      return gaps.length > 0 ? "Focus Here First" : "Evidence Well Covered";
+    }
+    case "executive": {
+      const d = moduleState.data as ModuleResultMap["executive"];
+      return d.recommendation;
+    }
+    default:
+      return null;
+  }
+}
+
+// Full-bleed band flush with the card's own edges (the card is
+// overflow-hidden so this never pokes past its rounded corners) — matches
+// the reference infographic's solid colored footer bars, rather than an
+// inset rounded pill floating inside the card's padding.
+function InsightBanner({ text, color }: { text: string; color: IconColor }) {
+  return (
+    <div
+      className={`flex items-center justify-between gap-2 px-5 py-2.5 text-sm font-semibold ${color.bg} ${color.text}`}
+    >
+      <span className="truncate">{text}</span>
+      <ArrowRight className="h-4 w-4 shrink-0" />
+    </div>
+  );
+}
+
+// Generic icon+text row for free-text AI checklist items (Site/Improvement
+// Condition) — deliberately the SAME icon for every row rather than
+// guessing a specific category (floodplain vs. easement vs. drainage) from
+// unstructured text the AI never actually categorized.
+// Real satellite thumbnail for Site Condition, reusing the subject
+// property's own coordinates — already loaded for every visitor via the
+// comps fetch (see loadCompsMap() in Report()), not a second API call.
+// Only renders when that data exists (TrueProdigy-backed counties only,
+// same real-data gate CompsMap/CompsScatter already use); Site Condition
+// falls back to just the checklist rows everywhere else. Esri World
+// Imagery is a free, no-API-key satellite tile source, attributed per its
+// terms the same way CompsMap already attributes OpenStreetMap.
+function SiteMapThumb({ lat, lng, height = 140 }: { lat: number; lng: number; height?: number }) {
+  const mods = useLeaflet();
+  if (!mods) {
+    return (
+      <div
+        className="animate-pulse rounded-lg border border-border bg-secondary/40"
+        style={{ height }}
+      />
+    );
+  }
+  const { L, MapContainer, TileLayer, Marker } = mods;
+  const icon = L.divIcon({
+    className: "",
+    html: `<div style="width:14px;height:14px;border-radius:9999px;background:var(--accent);border:2px solid white;box-shadow:0 1px 4px rgba(0,0,0,0.45);"></div>`,
+    iconSize: [14, 14],
+    iconAnchor: [7, 7],
+  });
+  return (
+    <div className="overflow-hidden rounded-lg border border-border" style={{ height }}>
+      <MapContainer
+        center={[lat, lng]}
+        zoom={17}
+        zoomControl={false}
+        dragging={false}
+        scrollWheelZoom={false}
+        doubleClickZoom={false}
+        touchZoom={false}
+        style={{ height: "100%", width: "100%" }}
+      >
+        <TileLayer
+          attribution="Tiles &copy; Esri"
+          url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+        />
+        <Marker position={[lat, lng]} icon={icon} />
+      </MapContainer>
+    </div>
+  );
+}
+
+// Central building icon with up to 4 checklist items as small icon badges
+// at its corners — same generic-icon principle as ChecklistIconRows (the
+// checklist is free AI text, not typed defect categories, so every badge
+// uses the same icon rather than guessing "this one is roof damage").
+// Full item text is always available via each badge's title tooltip and,
+// in full, via ChecklistIconRows in the modal.
+function ImprovementIconRing({ items, color }: { items: string[]; color: IconColor }) {
+  const corners = items.slice(0, 4);
+  const positions = [
+    "-top-1 -left-1",
+    "-top-1 -right-1",
+    "-bottom-1 -left-1",
+    "-bottom-1 -right-1",
+  ];
+  return (
+    <div className="mx-auto flex flex-col items-center gap-1">
+      <div className="relative grid h-20 w-20 place-items-center">
+        <Building2 className="h-9 w-9 text-muted-foreground" />
+        {corners.map((item, i) => (
+          <span
+            key={i}
+            title={item}
+            className={`absolute grid h-6 w-6 place-items-center rounded-full border-2 border-card ${color.bg} ${color.text} ${positions[i]}`}
+          >
+            <AlertTriangle className="h-3 w-3" />
+          </span>
+        ))}
+      </div>
+      {items.length > 0 && (
+        <div className="text-[10px] text-muted-foreground">
+          {items.length} factor{items.length === 1 ? "" : "s"} worth documenting
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ChecklistIconRows({ items, color }: { items: string[]; color: IconColor }) {
+  return (
+    <div className="grid gap-1">
+      {items.map((item, i) => (
+        <div key={i} className="flex items-center gap-2 rounded-md bg-secondary/40 px-2 py-1.5">
+          <span
+            className={`grid h-5 w-5 shrink-0 place-items-center rounded-full ${color.bg} ${color.text}`}
+          >
+            <AlertTriangle className="h-3 w-3" />
+          </span>
+          <span className="min-w-0 flex-1 truncate text-xs">{item}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// Ranked priority-bar list for Strategy's factorScores — used on both the
+// card and (new) the modal, which previously had no bars at all, only a
+// gauge + prose.
+// Cycling generic icon set for the ranked-factor rows below — purely
+// decorative visual rhythm matching the reference's icon+bar rows, not
+// tied to any real per-factor category since factorScores' labels are
+// free AI text (e.g. "Unequal Appraisal"), not a typed enum a specific
+// icon could honestly represent.
+const RANK_ICONS: LucideIcon[] = [Home, MapPin, Building2, DollarSign, CheckCircle2];
+
+function RankedFactorList({
+  factors,
+  color,
+}: {
+  factors: { label: string; score: number }[];
+  color: IconColor;
+}) {
+  const ranked = [...factors].sort((a, b) => b.score - a.score);
+  return (
+    <div className="grid gap-2">
+      {ranked.map((f, i) => {
+        const RankIcon = RANK_ICONS[i % RANK_ICONS.length];
+        return (
+          <div key={f.label} className="flex items-center gap-2.5">
+            <RankIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            <span
+              className="grid h-5 w-5 shrink-0 place-items-center rounded-full text-[10px] font-bold text-white"
+              style={{ backgroundColor: color.solid }}
+            >
+              {i + 1}
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-xs text-muted-foreground">{f.label}</div>
+              <div className="h-1.5 rounded-full bg-secondary/60">
+                <div
+                  className="h-1.5 rounded-full"
+                  style={{ width: `${f.score}%`, backgroundColor: scoreColor(f.score) }}
+                />
+              </div>
+            </div>
+            <span
+              className="w-7 shrink-0 text-right text-xs font-semibold"
+              style={{ color: scoreColor(f.score) }}
+            >
+              {f.score}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// Two-node "stated vs. typical" flow for Zoning & Classification — only 2
+// real data points exist (the property's stated type and the AI's typical-
+// classification guess), so this stays 2 boxes + a match/mismatch badge on
+// the connecting arrow, not a fabricated 4-box CAD/Actual/Zoning/Permitted
+// tree the underlying data doesn't actually have.
+function ZoningFlow({
+  matches,
+  stated,
+  typical,
+}: {
+  matches: keyof typeof ZONING_STATUS;
+  stated?: string;
+  typical?: string;
+}) {
+  const { Icon, color } = ZONING_STATUS[matches];
+  return (
+    <div className="flex items-center gap-2">
+      <div className="min-w-0 flex-1 rounded-lg bg-secondary/50 p-2.5 text-center">
+        <div className="text-[9px] uppercase tracking-wide text-muted-foreground">Stated</div>
+        <div className="truncate text-xs font-semibold">{stated || "—"}</div>
+      </div>
+      <Icon className={`h-5 w-5 shrink-0 ${color}`} />
+      <div className="min-w-0 flex-1 rounded-lg bg-secondary/50 p-2.5 text-center">
+        <div className="text-[9px] uppercase tracking-wide text-muted-foreground">Typical</div>
+        <div className="truncate text-xs font-semibold">{typical || "—"}</div>
+      </div>
+    </div>
+  );
+}
+
+// Second formula row for Tax Savings & ROI — Protest Cost / Net Benefit
+// derived from the real 25% contingency fee already stated as CorvusPT's
+// actual terms in ProtestAuthorizationFlow's AGREEMENT (src/components/
+// ProtestAuthorizationFlow.tsx), not an invented number.
+const CONTINGENCY_FEE_PCT = 0.25;
+
+function CostBenefitRow({ savings }: { savings: number }) {
+  const cost = Math.round(savings * CONTINGENCY_FEE_PCT);
+  const netBenefit = savings - cost;
+  return (
+    <div className="flex items-center justify-center gap-1.5">
+      <FormulaIcon
+        Icon={DollarSign}
+        value={compactCurrency(cost)}
+        label="protest cost (25%)"
+        tone="bg-violet-500/15 text-violet-600"
+      />
+      <span className="text-sm text-muted-foreground">−</span>
+      <FormulaIcon
+        Icon={BarChart3}
+        value={compactCurrency(netBenefit)}
+        label="net benefit"
+        tone="bg-success/15 text-success"
+      />
     </div>
   );
 }
@@ -1188,45 +1601,12 @@ function MiniGauge({ value, label }: { value: number; label: string }) {
   );
 }
 
-function MiniZoningBadge({
-  matches,
-  stated,
-  typical,
-}: {
-  matches: keyof typeof ZONING_STATUS;
-  stated?: string;
-  typical?: string;
-}) {
-  const { Icon, color, label } = ZONING_STATUS[matches];
-  return (
-    <div>
-      <div className="flex items-center gap-2">
-        <Icon className={`h-5 w-5 shrink-0 ${color}`} />
-        <span className={`text-sm font-medium ${color}`}>{label}</span>
-      </div>
-      {(stated || typical) && (
-        <div className="mt-1 flex flex-wrap gap-1.5">
-          {stated && (
-            <span className="rounded-full bg-secondary/60 px-2 py-0.5 text-[10px]">
-              Stated: {stated}
-            </span>
-          )}
-          {typical && (
-            <span className="rounded-full bg-secondary/60 px-2 py-0.5 text-[10px]">
-              Typical: {typical}
-            </span>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
 function ModulePreviewBody({
   m,
   estimated,
   state,
   moduleState,
+  moduleData,
   compsMap,
   onRetry,
   allowEvidenceUpload,
@@ -1244,6 +1624,7 @@ function ModulePreviewBody({
   };
   state: IntakeState;
   moduleState: ModuleAsyncState | undefined;
+  moduleData: Record<string, ModuleAsyncState>;
   compsMap: { data: CompsResult | null; loading: boolean };
   onRetry: () => void;
   allowEvidenceUpload: boolean;
@@ -1285,6 +1666,11 @@ function ModulePreviewBody({
           </div>
         </div>
         <ValueComparisonChart current={current} reduced={reduced} />
+        {estimated.savings > 0 && (
+          <div className="flex justify-center">
+            <CostBenefitRow savings={estimated.savings} />
+          </div>
+        )}
         <p className="text-center text-xs text-muted-foreground">
           {estimated.rationale ?? "Based on your county's real effective tax rate."}
         </p>
@@ -1299,8 +1685,33 @@ function ModulePreviewBody({
   if (m.id === "comps") {
     const d = moduleState?.data as ModuleResultMap["comps"] | undefined;
     const map = compsMap.data;
+    const compValues =
+      map?.comps.map((c) => c.marketValue).filter((v): v is number => v != null) ?? [];
     return (
       <div className="mt-4">
+        {compValues.length > 0 && (
+          <div className="mb-3 grid grid-cols-2 gap-2">
+            <div className="rounded-lg bg-success/10 p-3">
+              <div className="text-[10px] font-semibold uppercase tracking-wide text-success">
+                Market Value Range
+              </div>
+              <div className="mt-0.5 text-lg font-bold text-success">
+                {compactCurrency(Math.min(...compValues))}–
+                {compactCurrency(Math.max(...compValues))}
+              </div>
+            </div>
+            {state.totalValue != null && (
+              <div className="rounded-lg bg-destructive/10 p-3">
+                <div className="text-[10px] font-semibold uppercase tracking-wide text-destructive">
+                  CAD Value
+                </div>
+                <div className="mt-0.5 text-lg font-bold text-destructive">
+                  {compactCurrency(state.totalValue)}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
         {compsMap.loading && (
           <div className="h-[280px] animate-pulse rounded-lg border border-border bg-secondary/40" />
         )}
@@ -1348,9 +1759,20 @@ function ModulePreviewBody({
 
   if (m.id === "health") {
     const data = moduleState.data as HealthScoreResult;
+    const label =
+      data.score >= 70
+        ? "Strong Opportunity"
+        : data.score >= 40
+          ? "Moderate Opportunity"
+          : "Limited Opportunity";
     return (
       <div className="mt-4 grid gap-4 sm:grid-cols-[10rem_1fr] items-center">
-        <RadialGauge value={data.score} sublabel="Protest Opportunity" />
+        <div className="text-center">
+          <RadialGauge value={data.score} sublabel="Protest Opportunity" />
+          <div className="mt-1 text-sm font-semibold" style={{ color: scoreColor(data.score) }}>
+            {label}
+          </div>
+        </div>
         <div>
           <p className="text-sm">{data.summary}</p>
           {data.factors.length > 0 && (
@@ -1369,26 +1791,37 @@ function ModulePreviewBody({
     case "strategy": {
       const d = moduleState.data as ModuleResultMap["strategy"];
       return (
-        <div className="mt-4 grid gap-4 sm:grid-cols-[10rem_1fr] items-center">
-          <RadialGauge value={d.confidencePct} sublabel="AI Confidence" />
-          <div>
-            <div className="font-serif text-xl font-semibold">{d.recommendation}</div>
-            <p className="mt-1 text-sm text-muted-foreground">{d.rationale}</p>
+        <div className="mt-4 grid gap-4">
+          <div className="grid gap-4 sm:grid-cols-[10rem_1fr] items-center">
+            <RadialGauge value={d.confidencePct} sublabel="AI Confidence" />
+            <div>
+              <div className="font-serif text-xl font-semibold">{d.recommendation}</div>
+              <p className="mt-1 text-sm text-muted-foreground">{d.rationale}</p>
+            </div>
           </div>
+          {d.factorScores.length > 0 && (
+            <div className="card-elev p-4">
+              <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Priority Factors
+              </div>
+              <RankedFactorList factors={d.factorScores} color={m.color} />
+            </div>
+          )}
         </div>
       );
     }
     case "site": {
       const d = moduleState.data as ModuleResultMap["site"];
+      const subject = compsMap.data?.subject;
       return (
         <div className="mt-4">
-          <p className="text-sm text-muted-foreground">{d.guidance}</p>
-          <div className="mt-3 flex flex-wrap gap-2">
-            {d.checklist.map((c, i) => (
-              <Chip key={i} icon>
-                {c}
-              </Chip>
-            ))}
+          {subject && <SiteMapThumb lat={subject.latitude} lng={subject.longitude} height={220} />}
+          <div className="mt-3">
+            <MiniMeter value={d.priorityScore} label="Documentation priority" />
+          </div>
+          <p className="mt-3 text-sm text-muted-foreground">{d.guidance}</p>
+          <div className="mt-3">
+            <ChecklistIconRows items={d.checklist} color={m.color} />
           </div>
         </div>
       );
@@ -1397,13 +1830,13 @@ function ModulePreviewBody({
       const d = moduleState.data as ModuleResultMap["improvement"];
       return (
         <div className="mt-4">
-          <p className="text-sm text-muted-foreground">{d.guidance}</p>
-          <div className="mt-3 flex flex-wrap gap-2">
-            {d.checklist.map((c, i) => (
-              <Chip key={i} icon>
-                {c}
-              </Chip>
-            ))}
+          <ImprovementIconRing items={d.checklist} color={m.color} />
+          <div className="mt-3">
+            <MiniMeter value={d.priorityScore} label="Condition priority" />
+          </div>
+          <p className="mt-3 text-sm text-muted-foreground">{d.guidance}</p>
+          <div className="mt-3">
+            <ChecklistIconRows items={d.checklist} color={m.color} />
           </div>
           {allowEvidenceUpload && (
             <div className="mt-4 border-t border-border/60 pt-4 print:hidden">
@@ -1457,34 +1890,77 @@ function ModulePreviewBody({
       return (
         <div className="mt-4 grid gap-3">
           <ZoningBadge matches={d.matches} />
+          <ZoningFlow
+            matches={d.matches}
+            stated={state.propertyType}
+            typical={d.typicalClassification || undefined}
+          />
           <p className="text-sm text-muted-foreground">{d.assessment}</p>
         </div>
       );
     }
     case "evidence": {
       const d = moduleState.data as ModuleResultMap["evidence"];
+      const focus = d.items.filter((i) => i.importance === "High" && i.availability === "Low");
       return (
-        <div className="mt-4 grid gap-2">
-          {d.items.map((it, i) => (
-            <PriorityRow
-              key={i}
-              item={it.item}
-              importance={it.importance}
-              availability={it.availability}
-            />
-          ))}
+        <div className="mt-4 grid gap-3">
+          {focus.length > 0 && (
+            <div className="flex items-center justify-between gap-2 rounded-md bg-destructive/10 px-3 py-2 text-sm font-semibold text-destructive">
+              <span className="truncate">
+                Focus Here First: {focus.map((i) => i.item).join(", ")}
+              </span>
+              <ArrowRight className="h-4 w-4 shrink-0" />
+            </div>
+          )}
+          <div className="grid gap-2">
+            {d.items.map((it, i) => (
+              <PriorityRow
+                key={i}
+                item={it.item}
+                importance={it.importance}
+                availability={it.availability}
+              />
+            ))}
+          </div>
         </div>
       );
     }
     case "executive": {
       const d = moduleState.data as ModuleResultMap["executive"];
+      const strategyData = moduleData.strategy?.data as ModuleResultMap["strategy"] | undefined;
+      const evidenceData = moduleData.evidence?.data as ModuleResultMap["evidence"] | undefined;
+      const keyEvidence =
+        evidenceData?.items.find((i) => i.importance === "High")?.item ??
+        evidenceData?.items[0]?.item ??
+        null;
+      const comps =
+        compsMap.data?.comps.filter(
+          (c): c is typeof c & { marketValue: number } => c.marketValue != null,
+        ) ?? [];
+      const valueRange =
+        comps.length > 0
+          ? `${compactCurrency(Math.min(...comps.map((c) => c.marketValue)))}–${compactCurrency(Math.max(...comps.map((c) => c.marketValue)))}`
+          : null;
       return (
         <div className="mt-4 grid gap-3">
-          <div className="rounded-lg bg-accent/10 p-4">
-            <div className="text-[10px] font-semibold uppercase tracking-wide text-accent">
-              AI Recommendation
+          <div className="flex justify-center">
+            <span
+              className={`grid h-14 w-14 place-items-center rounded-full ${m.color.bg} ${m.color.text}`}
+            >
+              <Award className="h-7 w-7" />
+            </span>
+          </div>
+          <ExecutiveBadges
+            strategy={strategyData?.recommendation ?? null}
+            keyEvidence={keyEvidence}
+            valueRange={valueRange}
+            nextStep={d.nextStep}
+          />
+          <div className={`rounded-lg p-4 text-center ${m.color.bg}`}>
+            <div className={`text-[10px] font-semibold uppercase tracking-wide ${m.color.text}`}>
+              Recommended Action
             </div>
-            <div className="mt-1 font-serif text-lg font-semibold">{d.recommendation}</div>
+            <div className="mt-1 font-serif text-xl font-bold">{d.recommendation}</div>
           </div>
           <div className="grid gap-2 sm:grid-cols-2">
             <FactBox label="Basis" value={d.basis} />
