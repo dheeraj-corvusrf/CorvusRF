@@ -824,11 +824,31 @@ create table if not exists public.beta_leads (
   created_at timestamptz not null default now()
 );
 
+-- Set by the admin panel's "Invite" button (a real account invite via the
+-- existing admin-create-user edge function/inviteUserByEmail flow, not a
+-- second email system) — lets staff see at a glance which leads have
+-- already been converted so they don't re-invite the same person.
+alter table public.beta_leads add column if not exists invited_at timestamptz;
+
 alter table public.beta_leads enable row level security;
 
 drop policy if exists "Admins can view all beta leads" on public.beta_leads;
 create policy "Admins can view all beta leads"
   on public.beta_leads for select
+  using (public.is_admin());
+
+-- Same additive is_admin() pattern as public.properties above — lets the
+-- admin panel write invited_at directly (marking a lead invited) and
+-- delete processed/spam leads, both straight from the client, with no
+-- edge function needed since these don't touch auth.users.
+drop policy if exists "Admins can update beta leads" on public.beta_leads;
+create policy "Admins can update beta leads"
+  on public.beta_leads for update
+  using (public.is_admin());
+
+drop policy if exists "Admins can delete beta leads" on public.beta_leads;
+create policy "Admins can delete beta leads"
+  on public.beta_leads for delete
   using (public.is_admin());
 
 -- ── ONE-TIME MANUAL STEP — do NOT run this as part of the routine schema paste ──

@@ -18,6 +18,8 @@ import {
   toPropertyRecordStub,
   listAdminAuditLog,
   listBetaLeads,
+  markBetaLeadInvited,
+  deleteBetaLead,
   PLAN_OPTIONS,
   PROTEST_STATUS_OPTIONS,
   type AdminUserRecord,
@@ -285,7 +287,16 @@ function AdminPanel() {
             ) : betaLeads.length === 0 ? (
               <p className="text-sm text-muted-foreground">No beta signups yet.</p>
             ) : (
-              betaLeads.map((lead) => <BetaLeadRow key={lead.id} lead={lead} />)
+              betaLeads.map((lead) => (
+                <BetaLeadRow
+                  key={lead.id}
+                  lead={lead}
+                  onInvited={(id, invitedAt) =>
+                    setBetaLeads((prev) => prev.map((l) => (l.id === id ? { ...l, invitedAt } : l)))
+                  }
+                  onDeleted={(id) => setBetaLeads((prev) => prev.filter((l) => l.id !== id))}
+                />
+              ))
             )}
           </div>
         </section>
@@ -943,10 +954,56 @@ const AUDIT_ACTION_LABELS: Record<string, string> = {
   update_protest_notes: "Updated protest notes",
 };
 
-function BetaLeadRow({ lead }: { lead: BetaLead }) {
+function BetaLeadRow({
+  lead,
+  onInvited,
+  onDeleted,
+}: {
+  lead: BetaLead;
+  onInvited: (id: string, invitedAt: string) => void;
+  onDeleted: (id: string) => void;
+}) {
+  const [inviting, setInviting] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  // Real account invite via the same admin-create-user edge function/
+  // inviteUserByEmail flow AddUserForm above uses — Supabase's own invite
+  // email carries the actual link into the app, not a second bespoke email
+  // system. Splits the lead's one free-text name into first/last since
+  // createUserAccount (like the rest of the app) expects them separately;
+  // a single-word name becomes both.
+  async function handleInvite() {
+    setInviting(true);
+    try {
+      const [firstName, ...rest] = lead.fullName.trim().split(/\s+/);
+      const lastName = rest.join(" ") || firstName;
+      await createUserAccount({ email: lead.workEmail, firstName, lastName, phone: "" });
+      const invitedAt = await markBetaLeadInvited(lead.id);
+      onInvited(lead.id, invitedAt);
+      toast.success(`Invite sent to ${lead.workEmail}.`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not send the invite.");
+    } finally {
+      setInviting(false);
+    }
+  }
+
+  async function handleDelete() {
+    if (!window.confirm(`Delete ${lead.fullName}'s beta signup? This can't be undone.`)) return;
+    setDeleting(true);
+    try {
+      await deleteBetaLead(lead.id);
+      onDeleted(lead.id);
+      toast.success("Beta signup deleted.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not delete this signup.");
+      setDeleting(false);
+    }
+  }
+
   return (
     <div className="rounded-md bg-secondary/40 px-3 py-2 text-sm">
-      <div className="flex items-start justify-between gap-2">
+      <div className="flex items-start justify-between gap-2 flex-wrap">
         <div className="min-w-0 flex-1">
           <span className="font-medium">{lead.fullName}</span>
           <span className="text-muted-foreground"> — {lead.company}</span>
@@ -955,9 +1012,35 @@ function BetaLeadRow({ lead }: { lead: BetaLead }) {
             <CopyButton value={lead.workEmail} label="Email copied" />
           </div>
         </div>
-        <div className="shrink-0 text-right text-xs text-muted-foreground">
-          {lead.sourceDoor && <div>via {lead.sourceDoor}</div>}
-          <div>{new Date(lead.createdAt).toLocaleString()}</div>
+        <div className="flex shrink-0 items-start gap-3">
+          <div className="text-right text-xs text-muted-foreground">
+            {lead.sourceDoor && <div>via {lead.sourceDoor}</div>}
+            <div>{new Date(lead.createdAt).toLocaleString()}</div>
+          </div>
+          <div className="flex gap-1.5">
+            {lead.invitedAt ? (
+              <span className="self-center text-xs text-muted-foreground">
+                Invited {new Date(lead.invitedAt).toLocaleDateString()}
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={handleInvite}
+                disabled={inviting}
+                className="btn-outline text-xs disabled:opacity-60"
+              >
+                {inviting ? "Inviting…" : "Invite User"}
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={handleDelete}
+              disabled={deleting}
+              className="btn-outline text-xs text-destructive disabled:opacity-60"
+            >
+              {deleting ? "Deleting…" : "Delete"}
+            </button>
+          </div>
         </div>
       </div>
       <div className="mt-1.5 text-xs">
