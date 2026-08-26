@@ -7,6 +7,7 @@ import type { CadRecord } from "@/lib/cad-lookup";
 import { addOwnership, type OwnershipRole } from "@/lib/ownerships";
 import { addProperty, type PropertyRecord } from "@/lib/properties";
 import { estimateSavings } from "@/lib/savings-estimate";
+import { estimateSuccessProbability } from "@/lib/success-probability";
 import { currency } from "@/lib/intake-store";
 
 type Step = "entry" | "results" | "adding";
@@ -17,6 +18,7 @@ type ResultRow = {
   record: CadRecord;
   ownershipName: string;
   savings: number | null;
+  successProbabilityPct: number | null;
 };
 
 const ROLE_LABEL: Record<OwnershipRole, string> = {
@@ -53,7 +55,7 @@ export function AddOwnershipsModal({
   const [entries, setEntries] = useState<Entry[]>([{ name: "", role: "owner" }]);
   const [searching, setSearching] = useState(false);
   const [results, setResults] = useState<ResultRow[]>([]);
-  const [savingsLoading, setSavingsLoading] = useState(false);
+  const [estimatesLoading, setEstimatesLoading] = useState(false);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [progress, setProgress] = useState(0);
 
@@ -75,28 +77,59 @@ export function AddOwnershipsModal({
     setSelected(new Set(rows.map((_, i) => i)));
     setStep("results");
 
-    setSavingsLoading(true);
-    const savingsResults = await Promise.all(
-      rows.map((row) =>
-        estimateSavings({
-          cad: row.record.cad,
-          accountNumber: row.record.accountNumber,
-          address: row.record.propertyAddress,
-          propertyType: row.record.propertyType,
-          landValue: row.record.landValue,
-          improvementValue: row.record.improvementValue,
-          totalValue: row.record.totalValue,
-          taxYear: row.record.taxYear,
-        })
-          .then((est) => est?.amount ?? null)
-          .catch((err) => {
-            console.error("Savings estimate failed for", row.record.propertyAddress, err);
-            return null;
-          }),
+    setEstimatesLoading(true);
+    const [savingsResults, probabilityResults] = await Promise.all([
+      Promise.all(
+        rows.map((row) =>
+          estimateSavings({
+            cad: row.record.cad,
+            accountNumber: row.record.accountNumber,
+            address: row.record.propertyAddress,
+            propertyType: row.record.propertyType,
+            landValue: row.record.landValue,
+            improvementValue: row.record.improvementValue,
+            totalValue: row.record.totalValue,
+            taxYear: row.record.taxYear,
+          })
+            .then((est) => est?.amount ?? null)
+            .catch((err) => {
+              console.error("Savings estimate failed for", row.record.propertyAddress, err);
+              return null;
+            }),
+        ),
       ),
+      Promise.all(
+        rows.map((row) =>
+          estimateSuccessProbability({
+            cad: row.record.cad,
+            accountNumber: row.record.accountNumber,
+            address: row.record.propertyAddress,
+            propertyType: row.record.propertyType,
+            landValue: row.record.landValue,
+            improvementValue: row.record.improvementValue,
+            totalValue: row.record.totalValue,
+            taxYear: row.record.taxYear,
+          })
+            .then((est) => est?.probabilityPct ?? null)
+            .catch((err) => {
+              console.error(
+                "Success-probability estimate failed for",
+                row.record.propertyAddress,
+                err,
+              );
+              return null;
+            }),
+        ),
+      ),
+    ]);
+    setResults((prev) =>
+      prev.map((row, i) => ({
+        ...row,
+        savings: savingsResults[i],
+        successProbabilityPct: probabilityResults[i],
+      })),
     );
-    setResults((prev) => prev.map((row, i) => ({ ...row, savings: savingsResults[i] })));
-    setSavingsLoading(false);
+    setEstimatesLoading(false);
   }
 
   // Sign-up's post-signup owner search already ran and found matches by the
@@ -109,7 +142,12 @@ export function AddOwnershipsModal({
     for (const record of initialMatch.records) {
       const key = dedupeKey(record);
       if (!byKey.has(key)) {
-        byKey.set(key, { record, ownershipName: initialMatch.name, savings: null });
+        byKey.set(key, {
+          record,
+          ownershipName: initialMatch.name,
+          savings: null,
+          successProbabilityPct: null,
+        });
       }
     }
     presentResults([...byKey.values()]);
@@ -139,7 +177,12 @@ export function AddOwnershipsModal({
           // the same real property, found under two different searched names,
           // is still exactly one property either way.
           if (!byKey.has(key)) {
-            byKey.set(key, { record, ownershipName: entry.name.trim(), savings: null });
+            byKey.set(key, {
+              record,
+              ownershipName: entry.name.trim(),
+              savings: null,
+              successProbabilityPct: null,
+            });
           }
         }
       }
@@ -310,6 +353,7 @@ export function AddOwnershipsModal({
                     <th className="px-3 py-2">County</th>
                     <th className="px-3 py-2">Appraised Value</th>
                     <th className="px-3 py-2">Est. Savings</th>
+                    <th className="px-3 py-2">Est. Success Probability</th>
                     <th className="px-3 py-2">Ownership</th>
                   </tr>
                 </thead>
@@ -331,7 +375,14 @@ export function AddOwnershipsModal({
                         {row.record.totalValue != null ? currency(row.record.totalValue) : "—"}
                       </td>
                       <td className="px-3 py-2">
-                        {savingsLoading ? "…" : row.savings != null ? currency(row.savings) : "—"}
+                        {estimatesLoading ? "…" : row.savings != null ? currency(row.savings) : "—"}
+                      </td>
+                      <td className="px-3 py-2">
+                        {estimatesLoading
+                          ? "…"
+                          : row.successProbabilityPct != null
+                            ? `${row.successProbabilityPct}%`
+                            : "—"}
                       </td>
                       <td className="px-3 py-2 text-muted-foreground">{row.ownershipName}</td>
                     </tr>

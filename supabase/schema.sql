@@ -803,6 +803,34 @@ create policy "Users can delete their own ownerships"
   on public.ownerships for delete
   using (auth.uid() = user_id);
 
+-- Invite-Only Beta lead-capture form on the standalone hub site (hub/index.html,
+-- a separate static page with no login of its own — see AddOwnershipsModal's
+-- sibling concept, but this one has no authenticated user at all). Written by
+-- the submit-beta-lead edge function using the service-role key, never
+-- directly by a client, since there's no session to satisfy a normal
+-- user_id-scoped insert policy — hence no insert policy on this table at all,
+-- only the admin-only select below. area_of_interest is the already-joined,
+-- comma-separated display string built client-side (see the hub form's submit
+-- handler), not a normalized array — this is a lead record for staff to read,
+-- not a table other app code queries/filters by individual interest area.
+create table if not exists public.beta_leads (
+  id uuid primary key default gen_random_uuid(),
+  full_name text not null,
+  work_email text not null,
+  company text not null,
+  area_of_interest text not null,
+  use_case text,
+  source_door text,
+  created_at timestamptz not null default now()
+);
+
+alter table public.beta_leads enable row level security;
+
+drop policy if exists "Admins can view all beta leads" on public.beta_leads;
+create policy "Admins can view all beta leads"
+  on public.beta_leads for select
+  using (public.is_admin());
+
 -- ── ONE-TIME MANUAL STEP — do NOT run this as part of the routine schema paste ──
 -- After you have an account (sign up normally through the app first), run this once,
 -- by itself, substituting your real email, to make that account an admin:

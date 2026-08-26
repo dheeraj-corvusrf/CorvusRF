@@ -128,6 +128,52 @@ export async function listAdminAuditLog(limit = 50): Promise<AdminAuditEntry[]> 
   }));
 }
 
+export type BetaLead = {
+  id: string;
+  fullName: string;
+  workEmail: string;
+  company: string;
+  areaOfInterest: string;
+  useCase: string | null;
+  sourceDoor: string | null;
+  createdAt: string;
+};
+
+type BetaLeadRow = {
+  id: string;
+  full_name: string;
+  work_email: string;
+  company: string;
+  area_of_interest: string;
+  use_case: string | null;
+  source_door: string | null;
+  created_at: string;
+};
+
+// Submissions from hub/index.html's public "Request Beta Access" form (see
+// supabase/functions/submit-beta-lead) — a separate static site with no
+// login of its own, so these rows have no user_id and rely purely on the
+// admin-only select policy on beta_leads, not the usual owner-scoped RLS.
+export async function listBetaLeads(): Promise<BetaLead[]> {
+  const { data, error } = await supabase
+    .from("beta_leads")
+    .select(
+      "id, full_name, work_email, company, area_of_interest, use_case, source_door, created_at",
+    )
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return (data as BetaLeadRow[]).map((row) => ({
+    id: row.id,
+    fullName: row.full_name,
+    workEmail: row.work_email,
+    company: row.company,
+    areaOfInterest: row.area_of_interest,
+    useCase: row.use_case,
+    sourceDoor: row.source_door,
+    createdAt: row.created_at,
+  }));
+}
+
 // Both of these now go through a service-role edge function rather than a direct
 // client update — Postgres column grants on profiles (see supabase/schema.sql)
 // no longer allow the plain client to write plan/is_admin at all, and the edge
