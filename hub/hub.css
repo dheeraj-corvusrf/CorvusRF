@@ -463,19 +463,17 @@ body.doors-page footer {
   background: radial-gradient(closest-side, oklch(1 0 0 / 0.22), transparent 70%);
   pointer-events: none;
 }
-/* The label/tagline/CTA sit above the leaf (z-index 2, higher than the
-   leaf's own z-index:1) rather than inside it, so they fade out on their
-   own instead of swinging away attached to the door surface. */
-.door-label,
-.door-detail {
+/* The label sits above the leaf (z-index 2, higher than the leaf's own
+   z-index:1) rather than inside it, so it fades out on its own instead
+   of swinging away attached to the door surface. */
+.door-label {
   transition: opacity 0.25s ease;
 }
 /* Same specificity as the :hover reveal rule below (which comes later in
    source order and would otherwise win the tie while still hovering mid-
    swing) — the "body" qualifier is only here to nudge specificity so
    is-open reliably beats :hover, not for any actual scoping reason. */
-body .door.is-open .door-label,
-body .door.is-open .door-detail {
+body .door.is-open .door-label {
   opacity: 0;
 }
 
@@ -559,48 +557,6 @@ body .door.is-open .door-detail {
 }
 body .door.is-open .door-subtitle {
   opacity: 0;
-}
-
-/* Absolutely positioned (top-anchored) for the same reason as
-   door-subtitle above — its own height varies door to door (PT has a
-   tagline line, the others don't), and it must not shift anything else. */
-.door-detail {
-  position: absolute;
-  top: 79%;
-  left: 50%;
-  z-index: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.625rem;
-  max-width: 11rem;
-  text-align: center;
-  opacity: 0;
-  transform: translate(-50%, 0.5rem);
-  pointer-events: none;
-  transition: opacity 0.3s ease 0.12s, transform 0.3s ease 0.12s;
-}
-.door:hover .door-detail,
-.door:focus-visible .door-detail {
-  opacity: 1;
-  transform: translate(-50%, 0);
-  pointer-events: auto;
-}
-.door-cta {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.375rem;
-  font-size: 0.8125rem;
-  font-weight: 700;
-  background: oklch(0.16 0.02 260 / 0.78);
-  border: 1px solid oklch(1 0 0 / 0.16);
-  border-radius: 999px;
-  padding: 0.4375rem 0.875rem;
-  white-space: nowrap;
-}
-.door-cta svg {
-  height: 1rem;
-  width: 1rem;
 }
 
 /* Dragon engraving in the upper door-panel-field box — removed for now;
