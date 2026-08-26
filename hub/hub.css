@@ -158,20 +158,28 @@ body.doors-page footer {
   width: 100%;
 }
 
-/* Each door is a real link — works with no JS, no hover, touch or
-   keyboard-tab-then-Enter (a plain, instant navigation as the no-JS
-   fallback). With JS, the .door-panel is the literal door leaf: it hinges
-   on its left edge (perspective lives on .door, the panel's containing
-   block) and swings away from the viewer on click before the page
-   navigates — see the script at the bottom of index.html. Original
-   artwork/palette per door, not a stock photo. .door itself is the
-   doorway/frame; a thick inset "casing" plus a shared frame color across
-   all five sells the "row of doors in a hallway" read even before any
-   motion happens. */
+/* Each door is a real link — works with no JS as a plain, instant
+   navigation. With JS, clicking a door opens the "Request Beta Access"
+   dialog instead (see the script at the bottom of index.html) — the
+   click-triggered full swing-past-vertical + navigate below is currently
+   unreachable because of that, but left in place since it's real,
+   tuned behavior that comes back into play once doors navigate for real
+   again post-beta. The hover/focus "ajar peek" a few rules down is
+   unrelated and still fully active. .door-panel is the literal door
+   leaf: it hinges on its left edge (perspective lives on .door, the
+   panel's containing block). .door itself is the doorway/frame; a thick
+   inset "casing" plus a shared frame color across all five sells the
+   "row of doors in a hallway" read even before any motion happens. */
 .door {
   position: relative;
   flex: 1 1 0%;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  padding: 1.5rem 0.5rem;
   color: #fff;
   text-decoration: none;
   overflow: hidden;
@@ -187,44 +195,41 @@ body.doors-page footer {
   position: absolute;
   inset: 0.5rem;
   z-index: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 0.75rem;
-  padding: 1.5rem 0.5rem;
+  overflow: hidden;
   border-radius: 0.25rem;
-  background-size: 180% 180%;
-  background-position: 30% 20%;
   transform-origin: left center;
-  transform: rotateY(0deg);
   backface-visibility: hidden;
-  box-shadow: inset 0 0 0 1px oklch(1 0 0 / 0.14), 0.75rem 0 2rem -1rem oklch(0 0 0 / 0.45);
-  transition: transform 0.65s cubic-bezier(0.6, 0, 0.35, 1), background-position 0.5s ease, box-shadow 0.5s ease;
+  box-shadow: inset 0 0 0 1px oklch(1 0 0 / 0.14);
+  transition: transform 0.65s cubic-bezier(0.6, 0, 0.35, 1), box-shadow 0.5s ease;
 }
-/* Two raised/routed panel fields, like a real 2-panel door — the dual
+/* Raised/routed panel fields, like a real two-panel wood door — the dual
    inset shadows (dark toward bottom-right, light toward top-left) read as
-   an engraved bevel rather than a flat outline. */
-.door-panel-field {
+   an engraved bevel rather than a flat outline. Split into a short upper
+   panel and a taller lower panel (classic door proportions) rather than
+   one big field. */
+.door-panel-field-upper,
+.door-panel-field-lower {
   position: absolute;
-  left: 14%;
-  right: 14%;
-  border-radius: 0.4rem;
+  left: 12%;
+  right: 12%;
+  border-radius: 0.35rem;
   box-shadow:
     inset 0.15rem 0.15rem 0.3rem oklch(0 0 0 / 0.32),
     inset -0.1rem -0.1rem 0.2rem oklch(1 0 0 / 0.16);
   pointer-events: none;
 }
-.door-panel-field.upper {
-  top: 8%;
-  bottom: 46%;
+.door-panel-field-upper {
+  top: 10%;
+  height: 26%;
 }
-.door-panel-field.lower {
-  top: 58%;
-  bottom: 20%;
+.door-panel-field-lower {
+  bottom: 8%;
+  height: 46%;
 }
-/* Hinge leaves on the side the door pivots from. */
+/* Hinge leaves on the side the door pivots from — dormant while doors use
+   the plain flat-paint style; kept defined so it's a one-line revert. */
 .door-hinge {
+  display: none;
   position: absolute;
   left: 0;
   z-index: 1;
@@ -240,19 +245,23 @@ body.doors-page footer {
 .door-hinge-bottom {
   bottom: 3rem;
 }
-/* Metal kickplate along the bottom edge. */
+/* Metal kickplate along the bottom edge — dormant while doors use the
+   plain flat-paint style; kept defined so it's a one-line revert. */
 .door-kickplate {
+  display: none;
   position: absolute;
   left: 8%;
   right: 8%;
-  bottom: 4%;
+  bottom: 1.1rem;
+  z-index: 2;
   height: 0.5rem;
   border-radius: 0.15rem;
   background: linear-gradient(180deg, oklch(0.82 0.02 258), oklch(0.55 0.02 258));
   box-shadow: 0 1px 2px oklch(0 0 0 / 0.4);
   pointer-events: none;
 }
-/* Knob + backplate (the backplate is just a soft ring behind the knob). */
+/* The doorknob — the one piece of hardware the plain flat-paint style
+   keeps, since a door reads as a door because of it. */
 .door-handle {
   position: absolute;
   top: 54%;
@@ -264,111 +273,158 @@ body.doors-page footer {
   background: linear-gradient(155deg, #fef3c7, #d97706 75%);
   box-shadow: 0 0 0 0.375rem oklch(1 0 0 / 0.14), 0 1px 3px oklch(0 0 0 / 0.5);
 }
-/* A little figure standing at the threshold, invisible until you actually
-   click — then it walks up and through the doorway while the door swings
-   open, timed to disappear right around when the page navigates. Sits
-   above .door-panel (a sibling, not nested inside it) so it stays in the
-   "doorway" and isn't carried away by the panel's own swing transform. */
-.door-walker {
-  position: absolute;
-  left: 50%;
-  bottom: 15%;
-  z-index: 3;
-  width: 1.75rem;
-  height: 2.75rem;
-  transform: translateX(-50%);
-  opacity: 0;
-  pointer-events: none;
-  filter: drop-shadow(0 2px 3px oklch(0 0 0 / 0.5));
+
+/* ---------- Plain flat-paint door style ----------
+   A simple painted door per entry point: a solid brand color with a soft
+   diagonal sheen (light top-left to dark bottom-right) for a little
+   dimensionality, rather than a flat swatch. */
+.door-panel {
+  background: linear-gradient(
+    155deg,
+    color-mix(in oklch, var(--door-tint, #888) 65%, white) 0%,
+    var(--door-tint, #888) 45%,
+    color-mix(in oklch, var(--door-tint, #888) 70%, black) 100%
+  );
 }
-.walker-svg {
+.door-pt {
+  --door-tint: #059669;
+  --door-glow: #6ee7b7;
+  --door-flame: #6ee7b7;
+  --door-metal: linear-gradient(155deg, #fef3c7, #b45309 75%);
+  --door-scale: #022c22;
+}
+.door-bsl {
+  --door-tint: #7c3aed;
+  --door-glow: #c4b5fd;
+  --door-flame: #c4b5fd;
+  --door-metal: linear-gradient(155deg, #fdf4ff, #a21caf 75%);
+  --door-scale: #1e0a4d;
+}
+.door-dp {
+  --door-tint: #d97706;
+  --door-glow: #fde68a;
+  --door-flame: #fde68a;
+  --door-metal: linear-gradient(155deg, #fef3c7, #92400e 75%);
+  --door-scale: #341005;
+}
+.door-co {
+  --door-tint: #db2777;
+  --door-glow: #fbcfe8;
+  --door-flame: #fbcfe8;
+  --door-metal: linear-gradient(155deg, #fdf2f8, #9d174d 75%);
+  --door-scale: #3d0619;
+}
+.door-rf {
+  --door-tint: #0284c7;
+  --door-glow: #7dd3fc;
+  --door-flame: #7dd3fc;
+  --door-metal: linear-gradient(155deg, #f0f9ff, #075985 75%);
+  --door-scale: #041c2e;
+}
+
+/* Carved medallion arching over the doorway — dormant while doors use the
+   plain flat-paint style; kept defined so it's a one-line revert. Lives
+   directly on .door (like the torches/kickplate), not inside .door-panel,
+   so it stays put and never moves. */
+.door-medallion {
+  display: none;
+  position: absolute;
+  top: 0.15rem;
+  left: 50%;
+  z-index: 2;
+  width: 2.25rem;
+  height: 2.25rem;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+.door-medallion svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  filter: drop-shadow(0 1px 2px oklch(0 0 0 / 0.5));
+}
+.medallion-ring {
+  fill: var(--door-metal, #d97706);
+  stroke: oklch(0 0 0 / 0.35);
+  stroke-width: 0.4;
+}
+.medallion-mark {
+  fill: none;
+  stroke: var(--door-scale, oklch(0 0 0 / 0.5));
+  stroke-width: 1;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.medallion-eye {
+  fill: var(--door-scale, oklch(0 0 0 / 0.5));
+}
+@media (max-width: 640px) {
+  .door-medallion {
+    display: none;
+  }
+}
+
+/* Twin wall sconces flanking the panel — dormant while doors use the
+   plain flat-paint style; kept defined so it's a one-line revert. */
+.door-torch {
+  display: none;
+  position: absolute;
+  top: 20%;
+  z-index: 2;
+  width: 0.5625rem;
+  height: 1.25rem;
+  opacity: 0.9;
+}
+.door-torch.left {
+  left: 6%;
+}
+.door-torch.right {
+  right: 6%;
+}
+.door-torch svg {
   width: 100%;
   height: 100%;
   overflow: visible;
 }
-/* Filled cartoon figure — a fixed, original palette (not the door's own
-   gradient) so it reads clearly against every door color and against the
-   light "hallway" it walks into. */
-.walker-leg {
-  fill: #1e2937;
+.torch-sconce {
+  fill: oklch(0.55 0.02 258);
 }
-.walker-shoe {
-  fill: #14181f;
+.torch-flame {
+  fill: var(--door-flame, #fbbf24);
+  filter: drop-shadow(0 0 5px var(--door-flame, #fbbf24));
+  transform-origin: 50% 100%;
 }
-.walker-arm {
-  fill: #fbc490;
-}
-.walker-torso {
-  fill: #f0b429;
-  stroke: #1e2937;
-  stroke-width: 0.4;
-}
-.walker-hair {
-  fill: #2d2a26;
-}
-.walker-head {
-  fill: #fbc490;
-  stroke: #1e2937;
-  stroke-width: 0.4;
-}
-.walker-eye {
-  fill: #1e2937;
-}
-/* Two overlaid leg poses, swapped on and off — a simple, cheap walk cycle
-   without per-limb pivot math. */
-.walker-legs-b {
-  opacity: 0;
-}
-
 @media (prefers-reduced-motion: no-preference) {
-  .door.is-open .door-walker {
-    animation: walkThrough 0.68s ease-in forwards;
+  .torch-flame {
+    animation: torchFlicker 1.6s ease-in-out infinite;
   }
-  .door.is-open .walker-legs-a {
-    animation: walkStep 0.22s steps(1) infinite;
-  }
-  .door.is-open .walker-legs-b {
-    animation: walkStep 0.22s steps(1) infinite reverse;
+  .door-torch.right .torch-flame {
+    animation-delay: -0.8s;
   }
 }
-@keyframes walkThrough {
-  0% {
-    opacity: 0;
-    transform: translateX(-50%) translateY(0) scale(1);
-  }
-  15% {
-    opacity: 1;
-  }
-  100% {
-    opacity: 0;
-    transform: translateX(-50%) translateY(-2.75rem) scale(0.5);
-  }
-}
-@keyframes walkStep {
+@keyframes torchFlicker {
   0%,
-  49% {
+  100% {
+    transform: scaleY(1) scaleX(1);
+    opacity: 0.95;
+  }
+  30% {
+    transform: scaleY(1.14) scaleX(0.9);
     opacity: 1;
   }
-  50%,
-  100% {
-    opacity: 0;
+  55% {
+    transform: scaleY(0.88) scaleX(1.06);
+    opacity: 0.85;
+  }
+  80% {
+    transform: scaleY(1.06) scaleX(0.95);
+    opacity: 1;
   }
 }
-
-.door-pt .door-panel {
-  background-image: linear-gradient(155deg, #064e3b 0%, #059669 55%, #34d399 100%);
-}
-.door-bsl .door-panel {
-  background-image: linear-gradient(155deg, #4c1d95 0%, #7c3aed 55%, #a78bfa 100%);
-}
-.door-dp .door-panel {
-  background-image: linear-gradient(155deg, #78350f 0%, #d97706 55%, #fbbf24 100%);
-}
-.door-co .door-panel {
-  background-image: linear-gradient(155deg, #831843 0%, #db2777 55%, #f472b6 100%);
-}
-.door-rf .door-panel {
-  background-image: linear-gradient(155deg, #0c4a6e 0%, #0284c7 55%, #38bdf8 100%);
+@media (max-width: 640px) {
+  .door-torch {
+    display: none;
+  }
 }
 
 /* Ajar peek on hover/focus — an invitation, distinct from the full
@@ -376,7 +432,6 @@ body.doors-page footer {
 .door:hover .door-panel,
 .door:focus-visible .door-panel {
   transform: rotateY(-10deg);
-  background-position: 70% 80%;
   box-shadow: inset 0 0 0 1px oklch(1 0 0 / 0.14), 1.5rem 0 3rem -1rem oklch(0 0 0 / 0.55);
 }
 .door:focus-visible {
@@ -388,7 +443,7 @@ body.doors-page footer {
 /* The actual open — swings well past vertical and, with backface-visibility
    hidden above, disappears from view just before the click handler
    navigates, revealing the plain "hallway" behind it (.door's own
-   background). */
+   background). Currently unreachable — see the comment on .door above. */
 .door.is-open .door-panel {
   transform: rotateY(-100deg);
 }
@@ -398,8 +453,7 @@ body.doors-page footer {
   transition: opacity 0.4s ease;
 }
 
-/* Ambient glow layer, independent of the hover-driven background-position
-   shift above so the two animations don't fight each other. */
+/* Ambient glow layer on the panel. */
 .door-panel::after {
   content: "";
   position: absolute;
@@ -409,58 +463,57 @@ body.doors-page footer {
   background: radial-gradient(closest-side, oklch(1 0 0 / 0.22), transparent 70%);
   pointer-events: none;
 }
-.door-top {
-  position: relative;
-  z-index: 1;
-  width: 100%;
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
+/* The label/tagline/CTA sit above the leaf (z-index 2, higher than the
+   leaf's own z-index:1) rather than inside it, so they fade out on their
+   own instead of swinging away attached to the door surface. */
+.door-label,
+.door-detail {
+  transition: opacity 0.25s ease;
 }
-.door-icon {
-  display: inline-flex;
-  opacity: 0.9;
-  transition: transform 0.4s ease;
-}
-.door-icon svg {
-  height: 1.375rem;
-  width: 1.375rem;
-}
-.door:hover .door-icon,
-.door:focus-visible .door-icon {
-  transform: translateY(-2px) scale(1.08);
-}
-.door-badge {
-  font-size: 0.6875rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  background: oklch(1 0 0 / 0.92);
-  color: oklch(0.35 0.1 258);
-  border-radius: 999px;
-  padding: 0.25rem 0.625rem;
-  white-space: nowrap;
-}
-.door-badge-soon {
-  background: oklch(1 0 0 / 0.18);
-  color: #fff;
+/* Same specificity as the :hover reveal rule below (which comes later in
+   source order and would otherwise win the tie while still hovering mid-
+   swing) — the "body" qualifier is only here to nudge specificity so
+   is-open reliably beats :hover, not for any actual scoping reason. */
+body .door.is-open .door-label,
+body .door.is-open .door-detail {
+  opacity: 0;
 }
 
-/* Vertical "nameplate" label — narrow enough to fit whether a door column
-   is 78px (mobile) or 280px (desktop) wide, so it needs no responsive
-   breakpoint of its own. */
+/* "Nameplate" label — horizontal on desktop, where a ~280px door column
+   has plenty of width. Positioned with position:absolute + top/left/
+   transform (not flex centering) so every door's label lands at the exact
+   same height regardless of what optional siblings (door-subtitle,
+   door-tagline) that door does or doesn't have — those used to be
+   centered together as one flex group, so a door missing a subtitle got
+   a shorter group and its label drifted to a different height than its
+   neighbors. A solid plaque behind the text (not just a text-shadow) is
+   what keeps it readable against the door artwork. */
 .door-label {
-  position: relative;
-  z-index: 1;
+  position: absolute;
+  top: 54%;
+  left: 50%;
+  z-index: 2;
+  transform: translate(-50%, -50%);
   font-size: 1.375rem;
   font-weight: 800;
   letter-spacing: 0.01em;
-  writing-mode: vertical-rl;
-  transform: rotate(180deg);
   white-space: nowrap;
-  /* Keeps the label legible over the door's own gradient/glow regardless
-     of exactly where it lands. */
-  text-shadow: 0 1px 3px oklch(0 0 0 / 0.55), 0 0 10px oklch(0 0 0 / 0.35);
+  background: oklch(0.16 0.02 260 / 0.78);
+  border: 1px solid oklch(1 0 0 / 0.16);
+  border-radius: 999px;
+  padding: 0.5rem 1.125rem;
+  box-shadow: 0 2px 8px oklch(0 0 0 / 0.35);
+}
+/* Below ~640px each door column narrows to ~70-90px — too tight for
+   horizontal text at any legible size — so the label reverts to the
+   vertical orientation used before, which only needs height, not width. */
+@media (max-width: 640px) {
+  .door-label {
+    font-size: 1.0625rem;
+    writing-mode: vertical-rl;
+    transform: translate(-50%, -50%) rotate(180deg);
+    padding: 0.75rem 0.375rem;
+  }
 }
 /* Matches the app header/footer wordmark, where "PT" is picked out in
    green — a brighter shade here specifically so it still pops against
@@ -468,9 +521,53 @@ body.doors-page footer {
 .door-label-pt {
   color: #34d399;
 }
+/* Same idea for the other four doors' abbreviations (BSL, D&P, CO, RF) —
+   each door's own --door-glow (already defined per door for the torch
+   flame/medallion) doubles as its label accent color. */
+.door-label-accent {
+  color: var(--door-glow, currentColor);
+}
 
+/* Small plaque under the main nameplate spelling out what each door's
+   abbreviation stands for. Absolutely positioned (top-anchored, not
+   flex-centered with the label) so its presence/absence never shifts the
+   label's own position on other doors. */
+.door-subtitle {
+  position: absolute;
+  top: 65%;
+  left: 50%;
+  z-index: 2;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.1875rem;
+  font-size: 1.0625rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #fff;
+  background: oklch(0.16 0.02 260 / 0.78);
+  border: 1px solid oklch(1 0 0 / 0.16);
+  border-radius: 0.625rem;
+  padding: 0.5625rem 0.875rem;
+  box-shadow: 0 2px 6px oklch(0 0 0 / 0.3);
+  transition: opacity 0.25s ease;
+}
+.door-subtitle span {
+  white-space: nowrap;
+}
+body .door.is-open .door-subtitle {
+  opacity: 0;
+}
+
+/* Absolutely positioned (top-anchored) for the same reason as
+   door-subtitle above — its own height varies door to door (PT has a
+   tagline line, the others don't), and it must not shift anything else. */
 .door-detail {
-  position: relative;
+  position: absolute;
+  top: 79%;
+  left: 50%;
   z-index: 1;
   display: flex;
   flex-direction: column;
@@ -479,19 +576,15 @@ body.doors-page footer {
   max-width: 11rem;
   text-align: center;
   opacity: 0;
-  transform: translateY(0.5rem);
+  transform: translate(-50%, 0.5rem);
   pointer-events: none;
   transition: opacity 0.3s ease 0.12s, transform 0.3s ease 0.12s;
 }
 .door:hover .door-detail,
 .door:focus-visible .door-detail {
   opacity: 1;
-  transform: translateY(0);
+  transform: translate(-50%, 0);
   pointer-events: auto;
-}
-.door-tagline {
-  font-size: 0.8125rem;
-  color: oklch(1 0 0 / 0.92);
 }
 .door-cta {
   display: inline-flex;
@@ -499,7 +592,8 @@ body.doors-page footer {
   gap: 0.375rem;
   font-size: 0.8125rem;
   font-weight: 700;
-  background: oklch(1 0 0 / 0.16);
+  background: oklch(0.16 0.02 260 / 0.78);
+  border: 1px solid oklch(1 0 0 / 0.16);
   border-radius: 999px;
   padding: 0.4375rem 0.875rem;
   white-space: nowrap;
@@ -509,35 +603,23 @@ body.doors-page footer {
   width: 1rem;
 }
 
+/* Dragon engraving in the upper door-panel-field box — removed for now;
+   the still (dragon-still.jpg) is kept on disk and this rule is a
+   one-line revert (add the background-image/blend rules back onto
+   .door-panel-field-upper) if it comes back later. */
+
 /* Motion only for users who haven't asked to avoid it — a staggered
-   rise-and-fade on load, a slow ambient glow drift per door, and (once,
-   after it rises in) each door nudges itself ajar and swings shut again in
-   a wave across the row — a quick self-demo so the "these are doors" read
-   doesn't depend on someone finding the hover state first. Reduced-motion
-   users also skip the click-triggered swing entirely (handled in the
-   script), navigating immediately instead. */
+   rise-and-fade on load plus a slow ambient glow drift per door. Reduced-
+   motion users also skip the click-triggered dim/fade delay entirely
+   (handled in the script), navigating immediately instead. */
 @media (prefers-reduced-motion: no-preference) {
-  /* A CSS animation with fill-mode:both permanently owns whichever
-     property it animates, overriding any other rule for that property
-     regardless of specificity or source order — even after the animation
-     itself has finished. That's why the rise-in is split by property
-     across two elements instead of one shorthand: .door only ever
-     animates "transform" (translateY), since .door's own "opacity" is
-     needed later, un-owned by any animation, for the has-open dimming
-     rule below. .door-panel only ever animates "opacity" here — its
-     "transform" is reserved for the hover-ajar/click-swing-open/demo
-     effects, which is also why doorDemo (below) deliberately has no
-     fill-mode: once it finishes it hands "transform" straight back to
-     the normal cascade. */
   .door {
     animation: doorRise 0.6s cubic-bezier(0.22, 1, 0.36, 1) both;
     animation-delay: calc(var(--i, 0) * 90ms);
   }
   .door-panel {
-    animation:
-      doorFadeIn 0.6s cubic-bezier(0.22, 1, 0.36, 1) both,
-      doorDemo 1.1s cubic-bezier(0.45, 0, 0.55, 1);
-    animation-delay: calc(var(--i, 0) * 90ms), calc(0.75s + var(--i, 0) * 140ms);
+    animation: doorFadeIn 0.6s cubic-bezier(0.22, 1, 0.36, 1) both;
+    animation-delay: calc(var(--i, 0) * 90ms);
   }
   .door-panel::after {
     animation: doorGlow 9s ease-in-out infinite alternate;
@@ -570,35 +652,11 @@ body.doors-page footer {
     opacity: 0.9;
   }
 }
-@keyframes doorDemo {
-  0%,
-  100% {
-    transform: rotateY(0deg);
-  }
-  50% {
-    transform: rotateY(-22deg);
-  }
-}
 
 @media (max-width: 640px) {
-  .door-label {
-    font-size: 1.0625rem;
-  }
-  /* Five ~70px-wide columns can't fit icon + "COMING SOON" side by side —
-     stack them and shrink the badge so it stays inside its own door. */
-  .door-top {
-    flex-direction: column;
-    align-items: center;
-    gap: 0.375rem;
-  }
-  .door-badge {
-    font-size: 0.5rem;
-    letter-spacing: 0.02em;
-    padding: 0.1875rem 0.4375rem;
-  }
-  .door-handle,
-  .door-hinge,
-  .door-kickplate {
+  /* door-subtitle is horizontal, nowrap text (unlike the vertical label)
+     and has no room to fit at ~70px door width, so it drops here. */
+  .door-subtitle {
     display: none;
   }
 }
@@ -643,6 +701,163 @@ footer {
   padding: 2rem 0;
   color: var(--muted-foreground);
   font-size: 0.875rem;
+}
+
+/* Invite-Only Beta lead form — a native <dialog> for built-in focus
+   trapping, Escape-to-close, and a ::backdrop; styled with the same
+   light-surface tokens as the header/footer chrome (not the doors' dark
+   plaque look), since this is a real form surface, not door decoration. */
+.beta-dialog {
+  width: min(30rem, 92vw);
+  max-height: min(42rem, 88vh);
+  padding: 0;
+  border: none;
+  border-radius: 1rem;
+  background: var(--card);
+  color: var(--foreground);
+  box-shadow: 0 1.5rem 3rem oklch(0 0 0 / 0.35);
+}
+.beta-dialog::backdrop {
+  background: oklch(0.1 0.02 258 / 0.6);
+}
+.beta-dialog-close {
+  position: absolute;
+  top: 0.875rem;
+  right: 0.875rem;
+  width: 2rem;
+  height: 2rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+.beta-dialog-close svg {
+  width: 1rem;
+  height: 1rem;
+}
+.beta-dialog-close:hover {
+  color: var(--foreground);
+  border-color: var(--foreground);
+}
+.beta-dialog-panel {
+  padding: 2rem 1.75rem 1.75rem;
+  overflow-y: auto;
+  max-height: inherit;
+}
+.beta-dialog-panel h2 {
+  margin: 0 0 0.5rem;
+  font-size: 1.375rem;
+  font-weight: 800;
+}
+.beta-dialog-sub {
+  margin: 0 0 1.5rem;
+  color: var(--muted-foreground);
+  font-size: 0.9375rem;
+}
+#betaForm {
+  display: flex;
+  flex-direction: column;
+  gap: 1.125rem;
+}
+.beta-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+.beta-field input[type="text"],
+.beta-field input[type="email"],
+.beta-field textarea {
+  font: inherit;
+  font-weight: 400;
+  padding: 0.625rem 0.75rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--border);
+  background: var(--background);
+  color: var(--foreground);
+}
+.beta-field input:focus-visible,
+.beta-field textarea:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.beta-field textarea {
+  resize: vertical;
+  min-height: 4.5rem;
+}
+.beta-radio-group {
+  border: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.beta-radio-group legend {
+  padding: 0;
+  margin-bottom: 0.25rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+.beta-radio-group label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 400;
+  font-size: 0.9375rem;
+  cursor: pointer;
+}
+.beta-radio-group input[type="checkbox"] {
+  accent-color: var(--accent);
+  width: 1rem;
+  height: 1rem;
+}
+.beta-form-error {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: oklch(0.55 0.19 25);
+  background: oklch(0.55 0.19 25 / 0.08);
+  border: 1px solid oklch(0.55 0.19 25 / 0.35);
+  border-radius: 0.5rem;
+  padding: 0.625rem 0.75rem;
+}
+.beta-submit {
+  margin-top: 0.25rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.25rem;
+  border-radius: 999px;
+  border: none;
+  background: var(--brand);
+  color: var(--brand-foreground);
+  font-weight: 700;
+  font-size: 0.9375rem;
+  cursor: pointer;
+}
+.beta-submit:disabled {
+  opacity: 0.65;
+  cursor: default;
+}
+.beta-submit:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+#betaSuccessView p {
+  color: var(--muted-foreground);
+}
+@media (max-width: 640px) {
+  .beta-dialog {
+    width: 94vw;
+  }
+  .beta-dialog-panel {
+    padding: 1.75rem 1.25rem 1.5rem;
+  }
 }
 
 @media (prefers-color-scheme: dark) {

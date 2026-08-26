@@ -29,259 +29,221 @@
 
   <main class="doors-stage">
     <!-- The whole home page IS the nav: five full-height doors, one per
-       Corvus product. No hero copy, no scrolling section — picking a door
-       is the entire interaction. Each door is a real link (works with no
-       JS, touch, or keyboard-tab-then-Enter — the swing-open motion on
-       click is a progressive-enhancement layer handled by the script below;
-       without it the link just navigates immediately). Each hinges on its
-       left edge and swings away from the viewer, like a real door. -->
+       Corvus product, painted flat in that product's own brand color. No
+       hero copy, no scrolling section — picking a door is the entire
+       interaction. Each door is a real link with its product's real href
+       (works with no JS as a plain navigation), but CorvusRE is currently
+       invite-only: with JS, clicking any door opens the "Request Beta
+       Access" lead-capture dialog (see the script below) instead of
+       navigating anywhere. -->
     <nav class="doors" aria-label="Corvus products">
       <a class="door door-pt" href="/corvuspt/" style="--i:0">
-        <span class="door-panel">
+        <span class="door-panel" aria-hidden="true">
           <span class="door-hinge door-hinge-top" aria-hidden="true"></span>
           <span class="door-hinge door-hinge-bottom" aria-hidden="true"></span>
-          <span class="door-panel-field upper" aria-hidden="true"></span>
-          <span class="door-panel-field lower" aria-hidden="true"></span>
-          <span class="door-kickplate" aria-hidden="true"></span>
-          <span class="door-top">
-            <span class="door-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <rect x="4" y="3" width="10" height="18" rx="1" />
-                <rect x="14" y="9" width="6" height="12" rx="1" />
-                <line x1="7" y1="7" x2="7.01" y2="7" /><line x1="11" y1="7" x2="11.01" y2="7" />
-                <line x1="7" y1="11" x2="7.01" y2="11" /><line x1="11" y1="11" x2="11.01" y2="11" />
-              </svg>
-            </span>
-            <span class="door-badge">Live</span>
-          </span>
-          <span class="door-label">Corvus<span class="door-label-pt">PT</span></span>
-          <span class="door-detail">
-            <span class="door-tagline">AI-powered property tax &amp; protest management</span>
-            <span class="door-cta">Open CorvusPT
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
-            </span>
-          </span>
+          <span class="door-panel-field-upper" aria-hidden="true"></span>
+          <span class="door-panel-field-lower" aria-hidden="true"></span>
           <span class="door-handle" aria-hidden="true"></span>
         </span>
-        <span class="door-walker" aria-hidden="true">
-          <svg class="walker-svg" viewBox="0 0 20 34">
-            <g class="walker-legs walker-legs-a">
-              <rect class="walker-leg" x="11" y="16.5" width="2.8" height="8.5" rx="1.4" />
-              <rect class="walker-leg" x="6.4" y="16.5" width="2.8" height="7.4" rx="1.4" />
-              <ellipse class="walker-shoe" cx="12.4" cy="25.3" rx="1.8" ry="1.1" />
-              <ellipse class="walker-shoe" cx="7.8" cy="24.2" rx="1.8" ry="1.1" />
-            </g>
-            <g class="walker-legs walker-legs-b">
-              <rect class="walker-leg" x="6.2" y="16.5" width="2.8" height="8.5" rx="1.4" />
-              <rect class="walker-leg" x="11.6" y="16.5" width="2.8" height="7.4" rx="1.4" />
-              <ellipse class="walker-shoe" cx="7.6" cy="25.3" rx="1.8" ry="1.1" />
-              <ellipse class="walker-shoe" cx="13" cy="24.2" rx="1.8" ry="1.1" />
-            </g>
-            <rect class="walker-arm" x="3.4" y="10.2" width="2.5" height="6.2" rx="1.25" transform="rotate(-12 4.65 10.2)" />
-            <rect class="walker-arm" x="14.1" y="10.2" width="2.5" height="6.2" rx="1.25" transform="rotate(12 15.35 10.2)" />
-            <rect class="walker-torso" x="6.1" y="8.2" width="7.8" height="9" rx="2.8" />
-            <circle class="walker-head" cx="10" cy="5.1" r="3.3" />
-            <path class="walker-hair" d="M6.6 3.5 Q10 0.5 13.4 3.5 Q13.5 4.8 12.6 4.3 Q10 2.5 7.4 4.3 Q6.5 4.8 6.6 3.5 Z" />
-            <circle class="walker-eye" cx="8.6" cy="5.2" r="0.5" />
-            <circle class="walker-eye" cx="11.4" cy="5.2" r="0.5" />
+        <span class="door-medallion" aria-hidden="true">
+          <svg viewBox="0 0 24 24">
+            <circle class="medallion-ring" cx="12" cy="12" r="11" />
+            <path class="medallion-mark" d="M6 10 Q12 5 18 10" />
+            <path class="medallion-mark" d="M8 15 Q12 18 16 15" />
+            <circle class="medallion-eye" cx="8.5" cy="11" r="0.9" />
+            <circle class="medallion-eye" cx="15.5" cy="11" r="0.9" />
           </svg>
+        </span>
+        <span class="door-kickplate" aria-hidden="true"></span>
+        <span class="door-torch left" aria-hidden="true">
+          <svg viewBox="0 0 10 22">
+            <rect class="torch-sconce" x="3" y="12" width="4" height="9" rx="1" />
+            <path class="torch-flame" d="M5 0C5 0 8 4.5 8 7.5C8 9.5 6.7 11 5 11C3.3 11 2 9.5 2 7.5C2 4.5 5 0 5 0Z" />
+          </svg>
+        </span>
+        <span class="door-torch right" aria-hidden="true">
+          <svg viewBox="0 0 10 22">
+            <rect class="torch-sconce" x="3" y="12" width="4" height="9" rx="1" />
+            <path class="torch-flame" d="M5 0C5 0 8 4.5 8 7.5C8 9.5 6.7 11 5 11C3.3 11 2 9.5 2 7.5C2 4.5 5 0 5 0Z" />
+          </svg>
+        </span>
+        <span class="door-label">Corvus<span class="door-label-pt">PT</span></span>
+        <span class="door-subtitle">
+          <span>Property</span>
+          <span>Tax</span>
+        </span>
+        <span class="door-detail">
+          <span class="door-cta">Open CorvusPT
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
+          </span>
         </span>
       </a>
 
       <a class="door door-bsl" href="/corvusbsl/" style="--i:1">
-        <span class="door-panel">
+        <span class="door-panel" aria-hidden="true">
           <span class="door-hinge door-hinge-top" aria-hidden="true"></span>
           <span class="door-hinge door-hinge-bottom" aria-hidden="true"></span>
-          <span class="door-panel-field upper" aria-hidden="true"></span>
-          <span class="door-panel-field lower" aria-hidden="true"></span>
-          <span class="door-kickplate" aria-hidden="true"></span>
-          <span class="door-top">
-            <span class="door-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M8 3 4 7l4 4" /><path d="M4 7h16" />
-                <path d="M16 21l4-4-4-4" /><path d="M20 17H4" />
-              </svg>
-            </span>
-            <span class="door-badge door-badge-soon">Coming Soon</span>
-          </span>
-          <span class="door-label">CorvusBSL</span>
-          <span class="door-detail">
-            <span class="door-tagline">Buy, Sell, Lease.</span>
-            <span class="door-cta">Explore CorvusBSL
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
-            </span>
-          </span>
+          <span class="door-panel-field-upper" aria-hidden="true"></span>
+          <span class="door-panel-field-lower" aria-hidden="true"></span>
           <span class="door-handle" aria-hidden="true"></span>
         </span>
-        <span class="door-walker" aria-hidden="true">
-          <svg class="walker-svg" viewBox="0 0 20 34">
-            <g class="walker-legs walker-legs-a">
-              <rect class="walker-leg" x="11" y="16.5" width="2.8" height="8.5" rx="1.4" />
-              <rect class="walker-leg" x="6.4" y="16.5" width="2.8" height="7.4" rx="1.4" />
-              <ellipse class="walker-shoe" cx="12.4" cy="25.3" rx="1.8" ry="1.1" />
-              <ellipse class="walker-shoe" cx="7.8" cy="24.2" rx="1.8" ry="1.1" />
-            </g>
-            <g class="walker-legs walker-legs-b">
-              <rect class="walker-leg" x="6.2" y="16.5" width="2.8" height="8.5" rx="1.4" />
-              <rect class="walker-leg" x="11.6" y="16.5" width="2.8" height="7.4" rx="1.4" />
-              <ellipse class="walker-shoe" cx="7.6" cy="25.3" rx="1.8" ry="1.1" />
-              <ellipse class="walker-shoe" cx="13" cy="24.2" rx="1.8" ry="1.1" />
-            </g>
-            <rect class="walker-arm" x="3.4" y="10.2" width="2.5" height="6.2" rx="1.25" transform="rotate(-12 4.65 10.2)" />
-            <rect class="walker-arm" x="14.1" y="10.2" width="2.5" height="6.2" rx="1.25" transform="rotate(12 15.35 10.2)" />
-            <rect class="walker-torso" x="6.1" y="8.2" width="7.8" height="9" rx="2.8" />
-            <circle class="walker-head" cx="10" cy="5.1" r="3.3" />
-            <path class="walker-hair" d="M6.6 3.5 Q10 0.5 13.4 3.5 Q13.5 4.8 12.6 4.3 Q10 2.5 7.4 4.3 Q6.5 4.8 6.6 3.5 Z" />
-            <circle class="walker-eye" cx="8.6" cy="5.2" r="0.5" />
-            <circle class="walker-eye" cx="11.4" cy="5.2" r="0.5" />
+        <span class="door-medallion" aria-hidden="true">
+          <svg viewBox="0 0 24 24">
+            <circle class="medallion-ring" cx="12" cy="12" r="11" />
+            <path class="medallion-mark" d="M6 10 Q12 5 18 10" />
+            <path class="medallion-mark" d="M8 15 Q12 18 16 15" />
+            <circle class="medallion-eye" cx="8.5" cy="11" r="0.9" />
+            <circle class="medallion-eye" cx="15.5" cy="11" r="0.9" />
           </svg>
+        </span>
+        <span class="door-kickplate" aria-hidden="true"></span>
+        <span class="door-torch left" aria-hidden="true">
+          <svg viewBox="0 0 10 22">
+            <rect class="torch-sconce" x="3" y="12" width="4" height="9" rx="1" />
+            <path class="torch-flame" d="M5 0C5 0 8 4.5 8 7.5C8 9.5 6.7 11 5 11C3.3 11 2 9.5 2 7.5C2 4.5 5 0 5 0Z" />
+          </svg>
+        </span>
+        <span class="door-torch right" aria-hidden="true">
+          <svg viewBox="0 0 10 22">
+            <rect class="torch-sconce" x="3" y="12" width="4" height="9" rx="1" />
+            <path class="torch-flame" d="M5 0C5 0 8 4.5 8 7.5C8 9.5 6.7 11 5 11C3.3 11 2 9.5 2 7.5C2 4.5 5 0 5 0Z" />
+          </svg>
+        </span>
+        <span class="door-label">Corvus<span class="door-label-accent">BSL</span></span>
+        <span class="door-subtitle">
+          <span>Buy</span>
+          <span>Sell</span>
+          <span>Lease</span>
+        </span>
+        <span class="door-detail">
+          <span class="door-cta">Explore CorvusBSL
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
+          </span>
         </span>
       </a>
 
       <a class="door door-dp" href="/corvusdp/" style="--i:2">
-        <span class="door-panel">
+        <span class="door-panel" aria-hidden="true">
           <span class="door-hinge door-hinge-top" aria-hidden="true"></span>
           <span class="door-hinge door-hinge-bottom" aria-hidden="true"></span>
-          <span class="door-panel-field upper" aria-hidden="true"></span>
-          <span class="door-panel-field lower" aria-hidden="true"></span>
-          <span class="door-kickplate" aria-hidden="true"></span>
-          <span class="door-top">
-            <span class="door-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M4 8l8-5 8 5" /><rect x="4" y="8" width="16" height="12" rx="1" /><path d="M12 3v5" />
-              </svg>
-            </span>
-            <span class="door-badge door-badge-soon">Coming Soon</span>
-          </span>
-          <span class="door-label">CorvusD&amp;P</span>
-          <span class="door-detail">
-            <span class="door-tagline">Details coming soon.</span>
-            <span class="door-cta">View CorvusD&amp;P
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
-            </span>
-          </span>
+          <span class="door-panel-field-upper" aria-hidden="true"></span>
+          <span class="door-panel-field-lower" aria-hidden="true"></span>
           <span class="door-handle" aria-hidden="true"></span>
         </span>
-        <span class="door-walker" aria-hidden="true">
-          <svg class="walker-svg" viewBox="0 0 20 34">
-            <g class="walker-legs walker-legs-a">
-              <rect class="walker-leg" x="11" y="16.5" width="2.8" height="8.5" rx="1.4" />
-              <rect class="walker-leg" x="6.4" y="16.5" width="2.8" height="7.4" rx="1.4" />
-              <ellipse class="walker-shoe" cx="12.4" cy="25.3" rx="1.8" ry="1.1" />
-              <ellipse class="walker-shoe" cx="7.8" cy="24.2" rx="1.8" ry="1.1" />
-            </g>
-            <g class="walker-legs walker-legs-b">
-              <rect class="walker-leg" x="6.2" y="16.5" width="2.8" height="8.5" rx="1.4" />
-              <rect class="walker-leg" x="11.6" y="16.5" width="2.8" height="7.4" rx="1.4" />
-              <ellipse class="walker-shoe" cx="7.6" cy="25.3" rx="1.8" ry="1.1" />
-              <ellipse class="walker-shoe" cx="13" cy="24.2" rx="1.8" ry="1.1" />
-            </g>
-            <rect class="walker-arm" x="3.4" y="10.2" width="2.5" height="6.2" rx="1.25" transform="rotate(-12 4.65 10.2)" />
-            <rect class="walker-arm" x="14.1" y="10.2" width="2.5" height="6.2" rx="1.25" transform="rotate(12 15.35 10.2)" />
-            <rect class="walker-torso" x="6.1" y="8.2" width="7.8" height="9" rx="2.8" />
-            <circle class="walker-head" cx="10" cy="5.1" r="3.3" />
-            <path class="walker-hair" d="M6.6 3.5 Q10 0.5 13.4 3.5 Q13.5 4.8 12.6 4.3 Q10 2.5 7.4 4.3 Q6.5 4.8 6.6 3.5 Z" />
-            <circle class="walker-eye" cx="8.6" cy="5.2" r="0.5" />
-            <circle class="walker-eye" cx="11.4" cy="5.2" r="0.5" />
+        <span class="door-medallion" aria-hidden="true">
+          <svg viewBox="0 0 24 24">
+            <circle class="medallion-ring" cx="12" cy="12" r="11" />
+            <path class="medallion-mark" d="M6 10 Q12 5 18 10" />
+            <path class="medallion-mark" d="M8 15 Q12 18 16 15" />
+            <circle class="medallion-eye" cx="8.5" cy="11" r="0.9" />
+            <circle class="medallion-eye" cx="15.5" cy="11" r="0.9" />
           </svg>
+        </span>
+        <span class="door-kickplate" aria-hidden="true"></span>
+        <span class="door-torch left" aria-hidden="true">
+          <svg viewBox="0 0 10 22">
+            <rect class="torch-sconce" x="3" y="12" width="4" height="9" rx="1" />
+            <path class="torch-flame" d="M5 0C5 0 8 4.5 8 7.5C8 9.5 6.7 11 5 11C3.3 11 2 9.5 2 7.5C2 4.5 5 0 5 0Z" />
+          </svg>
+        </span>
+        <span class="door-torch right" aria-hidden="true">
+          <svg viewBox="0 0 10 22">
+            <rect class="torch-sconce" x="3" y="12" width="4" height="9" rx="1" />
+            <path class="torch-flame" d="M5 0C5 0 8 4.5 8 7.5C8 9.5 6.7 11 5 11C3.3 11 2 9.5 2 7.5C2 4.5 5 0 5 0Z" />
+          </svg>
+        </span>
+        <span class="door-label">Corvus<span class="door-label-accent">D&amp;P</span></span>
+        <span class="door-subtitle">
+          <span>Design</span>
+          <span>Permitting</span>
+        </span>
+        <span class="door-detail">
+          <span class="door-cta">View CorvusD&amp;P
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
+          </span>
         </span>
       </a>
 
       <a class="door door-co" href="/corvusco/" style="--i:3">
-        <span class="door-panel">
+        <span class="door-panel" aria-hidden="true">
           <span class="door-hinge door-hinge-top" aria-hidden="true"></span>
           <span class="door-hinge door-hinge-bottom" aria-hidden="true"></span>
-          <span class="door-panel-field upper" aria-hidden="true"></span>
-          <span class="door-panel-field lower" aria-hidden="true"></span>
-          <span class="door-kickplate" aria-hidden="true"></span>
-          <span class="door-top">
-            <span class="door-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M4 8l8-5 8 5" /><rect x="4" y="8" width="16" height="12" rx="1" /><path d="M12 3v5" />
-              </svg>
-            </span>
-            <span class="door-badge door-badge-soon">Coming Soon</span>
-          </span>
-          <span class="door-label">CorvusCO</span>
-          <span class="door-detail">
-            <span class="door-tagline">Details coming soon.</span>
-            <span class="door-cta">View CorvusCO
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
-            </span>
-          </span>
+          <span class="door-panel-field-upper" aria-hidden="true"></span>
+          <span class="door-panel-field-lower" aria-hidden="true"></span>
           <span class="door-handle" aria-hidden="true"></span>
         </span>
-        <span class="door-walker" aria-hidden="true">
-          <svg class="walker-svg" viewBox="0 0 20 34">
-            <g class="walker-legs walker-legs-a">
-              <rect class="walker-leg" x="11" y="16.5" width="2.8" height="8.5" rx="1.4" />
-              <rect class="walker-leg" x="6.4" y="16.5" width="2.8" height="7.4" rx="1.4" />
-              <ellipse class="walker-shoe" cx="12.4" cy="25.3" rx="1.8" ry="1.1" />
-              <ellipse class="walker-shoe" cx="7.8" cy="24.2" rx="1.8" ry="1.1" />
-            </g>
-            <g class="walker-legs walker-legs-b">
-              <rect class="walker-leg" x="6.2" y="16.5" width="2.8" height="8.5" rx="1.4" />
-              <rect class="walker-leg" x="11.6" y="16.5" width="2.8" height="7.4" rx="1.4" />
-              <ellipse class="walker-shoe" cx="7.6" cy="25.3" rx="1.8" ry="1.1" />
-              <ellipse class="walker-shoe" cx="13" cy="24.2" rx="1.8" ry="1.1" />
-            </g>
-            <rect class="walker-arm" x="3.4" y="10.2" width="2.5" height="6.2" rx="1.25" transform="rotate(-12 4.65 10.2)" />
-            <rect class="walker-arm" x="14.1" y="10.2" width="2.5" height="6.2" rx="1.25" transform="rotate(12 15.35 10.2)" />
-            <rect class="walker-torso" x="6.1" y="8.2" width="7.8" height="9" rx="2.8" />
-            <circle class="walker-head" cx="10" cy="5.1" r="3.3" />
-            <path class="walker-hair" d="M6.6 3.5 Q10 0.5 13.4 3.5 Q13.5 4.8 12.6 4.3 Q10 2.5 7.4 4.3 Q6.5 4.8 6.6 3.5 Z" />
-            <circle class="walker-eye" cx="8.6" cy="5.2" r="0.5" />
-            <circle class="walker-eye" cx="11.4" cy="5.2" r="0.5" />
+        <span class="door-medallion" aria-hidden="true">
+          <svg viewBox="0 0 24 24">
+            <circle class="medallion-ring" cx="12" cy="12" r="11" />
+            <path class="medallion-mark" d="M6 10 Q12 5 18 10" />
+            <path class="medallion-mark" d="M8 15 Q12 18 16 15" />
+            <circle class="medallion-eye" cx="8.5" cy="11" r="0.9" />
+            <circle class="medallion-eye" cx="15.5" cy="11" r="0.9" />
           </svg>
+        </span>
+        <span class="door-kickplate" aria-hidden="true"></span>
+        <span class="door-torch left" aria-hidden="true">
+          <svg viewBox="0 0 10 22">
+            <rect class="torch-sconce" x="3" y="12" width="4" height="9" rx="1" />
+            <path class="torch-flame" d="M5 0C5 0 8 4.5 8 7.5C8 9.5 6.7 11 5 11C3.3 11 2 9.5 2 7.5C2 4.5 5 0 5 0Z" />
+          </svg>
+        </span>
+        <span class="door-torch right" aria-hidden="true">
+          <svg viewBox="0 0 10 22">
+            <rect class="torch-sconce" x="3" y="12" width="4" height="9" rx="1" />
+            <path class="torch-flame" d="M5 0C5 0 8 4.5 8 7.5C8 9.5 6.7 11 5 11C3.3 11 2 9.5 2 7.5C2 4.5 5 0 5 0Z" />
+          </svg>
+        </span>
+        <span class="door-label">Corvus<span class="door-label-accent">CO</span></span>
+        <span class="door-subtitle">
+          <span>Construction</span>
+        </span>
+        <span class="door-detail">
+          <span class="door-cta">View CorvusCO
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
+          </span>
         </span>
       </a>
 
       <a class="door door-rf" href="/corvusrf/" style="--i:4">
-        <span class="door-panel">
+        <span class="door-panel" aria-hidden="true">
           <span class="door-hinge door-hinge-top" aria-hidden="true"></span>
           <span class="door-hinge door-hinge-bottom" aria-hidden="true"></span>
-          <span class="door-panel-field upper" aria-hidden="true"></span>
-          <span class="door-panel-field lower" aria-hidden="true"></span>
-          <span class="door-kickplate" aria-hidden="true"></span>
-          <span class="door-top">
-            <span class="door-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M4 8l8-5 8 5" /><rect x="4" y="8" width="16" height="12" rx="1" /><path d="M12 3v5" />
-              </svg>
-            </span>
-            <span class="door-badge door-badge-soon">Coming Soon</span>
-          </span>
-          <span class="door-label">CorvusRF</span>
-          <span class="door-detail">
-            <span class="door-tagline">Details coming soon.</span>
-            <span class="door-cta">View CorvusRF
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
-            </span>
-          </span>
+          <span class="door-panel-field-upper" aria-hidden="true"></span>
+          <span class="door-panel-field-lower" aria-hidden="true"></span>
           <span class="door-handle" aria-hidden="true"></span>
         </span>
-        <span class="door-walker" aria-hidden="true">
-          <svg class="walker-svg" viewBox="0 0 20 34">
-            <g class="walker-legs walker-legs-a">
-              <rect class="walker-leg" x="11" y="16.5" width="2.8" height="8.5" rx="1.4" />
-              <rect class="walker-leg" x="6.4" y="16.5" width="2.8" height="7.4" rx="1.4" />
-              <ellipse class="walker-shoe" cx="12.4" cy="25.3" rx="1.8" ry="1.1" />
-              <ellipse class="walker-shoe" cx="7.8" cy="24.2" rx="1.8" ry="1.1" />
-            </g>
-            <g class="walker-legs walker-legs-b">
-              <rect class="walker-leg" x="6.2" y="16.5" width="2.8" height="8.5" rx="1.4" />
-              <rect class="walker-leg" x="11.6" y="16.5" width="2.8" height="7.4" rx="1.4" />
-              <ellipse class="walker-shoe" cx="7.6" cy="25.3" rx="1.8" ry="1.1" />
-              <ellipse class="walker-shoe" cx="13" cy="24.2" rx="1.8" ry="1.1" />
-            </g>
-            <rect class="walker-arm" x="3.4" y="10.2" width="2.5" height="6.2" rx="1.25" transform="rotate(-12 4.65 10.2)" />
-            <rect class="walker-arm" x="14.1" y="10.2" width="2.5" height="6.2" rx="1.25" transform="rotate(12 15.35 10.2)" />
-            <rect class="walker-torso" x="6.1" y="8.2" width="7.8" height="9" rx="2.8" />
-            <circle class="walker-head" cx="10" cy="5.1" r="3.3" />
-            <path class="walker-hair" d="M6.6 3.5 Q10 0.5 13.4 3.5 Q13.5 4.8 12.6 4.3 Q10 2.5 7.4 4.3 Q6.5 4.8 6.6 3.5 Z" />
-            <circle class="walker-eye" cx="8.6" cy="5.2" r="0.5" />
-            <circle class="walker-eye" cx="11.4" cy="5.2" r="0.5" />
+        <span class="door-medallion" aria-hidden="true">
+          <svg viewBox="0 0 24 24">
+            <circle class="medallion-ring" cx="12" cy="12" r="11" />
+            <path class="medallion-mark" d="M6 10 Q12 5 18 10" />
+            <path class="medallion-mark" d="M8 15 Q12 18 16 15" />
+            <circle class="medallion-eye" cx="8.5" cy="11" r="0.9" />
+            <circle class="medallion-eye" cx="15.5" cy="11" r="0.9" />
           </svg>
+        </span>
+        <span class="door-kickplate" aria-hidden="true"></span>
+        <span class="door-torch left" aria-hidden="true">
+          <svg viewBox="0 0 10 22">
+            <rect class="torch-sconce" x="3" y="12" width="4" height="9" rx="1" />
+            <path class="torch-flame" d="M5 0C5 0 8 4.5 8 7.5C8 9.5 6.7 11 5 11C3.3 11 2 9.5 2 7.5C2 4.5 5 0 5 0Z" />
+          </svg>
+        </span>
+        <span class="door-torch right" aria-hidden="true">
+          <svg viewBox="0 0 10 22">
+            <rect class="torch-sconce" x="3" y="12" width="4" height="9" rx="1" />
+            <path class="torch-flame" d="M5 0C5 0 8 4.5 8 7.5C8 9.5 6.7 11 5 11C3.3 11 2 9.5 2 7.5C2 4.5 5 0 5 0Z" />
+          </svg>
+        </span>
+        <span class="door-label">Corvus<span class="door-label-accent">RF</span></span>
+        <span class="door-subtitle">
+          <span>Real Estate</span>
+          <span>Finance</span>
+        </span>
+        <span class="door-detail">
+          <span class="door-cta">View CorvusRF
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
+          </span>
         </span>
       </a>
     </nav>
@@ -292,71 +254,192 @@
       &copy; <span id="year"></span> CorvusRE.
     </div>
   </footer>
+
+  <!-- Invite-Only Beta lead form — every door opens this instead of
+       navigating, since there's no live product to send anyone to yet.
+       Each door's href stays in place only as a plain-link/no-JS
+       fallback. Submits via Web3Forms (same service the main app already
+       uses for staff notifications), so this needs no backend of its own. -->
+  <dialog class="beta-dialog" id="betaDialog" aria-labelledby="betaDialogTitle">
+    <button type="button" class="beta-dialog-close" id="betaDialogClose" aria-label="Close">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg>
+    </button>
+    <div class="beta-dialog-panel">
+      <div id="betaFormView">
+        <h2 id="betaDialogTitle">Request Beta Access</h2>
+        <p class="beta-dialog-sub" id="betaDialogSub">CorvusRE is currently invite-only. Tell us a bit about you and we'll follow up.</p>
+        <form id="betaForm" novalidate>
+          <input type="hidden" name="access_key" value="5a66f800-1264-49a2-9696-2839afd02485" />
+          <input type="hidden" name="subject" value="New CorvusRE beta request" />
+          <input type="hidden" name="from_name" value="CorvusRE hub" />
+          <input type="hidden" name="source_door" id="betaSourceDoor" value="" />
+          <label class="beta-field">
+            <span>Full Name</span>
+            <input type="text" name="full_name" required autocomplete="name" />
+          </label>
+          <label class="beta-field">
+            <span>Work Email</span>
+            <input type="email" name="work_email" required autocomplete="email" />
+          </label>
+          <label class="beta-field">
+            <span>Company / Organization</span>
+            <input type="text" name="company" required autocomplete="organization" />
+          </label>
+          <fieldset class="beta-field beta-radio-group">
+            <legend>What area are you most interested in?</legend>
+            <label><input type="checkbox" name="area_of_interest" value="Property Tax Protest" /><span>Property Tax Protest</span></label>
+            <label><input type="checkbox" name="area_of_interest" value="Property Tax Management" /><span>Property Tax Management</span></label>
+            <label><input type="checkbox" name="area_of_interest" value="Permitting, Design" /><span>Permitting, Design</span></label>
+            <label><input type="checkbox" name="area_of_interest" value="Buying, Selling &amp; Leasing" /><span>Buying, Selling &amp; Leasing</span></label>
+            <label><input type="checkbox" name="area_of_interest" value="Construction" /><span>Construction</span></label>
+            <label><input type="checkbox" name="area_of_interest" value="Real Estate Finance" /><span>Real Estate Finance</span></label>
+          </fieldset>
+          <label class="beta-field">
+            <span>What would you most like to use the platform for? <em>(short answer)</em></span>
+            <textarea name="use_case" rows="3"></textarea>
+          </label>
+          <p class="beta-form-error" id="betaFormError" role="alert" hidden></p>
+          <button type="submit" class="beta-submit" id="betaSubmit">Request Beta Access</button>
+        </form>
+      </div>
+      <div id="betaSuccessView" hidden>
+        <h2>Thanks — request received.</h2>
+        <p>We'll follow up at the email you provided as beta access opens up.</p>
+        <button type="button" class="beta-submit" id="betaSuccessClose">Close</button>
+      </div>
+    </div>
+  </dialog>
+
   <script>
     document.getElementById("year").textContent = new Date().getFullYear();
 
-    // Click (or Enter/Space while focused) plays the door swinging open,
-    // THEN navigates — rather than navigating instantly like a plain link.
-    // Middle-clicks / ctrl/cmd/shift-clicks (open in new tab) are left
-    // alone so that standard browser behavior still works.
-    var doorsNav = document.querySelector(".doors");
-    var reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    document.querySelectorAll(".door").forEach(function (door) {
-      door.addEventListener("click", function (event) {
-        if (event.defaultPrevented || event.button === 1 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
-          return;
+    (function () {
+      var dialog = document.getElementById("betaDialog");
+      var closeBtn = document.getElementById("betaDialogClose");
+      var successCloseBtn = document.getElementById("betaSuccessClose");
+      var form = document.getElementById("betaForm");
+      var formView = document.getElementById("betaFormView");
+      var successView = document.getElementById("betaSuccessView");
+      var errorEl = document.getElementById("betaFormError");
+      var submitBtn = document.getElementById("betaSubmit");
+      var sourceDoorInput = document.getElementById("betaSourceDoor");
+      var subtitleEl = document.getElementById("betaDialogSub");
+      if (!dialog || !form) return;
+
+      // Each door maps to exactly one interest option except CorvusPT,
+      // which covers both "Property Tax Protest" and "Property Tax
+      // Management" — ambiguous, so PT is deliberately left out here and
+      // that door opens with nothing pre-selected.
+      var DOOR_AREAS = {
+        "door-bsl": "Buying, Selling & Leasing",
+        "door-dp": "Permitting, Design",
+        "door-co": "Construction",
+        "door-rf": "Real Estate Finance"
+      };
+      var DOOR_NAMES = {
+        "door-pt": "CorvusPT",
+        "door-bsl": "CorvusBSL",
+        "door-dp": "CorvusD&P",
+        "door-co": "CorvusCO",
+        "door-rf": "CorvusRF"
+      };
+
+      function doorKey(door) {
+        for (var i = 0; i < door.classList.length; i++) {
+          if (DOOR_NAMES[door.classList[i]]) return door.classList[i];
         }
-        var href = door.getAttribute("href");
-        if (!href) return;
-        event.preventDefault();
-        if (reduceMotion) {
-          window.location.href = href;
-          return;
-        }
-        if (door.classList.contains("is-open")) return;
-        door.classList.add("is-open");
-        if (doorsNav) doorsNav.classList.add("has-open");
-        var navigated = false;
-        var go = function () {
-          if (navigated) return;
-          navigated = true;
-          window.location.href = href;
-        };
-        var panel = door.querySelector(".door-panel");
-        if (panel) {
-          // .door-panel transitions transform (0.65s), background-position
-          // and box-shadow (0.5s each) together — an unfiltered
-          // "transitionend" fires on whichever finishes FIRST, which is one
-          // of the 0.5s ones, cutting the swing (and the walker's own
-          // animation) short by ~150ms. Wait specifically for "transform".
-          panel.addEventListener("transitionend", function onSwingEnd(event) {
-            // transitionend bubbles — .door-icon has its own, shorter
-            // (0.4s) "transform" transition for its hover bounce, and
-            // without the target check that bubbled event satisfies
-            // propertyName==="transform" ~250ms before the panel's own
-            // swing (0.65s) actually finishes, firing "go" way too early.
-            if (event.target !== panel || event.propertyName !== "transform") return;
-            panel.removeEventListener("transitionend", onSwingEnd);
-            go();
+        return null;
+      }
+
+      function resetForm() {
+        form.reset();
+        errorEl.hidden = true;
+        errorEl.textContent = "";
+        submitBtn.disabled = false;
+        submitBtn.textContent = "Request Beta Access";
+        formView.hidden = false;
+        successView.hidden = true;
+      }
+
+      function openForDoor(door) {
+        resetForm();
+        var key = doorKey(door);
+        var productName = (key && DOOR_NAMES[key]) || "CorvusRE";
+        sourceDoorInput.value = productName;
+        subtitleEl.textContent = "CorvusRE is currently invite-only. Tell us a bit about you and we'll follow up about " + productName + ".";
+        var area = key && DOOR_AREAS[key];
+        if (area) {
+          form.querySelectorAll('input[name="area_of_interest"]').forEach(function (radio) {
+            radio.checked = radio.value === area;
           });
         }
-        setTimeout(go, 750);
-      });
-    });
+        dialog.showModal();
+      }
 
-    // A clicked door is left mid-swing (rotated past 90deg, so invisible
-    // via backface-visibility) right before we navigate away. Browsers
-    // often restore that exact frozen DOM on back-navigation instead of
-    // reloading (bfcache) — without this, coming back shows the door stuck
-    // open/invisible. "pageshow" fires on both fresh loads and bfcache
-    // restores; only reset state on the latter (event.persisted).
-    window.addEventListener("pageshow", function (event) {
-      if (!event.persisted) return;
-      document.querySelectorAll(".door.is-open").forEach(function (door) {
-        door.classList.remove("is-open");
+      document.querySelectorAll(".door").forEach(function (door) {
+        door.addEventListener("click", function (event) {
+          if (event.defaultPrevented || event.button === 1 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+            return;
+          }
+          event.preventDefault();
+          openForDoor(door);
+        });
       });
-      if (doorsNav) doorsNav.classList.remove("has-open");
-    });
+
+      closeBtn.addEventListener("click", function () {
+        dialog.close();
+      });
+      successCloseBtn.addEventListener("click", function () {
+        dialog.close();
+      });
+      // A click that lands on the ::backdrop registers as a click on the
+      // dialog element itself (nothing inside it), so this alone
+      // distinguishes a backdrop click with no extra bookkeeping.
+      dialog.addEventListener("click", function (event) {
+        if (event.target === dialog) dialog.close();
+      });
+
+      form.addEventListener("submit", function (event) {
+        event.preventDefault();
+        errorEl.hidden = true;
+
+        // Checkboxes (not radios, now that multiple areas can be picked)
+        // have no native "at least one checked" validation, so that's
+        // enforced here instead.
+        var checkedAreas = Array.prototype.map.call(
+          form.querySelectorAll('input[name="area_of_interest"]:checked'),
+          function (el) { return el.value; }
+        );
+        if (checkedAreas.length === 0) {
+          errorEl.textContent = "Please select at least one area of interest.";
+          errorEl.hidden = false;
+          return;
+        }
+
+        submitBtn.disabled = true;
+        submitBtn.textContent = "Sending…";
+        var formData = new FormData(form);
+        // Replace the individual same-named checkbox entries with one
+        // clean, comma-joined value so the notification email shows a
+        // readable list instead of several repeated "area_of_interest"
+        // fields.
+        formData.delete("area_of_interest");
+        formData.set("area_of_interest", checkedAreas.join(", "));
+        fetch("https://api.web3forms.com/submit", { method: "POST", body: formData })
+          .then(function (res) { return res.json(); })
+          .then(function (data) {
+            if (!data.success) throw new Error(data.message || "Submission failed.");
+            formView.hidden = true;
+            successView.hidden = false;
+          })
+          .catch(function (err) {
+            errorEl.textContent = "Something went wrong sending your request — please try again." + (err && err.message ? " (" + err.message + ")" : "");
+            errorEl.hidden = false;
+            submitBtn.disabled = false;
+            submitBtn.textContent = "Request Beta Access";
+          });
+      });
+    })();
   </script>
 </body>
 </html>
