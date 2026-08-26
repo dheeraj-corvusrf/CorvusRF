@@ -17,6 +17,11 @@ export type Module = {
   id: string;
   n: number;
   title: string;
+  // Short journey-stage name (e.g. "Protest Opportunity") — the label used
+  // for this module in the 10-module chain (Opportunity → Strategy →
+  // Investigation → Evidence → Value → Savings → Recommendation), distinct
+  // from `title`'s longer, more descriptive product name.
+  shortName: string;
   question: string;
   status: "Analyzing" | "Completed" | "Additional Data Needed";
   teaser: string;
@@ -30,6 +35,7 @@ export const MODULES: Module[] = [
     id: "health",
     n: 1,
     title: "AI Property Health Score",
+    shortName: "Protest Opportunity",
     question: "Should I protest my property?",
     status: "Completed",
     teaser: "AI-generated protest opportunity score based on your property's official CAD valuation record.",
@@ -40,6 +46,7 @@ export const MODULES: Module[] = [
     id: "strategy",
     n: 2,
     title: "AI Recommended Protest Strategy",
+    shortName: "Protest Strategy",
     question: "What is the best strategy to reduce my property taxes?",
     status: "Completed",
     teaser: "AI-recommended approach — market value, unequal appraisal, or condition-based reduction — for your CAD record.",
@@ -50,6 +57,7 @@ export const MODULES: Module[] = [
     id: "comps",
     n: 3,
     title: "Comparable Sales & Market Analysis",
+    shortName: "Market Value",
     question: "How does my property compare with similar nearby commercial properties?",
     status: "Completed",
     teaser: "AI guidance on what comparable-sale and equity evidence to gather for this property type and county.",
@@ -60,6 +68,7 @@ export const MODULES: Module[] = [
     id: "site",
     n: 4,
     title: "Site Condition Analysis",
+    shortName: "Site Condition",
     question: "Are there land or site-related issues that could support a lower valuation?",
     status: "Completed",
     teaser: "AI checklist of site factors — access, drainage, easements — worth documenting for this property type.",
@@ -70,6 +79,7 @@ export const MODULES: Module[] = [
     id: "improvement",
     n: 5,
     title: "Improvement Condition Analysis",
+    shortName: "Improvement Condition",
     question: "Is the building being valued fairly based on its age and condition?",
     status: "Completed",
     teaser: "AI checklist of condition and functional-obsolescence factors worth documenting for this property.",
@@ -80,6 +90,7 @@ export const MODULES: Module[] = [
     id: "zoning",
     n: 6,
     title: "Zoning & Property Classification Review",
+    shortName: "Zoning & Classification",
     question: "Is the property being assessed under the correct zoning and classification?",
     status: "Completed",
     teaser: "AI assessment of whether your CAD classification appears consistent with the stated property type.",
@@ -90,6 +101,7 @@ export const MODULES: Module[] = [
     id: "income",
     n: 7,
     title: "Income Approach & P&L Analysis",
+    shortName: "Income Value",
     question: "Does the property's income support its current assessed value?",
     status: "Additional Data Needed",
     teaser: "Requires P&L, rent roll, or operating statement to complete.",
@@ -101,6 +113,7 @@ export const MODULES: Module[] = [
     id: "evidence",
     n: 8,
     title: "AI Evidence Builder",
+    shortName: "Evidence Building",
     question: "What evidence may provide the strongest support for a protest?",
     status: "Completed",
     teaser: "AI-prioritized evidence checklist for your protest packet.",
@@ -111,6 +124,7 @@ export const MODULES: Module[] = [
     id: "savings",
     n: 9,
     title: "Estimated Tax Savings & ROI",
+    shortName: "Estimated Savings",
     question: "How much could I potentially save, and is filing a protest worthwhile?",
     status: "Completed",
     teaser: "Modeled from real comparable properties or published Texas protest-outcome data, at your county's real effective tax rate — not an AI guess.",
@@ -121,6 +135,7 @@ export const MODULES: Module[] = [
     id: "executive",
     n: 10,
     title: "AI Executive Protest Report",
+    shortName: "Executive Protest Recommendation",
     question: "What is the final AI recommendation and what should I do next?",
     status: "Completed",
     teaser: "AI executive summary with a recommended next step, synthesized from the other modules.",

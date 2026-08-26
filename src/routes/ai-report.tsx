@@ -550,9 +550,8 @@ function Report() {
           }
           return printable.map((m) => (
             <div key={m.id} className="mt-6" style={{ breakInside: "avoid" }}>
-              <h3 className="font-serif text-lg font-semibold">
-                {m.n}. {m.title}
-              </h3>
+              <h3 className="font-serif text-lg font-semibold">{m.shortName}</h3>
+              <div className="text-xs font-medium text-muted-foreground">{m.title}</div>
               <p className="text-sm text-muted-foreground">{m.question}</p>
               <ModulePreviewBody
                 m={m}
@@ -576,7 +575,8 @@ function Report() {
       {openModel && (
         <Modal onClose={() => setOpenId(null)}>
           <span className="badge-soft">{hasFullAccess ? "Unlocked" : "Free Preview"}</span>
-          <h3 className="mt-2 font-serif text-2xl font-semibold">{openModel.title}</h3>
+          <h3 className="mt-2 font-serif text-2xl font-semibold">{openModel.shortName}</h3>
+          <div className="text-sm font-medium text-muted-foreground">{openModel.title}</div>
           <p className="text-muted-foreground">{openModel.question}</p>
           <ModulePreviewBody
             m={openModel}
@@ -707,7 +707,8 @@ function ModuleCard({
             <m.icon className="h-4 w-4" />
           </span>
           <div className="min-w-0">
-            <h3 className="font-semibold leading-tight">{m.title}</h3>
+            <h3 className="font-semibold leading-tight">{m.shortName}</h3>
+            <div className="text-xs font-medium text-muted-foreground">{m.title}</div>
           </div>
         </div>
         <StatusChip status={status} />

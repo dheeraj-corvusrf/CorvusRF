@@ -10,7 +10,7 @@ const NAV = [
   { to: "/how-it-works", label: "How It Works" },
   { to: "/property-protest", label: "Protest" },
   { to: "/bpp-rendition", label: "Personal Property" },
-  { to: "/tax-payment", label: "Pay Tax" },
+  { to: "/tax-payment", label: "Pay Taxes" },
   { to: "/pricing", label: "Pricing" },
   { to: "/contact", label: "Contact Us" },
 ] as const;
@@ -251,76 +251,24 @@ export function SiteNav() {
   );
 }
 
+// Trimmed down to just the copyright/coverage line — the full multi-column
+// footer (logo blurb + Platform/Services/Company link columns) was removed
+// site-wide as redundant with the top nav, but this bottom line stays as the
+// one place stating real county coverage.
 export function SiteFooter() {
   return (
     <footer className="border-t border-border/70 bg-secondary/40">
-      <div className="container-page grid gap-8 py-12 md:grid-cols-4">
-        <div>
-          <div className="flex items-center gap-2">
-            <LogoMark />
-            <span className="font-serif text-lg font-semibold">
-              Corvus<span className="text-emerald-600 dark:text-emerald-400">PT</span>
-              <span className="text-accent">.ai</span>
-            </span>
-          </div>
-          <p className="mt-3 text-sm text-muted-foreground">
-            Texas property tax help, powered by AI. Real property protest, BPP, payments, and
-            savings — one platform.
-          </p>
-        </div>
-        <FooterCol
-          title="Platform"
-          links={[
-            ["Property Tax Management", "/property-tax-management"],
-            ["How It Works", "/how-it-works"],
-            ["Pricing", "/pricing"],
-          ]}
-        />
-        <FooterCol
-          title="Services"
-          links={[
-            ["Protest", "/property-protest"],
-            ["Personal Property", "/bpp-rendition"],
-            ["Pay Tax", "/tax-payment"],
-          ]}
-        />
-        <FooterCol
-          title="Company"
-          links={[
-            ["Contact Us", "/contact"],
-            ["Sign In", "/sign-in"],
-          ]}
-        />
-      </div>
-      <div className="border-t border-border/70">
-        <div className="container-page py-5 text-xs text-muted-foreground flex flex-wrap justify-between gap-2">
-          <span>© {new Date().getFullYear()} CorvusPT.ai — Texas Property Tax AI.</span>
-          <span>Serving all 254 Texas counties.</span>
-        </div>
+      <div className="container-page py-5 text-xs text-muted-foreground flex flex-wrap justify-between gap-2">
+        <span>
+          © {new Date().getFullYear()} CorvusPT.ai — Texas Property Tax AI. All rights reserved.
+        </span>
+        {/* Matches supabase/functions/cad-lookup/index.ts's countyQueriesInOrder
+            (Collin, Montgomery, Denton, Harris, Tarrant, Fort Bend, Williamson,
+            Grayson, Travis, Bexar, Dallas) — the real counties with a live data
+            source, not an aspirational "all 254" claim. */}
+        <span>Serving 11 Texas counties.</span>
       </div>
     </footer>
-  );
-}
-
-function FooterCol({ title, links }: { title: string; links: [string, string][] }) {
-  const pathname = useRouterState({ select: (s) => s.location.pathname });
-  return (
-    <div>
-      <h4 className="text-sm font-semibold text-foreground">{title}</h4>
-      <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
-        {links.map(([label, to]) => (
-          <li key={to}>
-            <Link
-              to={to}
-              search={to === "/sign-in" ? { redirect: pathname } : undefined}
-              className="hover:text-foreground"
-            >
-              {label}
-            </Link>
-          </li>
-        ))}
-      </ul>
-    </div>
   );
 }
 

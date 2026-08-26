@@ -81,6 +81,18 @@ function formatAddress(r: NominatimResult): string | null {
   return formatted || null;
 }
 
+// Texas road names are commonly typed without a space before the number
+// ("FM1957", "CR304", "Loop410"), but Nominatim's search tokenizes on
+// whitespace and returns zero results unless it's "FM 1957" — confirmed via
+// direct testing (FM1957 → [], FM 1957 → the real road; same for CR/Loop).
+// Insert the space Nominatim needs without changing what the user sees or
+// types.
+const TX_ROAD_PREFIX = /\b(FM|RM|CR|SH|US|IH|LP|LOOP|SPUR)(\d)/gi;
+
+function normalizeForNominatim(query: string): string {
+  return query.replace(TX_ROAD_PREFIX, "$1 $2");
+}
+
 async function fetchSuggestions(query: string, signal: AbortSignal): Promise<Suggestion[]> {
   const params = new URLSearchParams({
     format: "jsonv2",
@@ -89,7 +101,7 @@ async function fetchSuggestions(query: string, signal: AbortSignal): Promise<Sug
     viewbox: TEXAS_VIEWBOX,
     bounded: "1",
     limit: "8",
-    q: query,
+    q: normalizeForNominatim(query),
   });
   const res = await fetch(`https://nominatim.openstreetmap.org/search?${params}`, { signal });
   if (!res.ok) throw new Error(`Nominatim request failed: ${res.status}`);
@@ -122,6 +134,7 @@ export function AddressAutocomplete({
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
+  const [error, setError] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -159,6 +172,7 @@ export function AddressAutocomplete({
     if (query.trim().length < MIN_QUERY_LENGTH) {
       setSuggestions([]);
       setOpen(false);
+      setError(false);
       return;
     }
 
@@ -168,10 +182,20 @@ export function AddressAutocomplete({
       try {
         const results = await fetchSuggestions(query, controller.signal);
         setSuggestions(results);
+        setError(false);
         setOpen(results.length > 0);
         setActiveIndex(-1);
       } catch (err) {
-        if ((err as Error).name !== "AbortError") console.error(err);
+        if ((err as Error).name === "AbortError") return;
+        // Silently console.error-only left this fully invisible to the user —
+        // identical to "no results found," so a blocked/failed request (ad
+        // blocker, network issue, Nominatim down) looked exactly like there
+        // being nothing at this address. Surface it instead so it's at least
+        // diagnosable, without blocking typing or manual submission.
+        console.error(err);
+        setSuggestions([]);
+        setError(true);
+        setOpen(true);
       }
     }, DEBOUNCE_MS);
   }
@@ -180,6 +204,7 @@ export function AddressAutocomplete({
     onChange(s.label);
     onPlaceSelected?.(s.label);
     setSuggestions([]);
+    setError(false);
     setOpen(false);
     setActiveIndex(-1);
   }
@@ -206,7 +231,7 @@ export function AddressAutocomplete({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         onFocus={() => {
-          if (suggestions.length > 0) setOpen(true);
+          if (suggestions.length > 0 || error) setOpen(true);
         }}
         onKeyDown={onKeyDown}
         placeholder={placeholder}
@@ -225,6 +250,12 @@ export function AddressAutocomplete({
           role="listbox"
           className="absolute z-20 mt-1 w-full max-h-64 overflow-auto rounded-md border border-border bg-background text-sm text-foreground shadow-elev"
         >
+          {error && (
+            <li role="presentation" className="px-4 py-2 text-muted-foreground">
+              Couldn&apos;t load address suggestions right now — you can still type the full
+              address and submit.
+            </li>
+          )}
           {suggestions.map((s, i) => (
             <li key={s.id} role="presentation">
               <button
