@@ -8,8 +8,7 @@ import {
   updateUserPlan,
   updateUserAdminStatus,
   deleteUserAccount,
-  buildSignupInviteLink,
-  buildInviteMailto,
+  createUserAccount,
   listAllProtests,
   updateProtestStatus,
   updateProtestNotes,
@@ -253,7 +252,12 @@ function AdminPanel() {
             Manage every user, their properties, and their plan.
           </p>
 
-          <AddUserForm />
+          <AddUserForm
+            onCreated={(u) => {
+              setUsers((prev) => [u, ...prev]);
+              refreshAuditLog();
+            }}
+          />
 
           {usersError && <p className="mt-4 text-sm text-destructive">{usersError}</p>}
 
@@ -352,26 +356,35 @@ function AdminPanel() {
   );
 }
 
-function AddUserForm() {
+function AddUserForm({ onCreated }: { onCreated: (u: AdminUserRecord) => void }) {
   const [open, setOpen] = useState(false);
   const [email, setEmail] = useState("");
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  // No account is created here — see buildSignupInviteLink's doc comment
-  // in src/lib/admin.ts. This just gets the link in front of the invitee
-  // however the admin sends it (clipboard is the reliable path; mailto is
-  // a bonus if they have a mail client configured for it).
-  function onSubmit(e: React.FormEvent) {
+  async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    const signupUrl = buildSignupInviteLink({ email, firstName, lastName });
-    navigator.clipboard?.writeText(signupUrl).catch(() => {});
-    window.location.href = buildInviteMailto({ toEmail: email, firstName, signupUrl });
-    toast.success(`Invite link copied to your clipboard for ${email}.`);
-    setOpen(false);
-    setEmail("");
-    setFirstName("");
-    setLastName("");
+    setError(null);
+    setSubmitting(true);
+    try {
+      await createUserAccount({ email, firstName, lastName, phone });
+      const updated = await listAllUsers();
+      const created = updated.find((u) => u.email === email);
+      if (created) onCreated(created);
+      toast.success("Invite sent.");
+      setOpen(false);
+      setEmail("");
+      setFirstName("");
+      setLastName("");
+      setPhone("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not send the invite.");
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   if (!open) {
@@ -412,12 +425,24 @@ function AddUserForm() {
           className="rounded-md border border-input bg-background px-3 py-2"
         />
       </label>
+      <label className="grid gap-1 text-sm">
+        <span className="font-medium">Phone</span>
+        <input
+          required
+          value={phone}
+          onChange={(e) => setPhone(e.target.value)}
+          className="rounded-md border border-input bg-background px-3 py-2"
+        />
+      </label>
       <p className="sm:col-span-2 text-xs text-muted-foreground">
-        Copies a sign-up link to your clipboard (and tries to open your email client) — no account
-        exists until they actually finish signing up themselves, with their own password or Google.
+        We'll email them a link to confirm their address and set their own password — you never
+        choose or see it.
       </p>
+      {error && <p className="sm:col-span-2 text-sm text-destructive">{error}</p>}
       <div className="sm:col-span-2 flex gap-2">
-        <button className="btn-primary btn-primary-hover">Copy Invite Link</button>
+        <button disabled={submitting} className="btn-primary btn-primary-hover disabled:opacity-60">
+          {submitting ? "Sending…" : "Send Invite"}
+        </button>
         <button type="button" onClick={() => setOpen(false)} className="btn-outline">
           Cancel
         </button>
@@ -963,32 +988,21 @@ function BetaLeadRow({
   const [inviting, setInviting] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
-  // Same link-only invite AddUserForm above uses (see buildSignupInviteLink
-  // in src/lib/admin.ts) — no account created here, just a prefilled
-  // sign-up link copied/mailto'd to the lead. wantsBeta:true pre-checks
-  // their sign-up form's beta-plan checkbox, since that's the whole point
-  // of this list. Splits the lead's one free-text name into first/last;
+  // Real account invite via the same admin-create-user edge function/
+  // inviteUserByEmail flow AddUserForm above uses — Supabase's own invite
+  // email carries the actual link into the app, not a second bespoke email
+  // system. Splits the lead's one free-text name into first/last since
+  // createUserAccount (like the rest of the app) expects them separately;
   // a single-word name becomes both.
   async function handleInvite() {
     setInviting(true);
     try {
       const [firstName, ...rest] = lead.fullName.trim().split(/\s+/);
       const lastName = rest.join(" ") || firstName;
-      const signupUrl = buildSignupInviteLink({
-        email: lead.workEmail,
-        firstName,
-        lastName,
-        wantsBeta: true,
-      });
-      navigator.clipboard?.writeText(signupUrl).catch(() => {});
-      window.location.href = buildInviteMailto({
-        toEmail: lead.workEmail,
-        firstName,
-        signupUrl,
-      });
+      await createUserAccount({ email: lead.workEmail, firstName, lastName, phone: "" });
       const invitedAt = await markBetaLeadInvited(lead.id);
       onInvited(lead.id, invitedAt);
-      toast.success(`Invite link copied to your clipboard for ${lead.workEmail}.`);
+      toast.success(`Invite sent to ${lead.workEmail}.`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not record the invite.");
     } finally {
