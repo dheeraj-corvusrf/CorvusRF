@@ -183,10 +183,10 @@ body.doors-page footer {
   color: #fff;
   text-decoration: none;
   overflow: hidden;
-  background: var(--secondary);
+  background: oklch(0.08 0.01 258);
   box-shadow:
-    inset 0 0 0 0.5rem oklch(0.2 0.03 258),
-    inset 0 0 0 0.625rem oklch(1 0 0 / 0.1);
+    inset 0 0 0 0.5rem oklch(0.11 0.015 258),
+    inset 0 0 0 0.625rem oklch(1 0 0 / 0.06);
   perspective: 1500px;
   cursor: pointer;
 }
@@ -202,13 +202,33 @@ body.doors-page footer {
   box-shadow: inset 0 0 0 1px oklch(1 0 0 / 0.14);
   transition: transform 0.65s cubic-bezier(0.6, 0, 0.35, 1), box-shadow 0.5s ease;
 }
-/* Raised/routed panel fields, like a real two-panel wood door — the dual
-   inset shadows (dark toward bottom-right, light toward top-left) read as
-   an engraved bevel rather than a flat outline. Split into a short upper
-   panel and a taller lower panel (classic door proportions) rather than
-   one big field. */
+/* Thin glowing light strip tracing the top and both sides of the door leaf
+   (no bottom edge, matching a real recessed-LED door frame) — each door's
+   own --door-glow doubles as the strip color, same as the label accent, so
+   the glow itself carries each door's identity. Lives on the leaf (not the
+   doorway) so it swings open together with it on hover/click. Three 1D
+   gradients (one per edge) rather than a box-shadow, since box-shadow can't
+   omit a single side; the drop-shadow blur is what actually reads as "glow"
+   rather than a flat line. */
+.door-panel::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  background:
+    linear-gradient(to right, var(--door-glow, #fff), var(--door-glow, #fff)) top / 100% 3px no-repeat,
+    linear-gradient(to bottom, var(--door-glow, #fff), var(--door-glow, #fff)) left / 3px 100% no-repeat,
+    linear-gradient(to bottom, var(--door-glow, #fff), var(--door-glow, #fff)) right / 3px 100% no-repeat;
+  filter: drop-shadow(0 0 3px var(--door-glow, #fff))
+    drop-shadow(0 0 7px color-mix(in oklch, var(--door-glow, #fff) 70%, transparent));
+}
+/* Raised/routed panel fields, like a real two-panel wood door — dormant
+   while doors use the flat slab + glow-frame style below; kept defined so
+   it's a one-line revert (remove the display:none). */
 .door-panel-field-upper,
 .door-panel-field-lower {
+  display: none;
   position: absolute;
   left: 12%;
   right: 12%;
@@ -260,30 +280,38 @@ body.doors-page footer {
   box-shadow: 0 1px 2px oklch(0 0 0 / 0.4);
   pointer-events: none;
 }
-/* The doorknob — the one piece of hardware the plain flat-paint style
-   keeps, since a door reads as a door because of it. */
+/* Tall vertical bar pull, brushed-metal shaded (dark-light-dark across its
+   width reads as a lit round bar) and tinted with the door's own --door-glow
+   so it matches the glow frame, like a real bronze/gold pull under a warm
+   LED strip. Replaces the small round knob the ornate-door style used. */
 .door-handle {
   position: absolute;
-  top: 54%;
-  right: 14%;
-  z-index: 1;
-  height: 0.8125rem;
-  width: 0.8125rem;
+  top: 28%;
+  right: 13%;
+  z-index: 2;
+  height: 42%;
+  width: 0.5625rem;
   border-radius: 999px;
-  background: linear-gradient(155deg, #fef3c7, #d97706 75%);
-  box-shadow: 0 0 0 0.375rem oklch(1 0 0 / 0.14), 0 1px 3px oklch(0 0 0 / 0.5);
+  background: linear-gradient(
+    90deg,
+    color-mix(in oklch, var(--door-glow, #ccc) 45%, black) 0%,
+    color-mix(in oklch, var(--door-glow, #ccc) 75%, white) 42%,
+    color-mix(in oklch, var(--door-glow, #ccc) 35%, black) 100%
+  );
+  box-shadow: 0 2px 5px oklch(0 0 0 / 0.6), 0 0 4px color-mix(in oklch, var(--door-glow, #ccc) 40%, transparent);
 }
 
-/* ---------- Plain flat-paint door style ----------
-   A simple painted door per entry point: a solid brand color with a soft
-   diagonal sheen (light top-left to dark bottom-right) for a little
-   dimensionality, rather than a flat swatch. */
+/* ---------- Dark slab + glow-frame door style ----------
+   A near-black door leaf (a whisper of each door's own brand hue mixed in,
+   just enough to keep the five doors distinguishable up close) rather than
+   a bright painted swatch — the identity now reads mainly through the glow
+   frame (.door-panel::before above) and the handle, same as a moody, real
+   architectural doorway lit by a single LED strip. */
 .door-panel {
   background: linear-gradient(
-    155deg,
-    color-mix(in oklch, var(--door-tint, #888) 65%, white) 0%,
-    var(--door-tint, #888) 45%,
-    color-mix(in oklch, var(--door-tint, #888) 70%, black) 100%
+    165deg,
+    color-mix(in oklch, var(--door-tint, #888) 6%, #12151c) 0%,
+    color-mix(in oklch, var(--door-tint, #888) 2%, #05060a) 100%
   );
 }
 .door-pt {
@@ -427,11 +455,12 @@ body.doors-page footer {
   }
 }
 
-/* Ajar peek on hover/focus — an invitation, distinct from the full
-   swing-open the click animation plays. */
+/* Ajar peek on hover/focus — 30% of the way to the full -100deg swing-open
+   the click animation plays (see .door.is-open below), so hovering visibly
+   opens the door partway rather than just tilting it a hair. */
 .door:hover .door-panel,
 .door:focus-visible .door-panel {
-  transform: rotateY(-10deg);
+  transform: rotateY(-30deg);
   box-shadow: inset 0 0 0 1px oklch(1 0 0 / 0.14), 1.5rem 0 3rem -1rem oklch(0 0 0 / 0.55);
 }
 .door:focus-visible {
@@ -453,14 +482,16 @@ body.doors-page footer {
   transition: opacity 0.4s ease;
 }
 
-/* Ambient glow layer on the panel. */
+/* Ambient glow layer on the panel — a faint hint of overhead light, not a
+   bright blob, to keep the slab reading as flat and evenly lit like the
+   reference doorway rather than spotlit. */
 .door-panel::after {
   content: "";
   position: absolute;
   inset: -20% -20% auto -20%;
   height: 60%;
   z-index: 0;
-  background: radial-gradient(closest-side, oklch(1 0 0 / 0.22), transparent 70%);
+  background: radial-gradient(closest-side, oklch(1 0 0 / 0.06), transparent 70%);
   pointer-events: none;
 }
 /* The label sits above the leaf (z-index 2, higher than the leaf's own
