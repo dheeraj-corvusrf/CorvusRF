@@ -10,6 +10,11 @@
 // the user clicks "Unlock preview" on that specific module, so tokens are only spent
 // on modules the user actually opens.
 //
+// Also handles a second request shape — `question` set — used by the per-module
+// Q&A box (see askModuleQuestion() in src/lib/ai-report-modules.ts): one grounded
+// answer to a free-text follow-up about a module, reusing the same record-building
+// and Gemini-call plumbing rather than a separate function.
+//
 // No Supabase auth check — same known-risk pattern already accepted for the other
 // guest-accessible AI functions.
 const corsHeaders = {
@@ -32,9 +37,25 @@ type ModulesInput = {
   // obtain (same trust boundary as classify-document, which also accepts arbitrary
   // uploaded file bytes with no auth check).
   evidenceImages?: { mimeType?: string; dataUrl?: string }[];
+  // Real signals computed client-side and passed through verbatim into the prompt
+  // record — see buildRecord() below. None of this is fabricated server-side; it's
+  // the same real comps/ratio-study/value-trend data other parts of the app already
+  // compute (cad-comps.ts, texas-tax-rates.ts), just also handed to the Strategy
+  // module (and, via priorityContext, to modules 3-7) so its reasoning is grounded
+  // in more than the bare CAD record.
+  compsSummary?: { median: number; min: number; max: number; count: number } | null;
+  assessmentRatio?: { medianPct: number; cod: number; codOverCeiling: number } | null;
+  valueTrend?: { jumpTriggered: boolean; jumpPct: number | null } | null;
+  evidenceFileNames?: string[];
+  // Module 2's own per-strategy scores, sent when calling comps/site/improvement/
+  // zoning so their guidance stays consistent with — and prioritized by — the
+  // Strategy module's ranking. See loadModule()'s sequencing in ai-report.tsx.
+  priorityContext?: { strategy: string; score: number }[];
+  // Question-mode fields (see Deno.serve below) — when `question` is set, this
+  // request is a Q&A follow-up, not a module-analysis request.
+  question?: string;
+  priorModuleData?: unknown;
 };
-
-const STRATEGIES = ["Market Value", "Unequal Appraisal", "Condition-Based Reduction", "Combined Approach"];
 
 const PREAMBLE = `You are CorvusPT's AI property tax analyst for Texas commercial properties.
 Given only the official CAD (county appraisal district) record below, generate the requested
@@ -47,7 +68,36 @@ module would normally need data this record doesn't include (actual comparable s
 inspection, a building condition survey), give general guidance and a checklist of what to
 gather instead of fabricated specific findings.`;
 
-type ModuleSpec = { instruction: string; schema: string; parse: (parsed: any) => unknown };
+// The 5 fixed valuation strategies Module 2 ranks, 1:1 with the modules that
+// investigate each one (see STRATEGY_MODULE_MAP) — matches the reference design's
+// named strategy list exactly. A 6th "Other: <label>" entry is allowed (validated by
+// isValidStrategyName below) only for a genuinely distinct argument, never padded to
+// hit a count.
+const STRATEGY_NAMES = [
+  "Comparable Sales",
+  "Site Condition",
+  "Improvement Condition",
+  "Income Approach",
+  "Zoning / Classification",
+];
+
+const STRATEGY_MODULE_MAP: Record<string, string> = {
+  "Comparable Sales": "comps",
+  "Site Condition": "site",
+  "Improvement Condition": "improvement",
+  "Income Approach": "income",
+  "Zoning / Classification": "zoning",
+};
+
+function isValidStrategyName(name: string): boolean {
+  return STRATEGY_NAMES.includes(name) || /^Other: .{1,40}$/.test(name);
+}
+
+type ModuleSpec = {
+  instruction: string;
+  schema: string;
+  parse: (parsed: Record<string, unknown>) => unknown;
+};
 
 const checklist = (v: unknown): string[] =>
   Array.isArray(v) ? v.filter((x): x is string => typeof x === "string").slice(0, 4) : [];
@@ -58,25 +108,52 @@ const checklist = (v: unknown): string[] =>
 const score100 = (v: unknown, fallback = 50): number =>
   Math.max(0, Math.min(100, Math.round(Number(v)) || fallback));
 
-const factorScores = (v: unknown): { label: string; score: number }[] =>
+const strList = (v: unknown, max: number, len: number): string[] =>
   Array.isArray(v)
     ? v
-        .filter(
-          (x): x is { label: unknown; score: unknown } => typeof x === "object" && x !== null,
-        )
-        .map((x) => ({ label: String((x as { label: unknown }).label ?? "").slice(0, 40), score: score100((x as { score: unknown }).score) }))
-        .filter((x) => x.label.length > 0)
-        .slice(0, 4)
+        .filter((x): x is string => typeof x === "string" && x.trim().length > 0)
+        .map((x) => x.slice(0, len))
+        .slice(0, max)
     : [];
 
-const evidenceItems = (v: unknown): { item: string; importance: "High" | "Low"; availability: "High" | "Low" }[] =>
+const str = (v: unknown, len: number): string => (typeof v === "string" ? v.slice(0, len) : "");
+
+const strategies = (v: unknown) =>
+  Array.isArray(v)
+    ? v
+        .filter((x): x is Record<string, unknown> => typeof x === "object" && x !== null)
+        .map((x) => {
+          const name = str(x.name, 40);
+          return {
+            name,
+            strengthScore: score100(x.strengthScore),
+            primaryReason: str(x.primaryReason, 80),
+            whySelected: str(x.whySelected, 300),
+            supportingFindings: str(x.supportingFindings, 300),
+            valuationRelevance: str(x.valuationRelevance, 200),
+            existingEvidence: strList(x.existingEvidence, 6, 100),
+            missingEvidence: strList(x.missingEvidence, 6, 100),
+            confidencePct: score100(x.confidencePct),
+            recommendedInvestigation: str(x.recommendedInvestigation, 200),
+            relatedModules: name in STRATEGY_MODULE_MAP ? [STRATEGY_MODULE_MAP[name]] : [],
+            dataSufficient: x.dataSufficient !== false,
+          };
+        })
+        .filter((s) => s.name.length > 0 && isValidStrategyName(s.name))
+        .sort((a, b) => b.strengthScore - a.strengthScore)
+        .slice(0, 6)
+    : [];
+
+const evidenceItems = (
+  v: unknown,
+): { item: string; importance: "High" | "Low"; availability: "High" | "Low" }[] =>
   Array.isArray(v)
     ? v
         .filter((x): x is Record<string, unknown> => typeof x === "object" && x !== null)
         .map((x) => ({
           item: String(x.item ?? "").slice(0, 120),
-          importance: x.importance === "High" ? "High" as const : "Low" as const,
-          availability: x.availability === "High" ? "High" as const : "Low" as const,
+          importance: x.importance === "High" ? ("High" as const) : ("Low" as const),
+          availability: x.availability === "High" ? ("High" as const) : ("Low" as const),
         }))
         .filter((x) => x.item.length > 0)
         .slice(0, 6)
@@ -85,27 +162,36 @@ const evidenceItems = (v: unknown): { item: string; importance: "High" | "Low"; 
 const MODULE_SPECS: Record<string, ModuleSpec> = {
   strategy: {
     instruction:
-      "Recommend the single best-fit protest strategy for this record, with a confidence score. " +
-      "Also break your reasoning into up to 4 short-labeled contributing factors (e.g. \"Comparable " +
-      "Sales\", \"Site Condition\", \"Improvement Condition\", \"Income Approach\", \"Zoning\" — pick " +
-      "whichever are actually relevant here), each with its own 0-100 opportunity score, ranked " +
-      "strongest first.",
-    schema: `{"recommendation": "<one of: ${STRATEGIES.join(" | ")}>", "confidencePct": <integer 0-100, how confident this recommendation is given only a CAD record with no comps/inspection>, "rationale": "<1-2 sentences>", "factorScores": [{"label": "<2-4 words>", "score": <integer 0-100>}, ...]}`,
+      "Evaluate up to 5 fixed valuation strategies for this property — Comparable Sales, Site " +
+      "Condition, Improvement Condition, Income Approach, and Zoning / Classification — plus, " +
+      "only if a genuinely distinct argument applies beyond those 5, one additional " +
+      '"Other: <label>" entry (do not invent an Other entry just to add a 6th). For EACH ' +
+      "strategy, weigh its opportunity magnitude, your confidence in the underlying data, how " +
+      "available supporting evidence typically is, how reliable this method is for this property " +
+      "type, this property type's relevance to the argument, and the quality of information you " +
+      "actually have — blend those into one 0-100 Strategy Strength Score. Rank strategies " +
+      "strongest first. For any strategy where you genuinely don't have enough information to " +
+      "score it responsibly, set dataSufficient to false and list what's missing rather than " +
+      "guessing a number.",
+    schema:
+      '{"strategies": [{"name": "<Comparable Sales | Site Condition | Improvement Condition | ' +
+      'Income Approach | Zoning / Classification | Other: label>", "strengthScore": <integer ' +
+      '0-100>, "primaryReason": "<short phrase>", "whySelected": "<1-2 sentences>", ' +
+      '"supportingFindings": "<1-2 sentences>", "valuationRelevance": "<1 sentence>", ' +
+      '"existingEvidence": ["<short>", ...], "missingEvidence": ["<short>", ...], ' +
+      '"confidencePct": <integer 0-100>, "recommendedInvestigation": "<1 sentence>", ' +
+      '"dataSufficient": <true|false>}, ...], "topStrategySummary": "<1 short sentence naming ' +
+      'the top 1-2 strategies>"}',
     parse: (p) => ({
-      recommendation:
-        typeof p.recommendation === "string" && STRATEGIES.includes(p.recommendation)
-          ? p.recommendation
-          : "Combined Approach",
-      confidencePct: Math.max(0, Math.min(100, Math.round(Number(p.confidencePct) || 60))),
-      rationale: p.rationale ?? "",
-      factorScores: factorScores(p.factorScores),
+      strategies: strategies(p.strategies),
+      topStrategySummary: str(p.topStrategySummary, 160),
     }),
   },
   comps: {
     instruction:
       "Give guidance on comparable-sale and equity-comp evidence relevant to this property type and county.",
     schema: `{"guidance": "<1-2 sentences>", "checklist": ["<short item>", ...]}`,
-    parse: (p) => ({ guidance: p.guidance ?? "", checklist: checklist(p.checklist) }),
+    parse: (p) => ({ guidance: str(p.guidance, 400), checklist: checklist(p.checklist) }),
   },
   site: {
     instruction:
@@ -114,7 +200,11 @@ const MODULE_SPECS: Record<string, ModuleSpec> = {
       "condition evidence looks for this specific property (based on its value profile and property " +
       "type — not a claim about a specific defect you haven't observed).",
     schema: `{"guidance": "<1-2 sentences>", "checklist": ["<short item>", ...], "priorityScore": <integer 0-100>}`,
-    parse: (p) => ({ guidance: p.guidance ?? "", checklist: checklist(p.checklist), priorityScore: score100(p.priorityScore) }),
+    parse: (p) => ({
+      guidance: str(p.guidance, 400),
+      checklist: checklist(p.checklist),
+      priorityScore: score100(p.priorityScore),
+    }),
   },
   improvement: {
     instruction:
@@ -123,21 +213,28 @@ const MODULE_SPECS: Record<string, ModuleSpec> = {
       "improvement-condition evidence looks for this specific property (based on its value profile " +
       "and property type — not a claim about a specific defect you haven't observed).",
     schema: `{"guidance": "<1-2 sentences>", "checklist": ["<short item>", ...], "priorityScore": <integer 0-100>}`,
-    parse: (p) => ({ guidance: p.guidance ?? "", checklist: checklist(p.checklist), priorityScore: score100(p.priorityScore) }),
+    parse: (p) => ({
+      guidance: str(p.guidance, 400),
+      checklist: checklist(p.checklist),
+      priorityScore: score100(p.priorityScore),
+    }),
   },
   zoning: {
     instruction:
       "Assess whether the stated property type and typical CAD classification appear consistent. " +
       "Also state, in 2-4 words, what CAD classification would typically be expected for a property " +
-      "like this (e.g. \"Commercial - Retail\").",
+      'like this (e.g. "Commercial - Retail").',
     schema: `{"matches": "<one of: consistent | inconsistent | uncertain>", "assessment": "<1-2 sentences>", "typicalClassification": "<2-4 words>"}`,
-    parse: (p) => ({
-      matches: (["consistent", "inconsistent", "uncertain"].includes(p.matches)
-        ? p.matches
-        : "uncertain") as "consistent" | "inconsistent" | "uncertain",
-      assessment: p.assessment ?? "",
-      typicalClassification: typeof p.typicalClassification === "string" ? p.typicalClassification.slice(0, 40) : "",
-    }),
+    parse: (p) => {
+      const matches = typeof p.matches === "string" ? p.matches : "";
+      return {
+        matches: (["consistent", "inconsistent", "uncertain"].includes(matches)
+          ? matches
+          : "uncertain") as "consistent" | "inconsistent" | "uncertain",
+        assessment: str(p.assessment, 400),
+        typicalClassification: str(p.typicalClassification, 40),
+      };
+    },
   },
   evidence: {
     instruction:
@@ -152,12 +249,121 @@ const MODULE_SPECS: Record<string, ModuleSpec> = {
     instruction: "Write the final executive recommendation, basis, and next step.",
     schema: `{"recommendation": "<1 sentence>", "basis": "<1 sentence>", "nextStep": "<1 sentence>"}`,
     parse: (p) => ({
-      recommendation: p.recommendation ?? "",
-      basis: p.basis ?? "",
-      nextStep: p.nextStep ?? "",
+      recommendation: str(p.recommendation, 300),
+      basis: str(p.basis, 300),
+      nextStep: str(p.nextStep, 300),
     }),
   },
 };
+
+// Shared by every module call and the Q&A question path — builds the plain-text
+// "record" the model reasons over. Each optional block only appears when the
+// client actually has that real data (comps fetched, ratio study covers this
+// county/category, value history long enough to detect a jump, etc.) — nothing
+// here is invented when the underlying data isn't available.
+function buildRecord(input: ModulesInput): string {
+  const lines: Array<string | false | undefined> = [
+    input.address && `Address: ${input.address}`,
+    input.cad && `Appraisal district: ${input.cad}`,
+    input.propertyType && `Property type: ${input.propertyType}`,
+    input.taxYear && `Tax year: ${input.taxYear}`,
+    input.landValue != null && `Land value: $${input.landValue.toLocaleString()}`,
+    input.improvementValue != null &&
+      `Improvement value: $${input.improvementValue.toLocaleString()}`,
+    input.totalValue != null && `Total assessed value: $${input.totalValue.toLocaleString()}`,
+  ];
+
+  if (input.compsSummary) {
+    const c = input.compsSummary;
+    lines.push(
+      `Real comparable properties found nearby: ${c.count} (market value range ` +
+        `$${c.min.toLocaleString()}-$${c.max.toLocaleString()}, median $${c.median.toLocaleString()})`,
+    );
+  }
+  if (input.assessmentRatio) {
+    const r = input.assessmentRatio;
+    lines.push(
+      `County Comptroller ratio study for this property type: median assessment ratio ` +
+        `${r.medianPct}%, coefficient of dispersion ${r.cod.toFixed(1)}` +
+        (r.codOverCeiling > 0
+          ? ` (${r.codOverCeiling.toFixed(1)} points above the IAAO standard)`
+          : " (within the IAAO standard)"),
+    );
+  }
+  if (input.valueTrend?.jumpTriggered) {
+    lines.push(
+      `This property's assessed value jumped ${
+        input.valueTrend.jumpPct != null
+          ? `${Math.round(input.valueTrend.jumpPct * 100)}%`
+          : "significantly"
+      } beyond its own historical trend this year.`,
+    );
+  }
+  if (input.evidenceFileNames && input.evidenceFileNames.length > 0) {
+    lines.push(
+      `Evidence documents already uploaded by the owner: ${input.evidenceFileNames.join(", ")}`,
+    );
+  }
+  if (input.priorityContext && input.priorityContext.length > 0) {
+    lines.push(
+      `The Protest Strategy module already ranked this property's valuation arguments (0-100 ` +
+        `strength scores): ${input.priorityContext.map((p) => `${p.strategy} ${p.score}`).join(", ")}. ` +
+        `Weight your analysis and guidance accordingly.`,
+    );
+  }
+
+  return lines.filter((l): l is string => typeof l === "string").join("\n");
+}
+
+// Shared Gemini call + JSON-response parsing for both the module-analysis path and
+// the Q&A question path. Throws an Error with a `status` property set to 429 when
+// Gemini itself is rate-limited, so the caller can propagate that status instead of
+// a generic 500.
+type GeminiPart = { text: string } | { inline_data: { mime_type: string; data: string } };
+
+async function generateJson(
+  apiKey: string,
+  system: string,
+  parts: GeminiPart[],
+): Promise<Record<string, unknown>> {
+  const body = {
+    systemInstruction: { parts: [{ text: system }] },
+    contents: [{ role: "user", parts }],
+    generationConfig: { responseMimeType: "application/json" },
+  };
+
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    },
+  );
+
+  if (!res.ok) {
+    const text = await res.text();
+    if (res.status === 429) {
+      const err = new Error("AI is rate-limited. Please retry in a moment.") as Error & {
+        status?: number;
+      };
+      err.status = 429;
+      throw err;
+    }
+    throw new Error(`Gemini API error ${res.status}: ${text.slice(0, 200)}`);
+  }
+
+  const json = (await res.json()) as {
+    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+  };
+  const raw = json.candidates?.[0]?.content?.parts?.[0]?.text ?? "{}";
+  try {
+    return JSON.parse(raw);
+  } catch {
+    const m = raw.match(/\{[\s\S]*\}/);
+    return m ? JSON.parse(m[0]) : {};
+  }
+}
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -170,6 +376,34 @@ Deno.serve(async (req: Request) => {
         headers: corsHeaders,
       });
     }
+
+    const apiKey = Deno.env.get("GEMINI_API_KEY");
+    if (!apiKey) throw new Error("Missing GEMINI_API_KEY");
+
+    const record = buildRecord(input);
+
+    // Q&A follow-up path — see askModuleQuestion() in src/lib/ai-report-modules.ts.
+    // Grounded in the same record plus whatever analysis that module has already
+    // generated (priorModuleData), not a fresh unrelated analysis.
+    if (typeof input.question === "string" && input.question.trim()) {
+      const priorText =
+        input.priorModuleData != null
+          ? `\n\nThis module's current analysis (already generated):\n${JSON.stringify(input.priorModuleData).slice(0, 4000)}`
+          : "";
+      const system =
+        `${PREAMBLE}\n\nThe user is looking at the "${input.moduleId ?? "this"}" report module ` +
+        "and asked a follow-up question about it. Answer directly in 2-4 sentences, grounded " +
+        "only in the record and analysis below plus general knowledge of Texas commercial " +
+        "property appraisal practice. If the answer genuinely isn't knowable from what's given, " +
+        "say so rather than guessing.\n\nReturn ONLY a JSON object with exactly this shape:\n" +
+        '{"answer": "<2-4 sentences>"}';
+      const parsed = await generateJson(apiKey, system, [
+        { text: `${record}${priorText}\n\nQuestion: ${input.question.trim().slice(0, 500)}` },
+      ]);
+      const answer = typeof parsed.answer === "string" ? parsed.answer.slice(0, 1200) : "";
+      return new Response(JSON.stringify({ answer }), { status: 200, headers: corsHeaders });
+    }
+
     const spec = input.moduleId ? MODULE_SPECS[input.moduleId] : undefined;
     if (!spec) {
       return new Response(JSON.stringify({ error: "unknown or missing moduleId" }), {
@@ -177,22 +411,6 @@ Deno.serve(async (req: Request) => {
         headers: corsHeaders,
       });
     }
-
-    const apiKey = Deno.env.get("GEMINI_API_KEY");
-    if (!apiKey) throw new Error("Missing GEMINI_API_KEY");
-
-    const record = [
-      input.address && `Address: ${input.address}`,
-      input.cad && `Appraisal district: ${input.cad}`,
-      input.propertyType && `Property type: ${input.propertyType}`,
-      input.taxYear && `Tax year: ${input.taxYear}`,
-      input.landValue != null && `Land value: $${input.landValue.toLocaleString()}`,
-      input.improvementValue != null &&
-        `Improvement value: $${input.improvementValue.toLocaleString()}`,
-      `Total assessed value: $${input.totalValue.toLocaleString()}`,
-    ]
-      .filter(Boolean)
-      .join("\n");
 
     // Evidence images are only meaningful for the improvement-condition module —
     // filtered to real image/PDF data URLs and capped defensively even though the
@@ -224,51 +442,14 @@ Deno.serve(async (req: Request) => {
 
     const system = `${PREAMBLE}\n\n${instruction}\n\nReturn ONLY a JSON object with exactly this shape:\n${spec.schema}`;
 
-    const body = {
-      systemInstruction: { parts: [{ text: system }] },
-      contents: [{ role: "user", parts: [{ text: record }, ...evidenceParts] }],
-      generationConfig: { responseMimeType: "application/json" },
-    };
-
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      },
-    );
-
-    if (!res.ok) {
-      const text = await res.text();
-      if (res.status === 429) {
-        return new Response(
-          JSON.stringify({ error: "AI is rate-limited. Please retry in a moment." }),
-          { status: 429, headers: corsHeaders },
-        );
-      }
-      throw new Error(`Gemini API error ${res.status}: ${text.slice(0, 200)}`);
-    }
-
-    const json = (await res.json()) as {
-      candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
-    };
-    const raw = json.candidates?.[0]?.content?.parts?.[0]?.text ?? "{}";
-    // deno-lint-ignore no-explicit-any
-    let parsed: any;
-    try {
-      parsed = JSON.parse(raw);
-    } catch {
-      const m = raw.match(/\{[\s\S]*\}/);
-      parsed = m ? JSON.parse(m[0]) : {};
-    }
-
+    const parsed = await generateJson(apiKey, system, [{ text: record }, ...evidenceParts]);
     const result = spec.parse(parsed ?? {});
     return new Response(JSON.stringify(result), { status: 200, headers: corsHeaders });
   } catch (err) {
+    const status = (err as { status?: number } | null)?.status === 429 ? 429 : 500;
     return new Response(
       JSON.stringify({ error: err instanceof Error ? err.message : "unknown error" }),
-      { status: 500, headers: corsHeaders },
+      { status, headers: corsHeaders },
     );
   }
 });
