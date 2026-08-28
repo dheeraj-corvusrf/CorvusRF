@@ -133,7 +133,7 @@ export function SiteNav() {
               }}
               to={item.to}
               className="relative rounded-md px-3 py-2 text-sm font-medium text-foreground/80 transition-colors hover:bg-nav-highlight hover:text-nav-highlight-foreground"
-              activeProps={{ className: "text-foreground" }}
+              activeProps={{ className: "text-nav-highlight-foreground" }}
               activeOptions={{ exact: item.to === "/" }}
             >
               {item.label}
