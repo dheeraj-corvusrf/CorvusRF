@@ -84,6 +84,14 @@ jobs:
           VITE_SUPABASE_ANON_KEY: sb_publishable_RpyqtM6EeGiT7qc3FyN5Iw_vm0aiuM3
           # Web3Forms access keys are meant to be public/client-side by design.
           VITE_WEB3FORMS_ACCESS_KEY: 5a66f800-1264-49a2-9696-2839afd02485
+          # Same story as the two keys above — this runs client-side and is
+          # protected by the key's own Website (referrer) restrictions in
+          # Google Cloud Console, not by being kept secret. Without this line,
+          # every deployed build has VITE_GOOGLE_MAPS_API_KEY unset, so
+          # AddressAutocomplete silently and permanently uses only the free
+          # Nominatim fallback in production, regardless of any referrer
+          # restriction fix on Google's side.
+          VITE_GOOGLE_MAPS_API_KEY: AIzaSyCxz6Q6Wit9Sq_qR6cciWs1K8zPjdM0sAI
 
       # The CorvusRE hub (hub/) is a handful of plain static pages with no app
       # logic — see hub/hub.css's own comment for why that's a deliberate
