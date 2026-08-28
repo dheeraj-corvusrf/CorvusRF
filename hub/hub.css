@@ -172,16 +172,6 @@ body.doors-page footer {
    "row of doors in a hallway" read even before any motion happens. */
 .door {
   position: relative;
-  /* Pokes each door up past main's own top edge, into the header's white
-     bar — a relative-position offset (not a margin) so it's purely visual
-     and doesn't disturb the flex row's own height accounting; the matching
-     height increase keeps the door's bottom edge exactly where it was.
-     header has no z-index of its own, so a plain positioned element
-     painting after it in DOM order (this one) already renders on top of
-     it in the overlap band — no z-index war needed. */
-  top: -1.5rem;
-  height: calc(100% + 1.5rem);
-  z-index: 1;
   flex: 1 1 0%;
   min-width: 0;
   display: flex;
@@ -205,12 +195,6 @@ body.doors-page footer {
      read as barely-there at the old thin width; this crisp pairing reads
      unmistakably as a beveled 3D frame instead of a flat black bar. Kept in
      sync with .door-panel's own inset just below. */
-  /* Inset-only — an outer (non-inset) shadow here, even a faint one, was
-     confirmed live to suppress this element's own paint in the region now
-     poking above main into the header (a real rendering quirk when mixing
-     inset/outer shadows on a repositioned, overflow:hidden, cross-boundary
-     element), so any "shadow cast on the header" effect has to come from
-     elsewhere, not a 5th layer added here. */
   box-shadow:
     inset 0 0 0 0.875rem oklch(0.1 0.015 258),
     inset 0 0 0 1rem oklch(0.55 0.02 258 / 0.9),
