@@ -17,6 +17,11 @@ import {
   Percent,
   DollarSign,
   Award,
+  Activity,
+  TrendingUp,
+  TrendingDown,
+  ShieldCheck,
+  Wrench,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -45,7 +50,11 @@ import { MODULES, type Module } from "@/lib/modules";
 import type { IconColor } from "@/lib/icon-colors";
 import { useAuth } from "@/lib/auth";
 import { getMyBilling } from "@/lib/billing";
-import { getHealthScore, type HealthScoreResult } from "@/lib/ai-health-score";
+import {
+  getHealthScore,
+  type HealthScoreResult,
+  type HealthScoreBreakdownEntry,
+} from "@/lib/ai-health-score";
 import {
   getModuleAnalysis,
   askModuleQuestion,
@@ -356,21 +365,21 @@ function Report() {
       if (relevant.length > 0) input.priorityContext = relevant;
     }
 
+    // Real signals (never fabricated) shared by Module 1 (health) and Module
+    // 2 (strategy) — same helpers, same real sources, for both.
+    if (id === "health" || id === "strategy") {
+      input.compsSummary = buildCompsSummary(compsMap.data);
+      input.assessmentRatio = getAssessmentRatioInfo(
+        state.cad,
+        classifyPropertyCategory(state.propertyType),
+      );
+      input.valueTrend = buildValueTrend(state.valueHistory);
+      input.evidenceFileNames = evidenceDocs.map((d) => d.fileName);
+    }
+
     async function run() {
       if (id === "health") return getHealthScore(input);
 
-      // Real signals (never fabricated) fed into the Strategy module's own
-      // reasoning — see buildCompsSummary()/buildValueTrend() below and
-      // buildRecord() in the edge function.
-      if (id === "strategy") {
-        input.compsSummary = buildCompsSummary(compsMap.data);
-        input.assessmentRatio = getAssessmentRatioInfo(
-          state.cad,
-          classifyPropertyCategory(state.propertyType),
-        );
-        input.valueTrend = buildValueTrend(state.valueHistory);
-        input.evidenceFileNames = evidenceDocs.map((d) => d.fileName);
-      }
       // Grounds the Market Value module's guidance in the real comps already
       // fetched for this property (median/range/count) instead of generic
       // advice — same real signal, same helper, as the Strategy module above.
@@ -1083,16 +1092,55 @@ function ModuleVisual({
   switch (m.id) {
     case "health": {
       const d = moduleState.data as HealthScoreResult;
+      const label =
+        d.score >= 70
+          ? "Strong Opportunity"
+          : d.score >= 40
+            ? "Moderate Opportunity"
+            : "Limited Opportunity";
+      const top3 = d.scoreBreakdown.slice(0, 3);
       return (
         <div>
-          <MiniGauge value={d.score} label="opportunity score" />
-          {d.factors.length > 0 && (
-            <div className="mt-1.5 flex flex-wrap gap-1">
-              {d.factors.slice(0, 2).map((f, i) => (
-                <Chip key={i}>{f}</Chip>
-              ))}
+          <SpeedometerGauge value={d.score} size="sm" />
+          <div className="text-center text-sm font-semibold" style={{ color: scoreColor(d.score) }}>
+            {label}
+          </div>
+          {!d.dataSufficient && (
+            <div className="mt-1.5 text-center text-[10px] font-semibold text-warning-foreground">
+              Additional Data Needed
             </div>
           )}
+          {top3.length > 0 && (
+            <div className="mt-3 grid grid-cols-3 gap-1.5 text-center">
+              {top3.map((b) => {
+                const Icon = breakdownIcon(b.label);
+                return (
+                  <div key={b.label} className="flex flex-col items-center gap-1">
+                    <span
+                      className={`grid h-8 w-8 place-items-center rounded-full ${m.color.bg} ${m.color.text}`}
+                    >
+                      <Icon className="h-4 w-4" />
+                    </span>
+                    <span className="text-[9px] leading-tight text-muted-foreground">
+                      {b.label}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          {estimated.savings > 0 && (
+            <div className="mt-3 text-center">
+              <div className="font-serif text-lg font-bold text-success">
+                {currency(estimated.savings)}
+              </div>
+              <div className="text-[10px] text-muted-foreground">potential tax savings</div>
+            </div>
+          )}
+          <div className="mt-2 flex items-center justify-center gap-1.5 text-[10px] text-muted-foreground">
+            <ShieldCheck className="h-3 w-3" />
+            Confidence: {d.confidencePct}%
+          </div>
         </div>
       );
     }
@@ -2073,32 +2121,376 @@ function SkeletonVisual() {
   );
 }
 
-function MiniGauge({ value, label }: { value: number; label: string }) {
-  const color = scoreColor(value);
+// Icon per Module 1 score-breakdown label — the fixed label set the edge
+// function validates against (BREAKDOWN_LABELS in ai-health-score/index.ts),
+// so this mapping is safe/exhaustive rather than guessing at free AI text.
+function breakdownIcon(label: string): LucideIcon {
+  switch (label) {
+    case "CAD Valuation":
+      return FileText;
+    case "Comparable Properties":
+      return BarChart3;
+    case "Market Data":
+      return Percent;
+    case "Property Condition":
+      return Wrench;
+    case "Historical Valuation":
+      return Activity;
+    default:
+      return Target;
+  }
+}
+
+// Half-circle "speedometer" gauge — a full red→amber→green gradient scale
+// (the property's whole possible-score range, always shown) with a bold
+// scoreColor()-toned progress arc on top marking the actual score, plus the
+// number centered underneath. Combines the two reference looks: reference 1's
+// bold filled progress against a duller full scale, reference 2's full-width
+// half-circle gradient presentation. Used for Module 1 at both a compact
+// (card) and large (modal) size — replaces the old MiniGauge/RadialGauge,
+// which only this module used.
+function SpeedometerGauge({ value, size = "md" }: { value: number; size?: "sm" | "md" | "lg" }) {
+  const color = gradualScoreColor(value);
+  const dims =
+    size === "lg"
+      ? { w: 240, h: 132, bar: 16, font: "text-4xl" }
+      : size === "sm"
+        ? { w: 140, h: 80, bar: 10, font: "text-xl" }
+        : { w: 180, h: 100, bar: 12, font: "text-2xl" };
+  // Single RadialBar with chart-level `data` + the `background` prop for the
+  // auto-drawn full-arc track — the same proven pattern the old MiniGauge/
+  // RadialGauge used, just at a half-circle angle. An earlier version tried
+  // two <RadialBar>s each with their own per-bar `data` override (one for a
+  // full gradient scale, one for the value) to combine both reference looks
+  // more closely, but that silently rendered zero bars in this Recharts
+  // version (confirmed via a live console error and an empty sectors group)
+  // — reverted in favor of this reliable single-bar approach.
   return (
-    <div className="flex items-center gap-3">
-      <div className="relative h-12 w-12 shrink-0">
-        <ResponsiveContainer width="100%" height="100%">
-          <RadialBarChart
-            innerRadius="70%"
-            outerRadius="100%"
-            data={[{ value, fill: color }]}
-            startAngle={90}
-            endAngle={-270}
-            barSize={5}
-          >
-            <PolarAngleAxis type="number" domain={[0, 100]} tick={false} />
-            <RadialBar background dataKey="value" cornerRadius={4} />
-          </RadialBarChart>
-        </ResponsiveContainer>
-        <div
-          className="absolute inset-0 flex items-center justify-center text-xs font-bold"
-          style={{ color }}
+    <div className="relative mx-auto" style={{ width: dims.w, height: dims.h }}>
+      <ResponsiveContainer width="100%" height="100%">
+        <RadialBarChart
+          cx="50%"
+          cy="100%"
+          startAngle={180}
+          endAngle={0}
+          innerRadius={dims.w / 2 - dims.bar - 4}
+          outerRadius={dims.w / 2 - 4}
+          barSize={dims.bar}
+          data={[{ value, fill: color }]}
         >
-          {value}
+          <PolarAngleAxis type="number" domain={[0, 100]} tick={false} />
+          <RadialBar background dataKey="value" cornerRadius={999} />
+        </RadialBarChart>
+      </ResponsiveContainer>
+      <div className="absolute inset-x-0 bottom-0 flex flex-col items-center">
+        <div className={`${dims.font} font-bold leading-none`} style={{ color }}>
+          <AnimatedNumber value={value} />
         </div>
+        <div className="text-[10px] text-muted-foreground">/100</div>
       </div>
-      <div className="text-xs text-muted-foreground">{label}</div>
+    </div>
+  );
+}
+
+function ScoreBreakdownList({ breakdown }: { breakdown: HealthScoreBreakdownEntry[] }) {
+  if (breakdown.length === 0) return null;
+  return (
+    <div className="grid gap-2.5">
+      {breakdown.map((b) => {
+        const Icon = breakdownIcon(b.label);
+        return (
+          <div key={b.label} className="flex items-center gap-2.5">
+            <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <div className="min-w-0 flex-1">
+              <div className="flex items-baseline justify-between">
+                <span className="text-xs text-muted-foreground">{b.label}</span>
+                <span className="text-xs font-semibold" style={{ color: scoreColor(b.score) }}>
+                  {b.score}/100
+                </span>
+              </div>
+              <div className="mt-0.5 h-1.5 rounded-full bg-secondary/60">
+                <div
+                  className="h-1.5 rounded-full"
+                  style={{ width: `${b.score}%`, backgroundColor: scoreColor(b.score) }}
+                />
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// Deterministic, real, client-side-computed numbers — never AI-written —
+// straight from the same state/compsMap already loaded for this property, so
+// "the data behind the score" can never be an AI paraphrase or a
+// hallucinated figure. Same real fields already used to ground the AI's own
+// prompt (see loadModule()'s health/strategy branch above).
+function SupportingDataGrid({
+  state,
+  compsMap,
+}: {
+  state: IntakeState;
+  compsMap: { data: CompsResult | null; loading: boolean };
+}) {
+  const category = classifyPropertyCategory(state.propertyType);
+  const ratio = getAssessmentRatioInfo(state.cad, category);
+  const compsSummary = buildCompsSummary(compsMap.data);
+  const sortedHistory = [...(state.valueHistory ?? [])].sort((a, b) => b.year - a.year);
+  const latestPrior = sortedHistory.find(
+    (h) => h.year < (state.taxYear ?? Infinity) && (h.appraisedValue ?? h.marketValue) != null,
+  );
+  const priorValue = latestPrior?.appraisedValue ?? latestPrior?.marketValue ?? null;
+  const pctChange =
+    priorValue && state.totalValue
+      ? Math.round(((state.totalValue - priorValue) / priorValue) * 100)
+      : null;
+
+  const rows: { label: string; value: string }[] = [
+    { label: "Current Assessed Value", value: currency(state.totalValue) },
+  ];
+  if (state.landValue != null || state.improvementValue != null) {
+    rows.push({
+      label: "Land / Improvement Split",
+      value: `${currency(state.landValue)} / ${currency(state.improvementValue)}`,
+    });
+  }
+  if (priorValue != null) {
+    rows.push({
+      label: `Prior Year Value (${latestPrior?.year})`,
+      value: `${currency(priorValue)}${pctChange != null ? ` (${pctChange > 0 ? "+" : ""}${pctChange}%)` : ""}`,
+    });
+  }
+  if (compsSummary) {
+    rows.push({
+      label: `Comparable Median (${compsSummary.count} comps)`,
+      value: `${currency(compsSummary.median)} (range ${currency(compsSummary.min)}–${currency(compsSummary.max)})`,
+    });
+  }
+  if (ratio) {
+    rows.push({
+      label: "County Assessment Ratio COD",
+      value: `${ratio.cod.toFixed(1)} (median ${ratio.medianPct}%)`,
+    });
+  }
+  return (
+    <div className="grid gap-2 sm:grid-cols-2">
+      {rows.map((r) => (
+        <div key={r.label} className="rounded-md bg-secondary/40 px-2.5 py-1.5">
+          <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{r.label}</div>
+          <div className="text-xs font-semibold">{r.value}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// Same deterministic-not-AI principle as SupportingDataGrid — where each
+// number actually came from, with a date where one is meaningful.
+function SourcesList({
+  state,
+  compsMap,
+  evidenceDocs,
+}: {
+  state: IntakeState;
+  compsMap: { data: CompsResult | null; loading: boolean };
+  evidenceDocs: DocumentRecord[];
+}) {
+  const category = classifyPropertyCategory(state.propertyType);
+  const items: string[] = [];
+  if (state.cad) {
+    items.push(`${state.cad} public records${state.taxYear ? ` (tax year ${state.taxYear})` : ""}`);
+  }
+  if (compsMap.data?.comps.length) {
+    items.push(
+      `${compsMap.data.comps.length} real comparable properties, same CAD subdivision (as of today)`,
+    );
+  }
+  if (getAssessmentRatioInfo(state.cad, category)) {
+    items.push("Texas Comptroller property value study (assessment ratio/COD data)");
+  }
+  if (evidenceDocs.length > 0) {
+    items.push(
+      `User-uploaded evidence (${evidenceDocs.length} file${evidenceDocs.length === 1 ? "" : "s"})`,
+    );
+  }
+  if (items.length === 0) return null;
+  return (
+    <ul className="grid gap-1 text-xs text-muted-foreground">
+      {items.map((s, i) => (
+        <li key={i}>• {s}</li>
+      ))}
+    </ul>
+  );
+}
+
+// Static reference table for "AI Analysis — Data Required & Sources" — not
+// per-property (SourcesList above is the per-property version); this is the
+// general methodology reference: what the AI would ideally use for each
+// analysis category, where it would come from, and — honestly — whether this
+// app actually has that source integrated today. Several rows the user asked
+// for (recent sale price/date, building SF, GIS/FEMA flood data, zoning
+// records, MLS) are marked "Not integrated" rather than silently implied as
+// live: Texas doesn't publicly disclose sale prices at all (see Module 3's
+// comps-analysis.ts), and this app has no GIS/FEMA/MLS/zoning-record
+// integration today. Status reflects only what's really wired up.
+type DataRequirementRow = {
+  category: string;
+  required: string;
+  source: string;
+  usedFor: string;
+  status: "Available" | "Partial" | "Not integrated";
+};
+
+const DATA_REQUIREMENTS: DataRequirementRow[] = [
+  {
+    category: "Current CAD Appraised Value",
+    required: "Total appraised value, land value, improvement value, market value",
+    source: "County Appraisal District (CAD)",
+    usedFor: "Establishes the current tax valuation baseline",
+    status: "Available",
+  },
+  {
+    category: "Historical Assessment",
+    required: "Prior years' land/improvement/total values; year-over-year change",
+    source: "CAD historical records",
+    usedFor: "Identifies unusual increases or valuation trends",
+    status: "Available",
+  },
+  {
+    category: "Comparable Valuation",
+    required: "Comparable addresses, CAD value, distance, land size, similarity",
+    source: "CAD (same-subdivision public records)",
+    usedFor: "Compares this property's valuation against similar nearby ones",
+    status: "Partial",
+  },
+  {
+    category: "Market Information",
+    required: "Recent sale price, sale date, listing price, cap rate",
+    source: "County deed records + MLS",
+    usedFor: "Would show whether CAD value looks disconnected from the market",
+    status: "Not integrated",
+  },
+  {
+    category: "Property Characteristics",
+    required: "Building SF, year built, stories, construction type",
+    source: "CAD improvement records + GIS",
+    usedFor: "Would ensure comparisons use the right physical characteristics",
+    status: "Not integrated",
+  },
+  {
+    category: "Site Conditions",
+    required: "Lot shape, access, flood zone, topography, easements",
+    source: "CAD GIS + FEMA/public GIS",
+    usedFor: "Would identify site issues that could support a lower value",
+    status: "Not integrated",
+  },
+  {
+    category: "Improvement Condition",
+    required: "Condition rating, deferred maintenance, renovation history",
+    source: "User-uploaded photos/documents",
+    usedFor: "Whether the building's condition supports a lower valuation",
+    status: "Partial",
+  },
+  {
+    category: "Zoning / Classification",
+    required: "Current zoning, CAD property class, legal description",
+    source: "CAD record (zoning field, where populated) + stated property type",
+    usedFor: "Checks whether the CAD classification looks consistent",
+    status: "Partial",
+  },
+  {
+    category: "Income Indicators",
+    required: "Rent, occupancy, NOI, expenses, cap rate",
+    source: "User-provided P&L / rent roll",
+    usedFor: "Income-based valuation indicator for applicable properties",
+    status: "Partial",
+  },
+  {
+    category: "Existing Evidence",
+    required: "Prior protest results, notices, photos, leases, surveys",
+    source: "User uploads",
+    usedFor: "Strengthens or weakens the identified opportunity",
+    status: "Available",
+  },
+  {
+    category: "Data Confidence",
+    required: "Source reliability, completeness, comp count, missing fields",
+    source: "Calculated by AI from all collected data",
+    usedFor: "Determines how reliable this analysis and score are",
+    status: "Available",
+  },
+  {
+    category: "Potential Valuation Gaps",
+    required: "CAD value vs. comparable/market/income indicators",
+    source: "Calculated from the CAD + comparable data above",
+    usedFor: "Identifies the size of a potential overvaluation",
+    status: "Partial",
+  },
+];
+
+const DATA_STATUS_STYLE: Record<DataRequirementRow["status"], string> = {
+  Available: "bg-success/15 text-success",
+  Partial: "bg-warning/20 text-warning-foreground",
+  "Not integrated": "bg-secondary text-muted-foreground",
+};
+
+// A full-width vertical list, not a wide table — no horizontal scrolling at
+// all. Each category is collapsed to just its name + Status badge (the two
+// things worth scanning at a glance); tap a row to expand it in place and
+// reveal the three detail fields stacked below, same click-to-expand
+// convention as ComparableTable's rows above.
+function DataRequirementsTable() {
+  const [expanded, setExpanded] = useState<string | null>(null);
+  return (
+    <div className="grid gap-1.5">
+      {DATA_REQUIREMENTS.map((r) => {
+        const isOpen = expanded === r.category;
+        return (
+          <div key={r.category} className="rounded-lg border border-border">
+            <button
+              type="button"
+              onClick={() => setExpanded(isOpen ? null : r.category)}
+              className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left"
+            >
+              <span className="text-xs font-medium">{r.category}</span>
+              <span className="flex shrink-0 items-center gap-2">
+                <span
+                  className={`whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-semibold ${DATA_STATUS_STYLE[r.status]}`}
+                >
+                  {r.status}
+                </span>
+                <ArrowRight
+                  className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${isOpen ? "rotate-90" : ""}`}
+                />
+              </span>
+            </button>
+            {isOpen && (
+              <div className="grid gap-2 border-t border-border/60 px-3 py-2 text-xs">
+                <div>
+                  <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    Exact Data Required
+                  </div>
+                  <p className="text-muted-foreground">{r.required}</p>
+                </div>
+                <div>
+                  <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    Primary Data Source
+                  </div>
+                  <p className="text-muted-foreground">{r.source}</p>
+                </div>
+                <div>
+                  <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    What AI Uses It For
+                  </div>
+                  <p className="text-muted-foreground">{r.usedFor}</p>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -2355,24 +2747,176 @@ function ModulePreviewContent({
         : data.score >= 40
           ? "Moderate Opportunity"
           : "Limited Opportunity";
+    const answerKey = "health";
     return (
-      <div className="mt-4 grid gap-4 sm:grid-cols-[10rem_1fr] items-center">
-        <div className="text-center">
-          <RadialGauge value={data.score} sublabel="Protest Opportunity" />
-          <div className="mt-1 text-sm font-semibold" style={{ color: scoreColor(data.score) }}>
-            {label}
+      <div className="mt-4 grid gap-4">
+        {data.executiveConclusion && <p className="text-sm">{data.executiveConclusion}</p>}
+
+        <div className="min-w-0">
+          <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            AI Analysis — Data Required &amp; Sources
           </div>
+          <DataRequirementsTable />
         </div>
-        <div>
-          <p className="text-sm">{data.summary}</p>
-          {data.factors.length > 0 && (
-            <div className="mt-3 flex flex-wrap gap-2">
-              {data.factors.map((f, i) => (
-                <Chip key={i}>{f}</Chip>
-              ))}
+
+        <div className="grid gap-4 sm:grid-cols-[13rem_1fr] items-center">
+          <div className="text-center">
+            <SpeedometerGauge value={data.score} size="lg" />
+            <div className="mt-1 text-sm font-semibold" style={{ color: scoreColor(data.score) }}>
+              {label}
+            </div>
+            {!data.dataSufficient && (
+              <div className="mt-1 text-xs font-semibold text-warning-foreground">
+                Additional Data Needed
+              </div>
+            )}
+          </div>
+          {estimated.savings > 0 && (
+            <div className="rounded-lg bg-success/10 p-4 text-center">
+              <div className="text-[10px] font-semibold uppercase tracking-wide text-success">
+                Potential Tax Savings
+              </div>
+              <div className="mt-1 font-serif text-3xl font-bold text-success">
+                {currency(estimated.savings)}
+              </div>
+              {state.totalValue ? (
+                <div className="mt-0.5 text-xs text-success/80">
+                  {Math.round((estimated.reduction / state.totalValue) * 100)}% of assessed value
+                </div>
+              ) : null}
             </div>
           )}
         </div>
+
+        {data.scoreBreakdown.length > 0 && (
+          <div className="card-elev p-4">
+            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Score Breakdown
+            </div>
+            <ScoreBreakdownList breakdown={data.scoreBreakdown} />
+          </div>
+        )}
+
+        {(data.factorsIncreasing.length > 0 || data.factorsReducing.length > 0) && (
+          <div className="grid gap-3 sm:grid-cols-2">
+            {data.factorsIncreasing.length > 0 && (
+              <div className="rounded-lg bg-success/10 p-3">
+                <div className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold text-success">
+                  <TrendingUp className="h-3.5 w-3.5" />
+                  Factors Increasing Opportunity
+                </div>
+                <ul className="grid gap-1 text-xs text-foreground/90">
+                  {data.factorsIncreasing.map((f, i) => (
+                    <li key={i}>• {f}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {data.factorsReducing.length > 0 && (
+              <div className="rounded-lg bg-destructive/10 p-3">
+                <div className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold text-destructive">
+                  <TrendingDown className="h-3.5 w-3.5" />
+                  Factors Reducing Opportunity
+                </div>
+                <ul className="grid gap-1 text-xs text-foreground/90">
+                  {data.factorsReducing.map((f, i) => (
+                    <li key={i}>• {f}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        )}
+
+        <div>
+          <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Supporting Data
+          </div>
+          <SupportingDataGrid state={state} compsMap={compsMap} />
+        </div>
+
+        <div>
+          <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Sources
+          </div>
+          <SourcesList state={state} compsMap={compsMap} evidenceDocs={evidenceDocs} />
+        </div>
+
+        <div className="card-elev p-4">
+          <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            <ShieldCheck className="h-3.5 w-3.5" />
+            Confidence
+          </div>
+          <MiniMeter value={data.confidencePct} label="Analysis confidence" />
+          {data.confidenceReasoning && (
+            <p className="mt-2 text-xs text-muted-foreground">{data.confidenceReasoning}</p>
+          )}
+        </div>
+
+        {data.methodology && (
+          <div>
+            <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              AI Methodology
+            </div>
+            <p className="text-xs text-muted-foreground">{data.methodology}</p>
+          </div>
+        )}
+
+        {data.nextStep && (
+          <div className={`rounded-lg p-4 ${m.color.bg}`}>
+            <div className={`text-[10px] font-semibold uppercase tracking-wide ${m.color.text}`}>
+              Recommended Next Step
+            </div>
+            <div className="mt-1 text-sm font-semibold">{data.nextStep}</div>
+          </div>
+        )}
+
+        {!data.dataSufficient && (
+          <div className="border-t border-border/60 pt-4 print:hidden">
+            <div className="text-xs font-semibold text-warning-foreground">
+              Additional Data Needed
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Upload supporting documents or answer below so AI can complete this analysis with real
+              evidence.
+            </p>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <label
+                className={`btn-outline text-xs cursor-pointer ${uploadingEvidence ? "pointer-events-none opacity-60" : ""}`}
+              >
+                {uploadingEvidence ? "Uploading…" : "Upload Evidence"}
+                <input
+                  type="file"
+                  accept="image/*,.pdf"
+                  multiple
+                  className="hidden"
+                  disabled={uploadingEvidence}
+                  onChange={(e) => {
+                    const selected = e.target.files ? Array.from(e.target.files) : [];
+                    e.target.value = "";
+                    if (selected.length > 0) onUploadEvidence(selected, answerKey);
+                  }}
+                />
+              </label>
+            </div>
+            <div className="mt-2 flex gap-2">
+              <input
+                type="text"
+                defaultValue={state.strategyAnswers?.[answerKey] ?? ""}
+                onBlur={(e) => {
+                  if (e.target.value.trim()) onAnswerStrategy(answerKey, e.target.value.trim());
+                }}
+                placeholder="Or type an answer instead…"
+                className="min-w-0 flex-1 rounded-md border border-border bg-background px-2.5 py-1.5 text-xs"
+              />
+            </div>
+            {!state.strategyAnswers?.[answerKey] && evidenceDocs.length === 0 && (
+              <p className="mt-2 text-[11px] italic text-muted-foreground">
+                Estimate — not guaranteed, missing evidence.
+              </p>
+            )}
+          </div>
+        )}
       </div>
     );
   }
@@ -2675,34 +3219,29 @@ function scoreColor(score: number): string {
   return "var(--destructive)";
 }
 
-function RadialGauge({ value, sublabel }: { value: number; sublabel?: string }) {
-  const color = scoreColor(value);
-  const data = [{ value, fill: color }];
-  return (
-    <div className="relative mx-auto h-40 w-40">
-      <ResponsiveContainer width="100%" height="100%">
-        <RadialBarChart
-          innerRadius="72%"
-          outerRadius="100%"
-          data={data}
-          startAngle={90}
-          endAngle={-270}
-          barSize={14}
-        >
-          <PolarAngleAxis type="number" domain={[0, 100]} tick={false} />
-          <RadialBar background dataKey="value" cornerRadius={8} />
-        </RadialBarChart>
-      </ResponsiveContainer>
-      <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <div className="text-3xl font-bold" style={{ color }}>
-          <AnimatedNumber value={value} />
-        </div>
-        {sublabel && (
-          <div className="px-3 text-center text-[10px] text-muted-foreground">{sublabel}</div>
-        )}
-      </div>
-    </div>
-  );
+// A continuous version of scoreColor — smoothly interpolated (red at 0,
+// amber at 50, green at 100, everything in between blended) rather than
+// jumping abruptly at fixed 40/70 cutoffs, for the one place that read as
+// "graph-like" enough to want a real gradient: SpeedometerGauge. Uses CSS
+// color-mix() (same technique already used for the hub doors' glow tint)
+// so it blends the app's real theme tokens directly — correct in both light
+// and dark mode — rather than a hardcoded hex gradient.
+function gradualScoreColor(score: number): string {
+  const s = Math.max(0, Math.min(100, score));
+  // Eased, not linear: a plain 0-50 linear blend put 25 at a 50/50 red/amber
+  // mix, which reads as orange, not red — the same problem a direct 2-stop
+  // red-green mix had at the other extreme (a muddy midpoint, no real
+  // yellow). Easing each half toward its own anchor (ease-in low, ease-out
+  // high) keeps 25 mostly red and 90 mostly green, while 50 still lands on
+  // pure amber — still one continuous curve, just not a straight line.
+  if (s <= 50) {
+    const t = s / 50;
+    const pct = t * t * t * 100;
+    return `color-mix(in oklch, var(--warning) ${pct}%, var(--destructive) ${100 - pct}%)`;
+  }
+  const t = (s - 50) / 50;
+  const pct = (1 - (1 - t) * (1 - t) * (1 - t)) * 100;
+  return `color-mix(in oklch, var(--success) ${pct}%, var(--warning) ${100 - pct}%)`;
 }
 
 function ValueComparisonChart({ current, reduced }: { current: number; reduced: number }) {
