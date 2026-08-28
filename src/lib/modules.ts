@@ -142,7 +142,7 @@ export const MODULES: Module[] = [
     id: "executive",
     n: 10,
     title: "AI Executive Protest Report",
-    shortName: "Executive Protest Recommendation",
+    shortName: "Executive Protest Report",
     question: "What is the final AI recommendation and what should I do next?",
     status: "Completed",
     teaser:
