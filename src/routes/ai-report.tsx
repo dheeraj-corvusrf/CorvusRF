@@ -2436,64 +2436,61 @@ const DATA_STATUS_STYLE: Record<DataRequirementRow["status"], string> = {
   "Not integrated": "bg-secondary text-muted-foreground",
 };
 
-// AI Analysis + Status are pinned (sticky) to the left as the table scrolls
-// horizontally — those are the two columns worth scanning at a glance
-// (what, and is it real), while the detail columns (exact data/source/use)
-// are the ones actually worth scrolling for. Fixed pixel widths on both so
-// the second sticky column's offset is predictable regardless of how long
-// any one category name is.
-const STICKY_CATEGORY_W = 132;
-const STICKY_STATUS_W = 112;
-
+// A full-width vertical list, not a wide table — no horizontal scrolling at
+// all. Each category is collapsed to just its name + Status badge (the two
+// things worth scanning at a glance); tap a row to expand it in place and
+// reveal the three detail fields stacked below, same click-to-expand
+// convention as ComparableTable's rows above.
 function DataRequirementsTable() {
+  const [expanded, setExpanded] = useState<string | null>(null);
   return (
-    <div className="overflow-x-auto rounded-lg border border-border">
-      <table className="w-full min-w-[760px] text-left text-xs">
-        <thead className="text-[10px] uppercase tracking-wide text-muted-foreground">
-          <tr>
-            <th
-              className="sticky left-0 z-10 bg-secondary/95 px-3 py-2 font-semibold"
-              style={{ width: STICKY_CATEGORY_W }}
+    <div className="grid gap-1.5">
+      {DATA_REQUIREMENTS.map((r) => {
+        const isOpen = expanded === r.category;
+        return (
+          <div key={r.category} className="rounded-lg border border-border">
+            <button
+              type="button"
+              onClick={() => setExpanded(isOpen ? null : r.category)}
+              className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left"
             >
-              AI Analysis
-            </th>
-            <th
-              className="sticky z-10 bg-secondary/95 px-3 py-2 font-semibold"
-              style={{ left: STICKY_CATEGORY_W, width: STICKY_STATUS_W }}
-            >
-              Status
-            </th>
-            <th className="bg-secondary/60 px-3 py-2 font-semibold">Exact Data Required</th>
-            <th className="bg-secondary/60 px-3 py-2 font-semibold">Primary Data Source</th>
-            <th className="bg-secondary/60 px-3 py-2 font-semibold">What AI Uses It For</th>
-          </tr>
-        </thead>
-        <tbody>
-          {DATA_REQUIREMENTS.map((r) => (
-            <tr key={r.category} className="border-t border-border/60 align-top">
-              <td
-                className="sticky left-0 z-10 border-t border-border/60 bg-card px-3 py-2 font-medium"
-                style={{ width: STICKY_CATEGORY_W }}
-              >
-                {r.category}
-              </td>
-              <td
-                className="sticky z-10 border-t border-border/60 bg-card px-3 py-2"
-                style={{ left: STICKY_CATEGORY_W, width: STICKY_STATUS_W }}
-              >
+              <span className="text-xs font-medium">{r.category}</span>
+              <span className="flex shrink-0 items-center gap-2">
                 <span
                   className={`whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-semibold ${DATA_STATUS_STYLE[r.status]}`}
                 >
                   {r.status}
                 </span>
-              </td>
-              <td className="px-3 py-2 text-muted-foreground">{r.required}</td>
-              <td className="px-3 py-2 text-muted-foreground">{r.source}</td>
-              <td className="px-3 py-2 text-muted-foreground">{r.usedFor}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+                <ArrowRight
+                  className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${isOpen ? "rotate-90" : ""}`}
+                />
+              </span>
+            </button>
+            {isOpen && (
+              <div className="grid gap-2 border-t border-border/60 px-3 py-2 text-xs">
+                <div>
+                  <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    Exact Data Required
+                  </div>
+                  <p className="text-muted-foreground">{r.required}</p>
+                </div>
+                <div>
+                  <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    Primary Data Source
+                  </div>
+                  <p className="text-muted-foreground">{r.source}</p>
+                </div>
+                <div>
+                  <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    What AI Uses It For
+                  </div>
+                  <p className="text-muted-foreground">{r.usedFor}</p>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
