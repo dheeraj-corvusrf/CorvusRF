@@ -232,6 +232,22 @@ export function AddressAutocomplete({
   const abortRef = useRef<AbortController | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const listboxId = useId();
+  // Set right before each onChange() call inside selectSuggestion(), so the
+  // value-watching effect below can recognize its own programmatic update and
+  // skip re-searching for it. Without this, selecting a suggestion re-opens
+  // the dropdown against its own just-selected text, and — worse — the fresh
+  // scheduleSearch() call aborts the in-flight Place Details request that
+  // same selection just started (both share abortRef), permanently losing
+  // the zip/house-number upgrade it was about to deliver. Confirmed live: the
+  // Place Details request fired, then got cut off mid-flight by exactly this
+  // re-entrant search, leaving the raw (unresolved) label as the final value.
+  // Compared against `value` (not consumed/reset like a one-shot flag) so a
+  // second onChange call that happens to land on the same string — e.g.
+  // Place Details failing and finalLabel falling back to the identical
+  // s.label — can't leave this stuck permanently suppressing real edits.
+  // Doesn't affect the "external setter" case this effect exists for (voice
+  // input etc.) since only selectSuggestion() ever writes to this ref.
+  const lastSelfSetValueRef = useRef<string | null>(null);
 
   useEffect(() => {
     return () => {
@@ -244,6 +260,7 @@ export function AddressAutocomplete({
   // external setter like voice input — so suggestions show up either way instead
   // of only reacting to direct keystrokes in this input.
   useEffect(() => {
+    if (value === lastSelfSetValueRef.current) return;
     scheduleSearch(value);
   }, [value]);
 
@@ -313,6 +330,7 @@ export function AddressAutocomplete({
     setActiveIndex(-1);
 
     if (s.googlePlaceId) {
+      lastSelfSetValueRef.current = s.label;
       onChange(s.label);
       const controller = new AbortController();
       abortRef.current = controller;
@@ -320,11 +338,13 @@ export function AddressAutocomplete({
         () => null,
       );
       const finalLabel = detailed ?? s.label;
+      lastSelfSetValueRef.current = finalLabel;
       onChange(finalLabel);
       onPlaceSelected?.(finalLabel);
       return;
     }
 
+    lastSelfSetValueRef.current = s.label;
     onChange(s.label);
     onPlaceSelected?.(s.label);
   }
