@@ -2436,33 +2436,60 @@ const DATA_STATUS_STYLE: Record<DataRequirementRow["status"], string> = {
   "Not integrated": "bg-secondary text-muted-foreground",
 };
 
+// AI Analysis + Status are pinned (sticky) to the left as the table scrolls
+// horizontally — those are the two columns worth scanning at a glance
+// (what, and is it real), while the detail columns (exact data/source/use)
+// are the ones actually worth scrolling for. Fixed pixel widths on both so
+// the second sticky column's offset is predictable regardless of how long
+// any one category name is.
+const STICKY_CATEGORY_W = 132;
+const STICKY_STATUS_W = 112;
+
 function DataRequirementsTable() {
   return (
     <div className="overflow-x-auto rounded-lg border border-border">
       <table className="w-full min-w-[760px] text-left text-xs">
-        <thead className="bg-secondary/60 text-[10px] uppercase tracking-wide text-muted-foreground">
+        <thead className="text-[10px] uppercase tracking-wide text-muted-foreground">
           <tr>
-            <th className="px-3 py-2 font-semibold">AI Analysis</th>
-            <th className="px-3 py-2 font-semibold">Exact Data Required</th>
-            <th className="px-3 py-2 font-semibold">Primary Data Source</th>
-            <th className="px-3 py-2 font-semibold">What AI Uses It For</th>
-            <th className="px-3 py-2 font-semibold">Status</th>
+            <th
+              className="sticky left-0 z-10 bg-secondary/95 px-3 py-2 font-semibold"
+              style={{ width: STICKY_CATEGORY_W }}
+            >
+              AI Analysis
+            </th>
+            <th
+              className="sticky z-10 bg-secondary/95 px-3 py-2 font-semibold"
+              style={{ left: STICKY_CATEGORY_W, width: STICKY_STATUS_W }}
+            >
+              Status
+            </th>
+            <th className="bg-secondary/60 px-3 py-2 font-semibold">Exact Data Required</th>
+            <th className="bg-secondary/60 px-3 py-2 font-semibold">Primary Data Source</th>
+            <th className="bg-secondary/60 px-3 py-2 font-semibold">What AI Uses It For</th>
           </tr>
         </thead>
         <tbody>
           {DATA_REQUIREMENTS.map((r) => (
             <tr key={r.category} className="border-t border-border/60 align-top">
-              <td className="px-3 py-2 font-medium">{r.category}</td>
-              <td className="px-3 py-2 text-muted-foreground">{r.required}</td>
-              <td className="px-3 py-2 text-muted-foreground">{r.source}</td>
-              <td className="px-3 py-2 text-muted-foreground">{r.usedFor}</td>
-              <td className="px-3 py-2">
+              <td
+                className="sticky left-0 z-10 border-t border-border/60 bg-card px-3 py-2 font-medium"
+                style={{ width: STICKY_CATEGORY_W }}
+              >
+                {r.category}
+              </td>
+              <td
+                className="sticky z-10 border-t border-border/60 bg-card px-3 py-2"
+                style={{ left: STICKY_CATEGORY_W, width: STICKY_STATUS_W }}
+              >
                 <span
                   className={`whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-semibold ${DATA_STATUS_STYLE[r.status]}`}
                 >
                   {r.status}
                 </span>
               </td>
+              <td className="px-3 py-2 text-muted-foreground">{r.required}</td>
+              <td className="px-3 py-2 text-muted-foreground">{r.source}</td>
+              <td className="px-3 py-2 text-muted-foreground">{r.usedFor}</td>
             </tr>
           ))}
         </tbody>
