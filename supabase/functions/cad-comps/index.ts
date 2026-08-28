@@ -37,6 +37,25 @@ type CompProperty = {
   longitude: number;
   marketValue: number | null;
   ownerName: string | null;
+  // Real fields on the same row already being fetched — never a second
+  // request. See comps-analysis.ts for how these feed the comparable table
+  // (land size / $-per-acre, last transfer date, similarity score) instead
+  // of the sale price / building SF / adjustments Texas's non-disclosure law
+  // makes unavailable from any free source (see cad-comps deploy comment).
+  legalAcreage: number | null;
+  landValue: number | null;
+  improvementValue: number | null;
+  appraisedValue: number | null;
+  // The parcel's own most recent deed date — a real transfer date, but
+  // never a sale price (Texas doesn't require one to be recorded). Labeled
+  // "Last Transfer" in the UI, never "Sale Date", to not imply a price.
+  lastTransferDt: string | null;
+  // Raw CAD property-type code (e.g. "R", "C") — kept for the same/
+  // different-type similarity signal only; never shown untranslated in the
+  // UI since a wrong guessed label would be worse than no label.
+  propType: string | null;
+  // Populated inconsistently by CADs (often null) — shown only when present.
+  zoning: string | null;
 };
 
 type CompsResult = {
@@ -65,6 +84,10 @@ function parseNum(v: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+function str(v: unknown): string | null {
+  return typeof v === "string" && v.trim().length > 0 ? v.trim() : null;
+}
+
 function toCompProperty(row: Record<string, unknown>): CompProperty | null {
   const lat = parseNum(row.latitude);
   const lon = parseNum(row.longitude);
@@ -77,6 +100,13 @@ function toCompProperty(row: Record<string, unknown>): CompProperty | null {
     longitude: lon,
     marketValue: parseNum(row.marketValue),
     ownerName: (row.name as string) || null,
+    legalAcreage: parseNum(row.legalAcreage),
+    landValue: parseNum(row.landValue),
+    improvementValue: parseNum(row.improvementValue),
+    appraisedValue: parseNum(row.appraisedValue),
+    lastTransferDt: str(row.deedDt),
+    propType: str(row.propType),
+    zoning: str(row.zoning),
   };
 }
 

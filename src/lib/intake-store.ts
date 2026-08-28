@@ -1,5 +1,10 @@
 // Session-scoped intake store for the guest flow.
-import { classifyDocument, validateDocument, type Extraction, type DocumentType } from "./document-ai";
+import {
+  classifyDocument,
+  validateDocument,
+  type Extraction,
+  type DocumentType,
+} from "./document-ai";
 import { getFirstPage } from "./pdf-utils";
 import type { CadDeed, CadValueHistoryEntry } from "./cad-lookup";
 import type { SavingsEstimate } from "./savings-estimate";
@@ -63,6 +68,10 @@ export type IntakeState = {
   // dollar amount on every refresh. See runValidation() in intake.tsx.
   cachedSavings?: SavingsEstimate;
   cachedSavingsKey?: string;
+  // Free-text fallback answers to a strategy's missing-evidence prompt (Module 2's
+  // evidence gate — see ai-report.tsx), keyed by strategy name. Session-scoped like
+  // the rest of this store; not persisted server-side.
+  strategyAnswers?: Record<string, string>;
 
   // document classification flow
   extraction?: Extraction;
@@ -184,9 +193,14 @@ export async function classifyAndStoreDocument(file: File): Promise<Extraction> 
     dataUrl: firstPage.dataUrl,
   });
   if (!validation.isValid) {
-    appendAudit({ actor: "ai", action: "reject_invalid_document", reason: validation.reason ?? undefined });
+    appendAudit({
+      actor: "ai",
+      action: "reject_invalid_document",
+      reason: validation.reason ?? undefined,
+    });
     throw new Error(
-      validation.reason ?? "This doesn't look like a Texas property tax document. Please try another file.",
+      validation.reason ??
+        "This doesn't look like a Texas property tax document. Please try another file.",
     );
   }
 

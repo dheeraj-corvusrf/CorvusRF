@@ -69,12 +69,16 @@ export async function generateCasePrep(
 
   try {
     const strategy = await getModuleAnalysis("strategy", input);
+    // Module 2 now returns a ranked list of strategies rather than one single
+    // recommendation — the saved case still only has room for one, so this
+    // persists the top-ranked strategy (see StrategyEntry in ai-report-modules.ts).
+    const top = strategy.strategies[0] ?? null;
     const { error } = await supabase
       .from("protests")
       .update({
-        strategy_recommendation: strategy.recommendation,
-        strategy_confidence_pct: strategy.confidencePct,
-        strategy_rationale: strategy.rationale,
+        strategy_recommendation: top?.name ?? null,
+        strategy_confidence_pct: top?.confidencePct ?? null,
+        strategy_rationale: top?.whySelected ?? null,
       })
       .eq("id", protestId);
     if (error) throw error;
@@ -90,9 +94,13 @@ export async function generateCasePrep(
     if (!count) {
       const evidence = await getModuleAnalysis("evidence", input);
       if (evidence.items.length > 0) {
-        const { error } = await supabase
-          .from("protest_evidence_items")
-          .insert(evidence.items.map(({ item }) => ({ protest_id: protestId, user_id: userId, label: item })));
+        const { error } = await supabase.from("protest_evidence_items").insert(
+          evidence.items.map(({ item }) => ({
+            protest_id: protestId,
+            user_id: userId,
+            label: item,
+          })),
+        );
         if (error) throw error;
       }
     }
@@ -109,7 +117,9 @@ export async function generateCasePrep(
 export async function getCase(protestId: string): Promise<ProtestCase> {
   const { data: protestRow, error: protestErr } = await supabase
     .from("protests")
-    .select("strategy_recommendation, strategy_confidence_pct, strategy_rationale, case_prep_generated_at")
+    .select(
+      "strategy_recommendation, strategy_confidence_pct, strategy_rationale, case_prep_generated_at",
+    )
     .eq("id", protestId)
     .single();
   if (protestErr) throw protestErr;
@@ -130,7 +140,8 @@ export async function getCase(protestId: string): Promise<ProtestCase> {
       .select("id, file_name, evidence_item_id")
       .in("evidence_item_id", itemIds)
       .order("uploaded_at", { ascending: true });
-    for (const d of (docs as Array<{ id: string; file_name: string; evidence_item_id: string }>) ?? []) {
+    for (const d of (docs as Array<{ id: string; file_name: string; evidence_item_id: string }>) ??
+      []) {
       const list = documentsByItemId.get(d.evidence_item_id) ?? [];
       list.push({ id: d.id, fileName: d.file_name });
       documentsByItemId.set(d.evidence_item_id, list);
@@ -271,7 +282,10 @@ export async function recordArbDecision(
   if (error) throw error;
 }
 
-export async function recordEscalation(protestId: string, path: "appeal" | "arbitration"): Promise<void> {
+export async function recordEscalation(
+  protestId: string,
+  path: "appeal" | "arbitration",
+): Promise<void> {
   const { error } = await supabase
     .from("protests")
     .update({ escalation_path: path, status: path === "appeal" ? "appealing" : "arbitrating" })
@@ -301,5 +315,8 @@ export function getCaseResults(
   if (protest.originalValue == null || protest.finalValue == null) return null;
   const valueReduction = Math.max(0, protest.originalValue - protest.finalValue);
   const rate = getEffectiveTaxRate(property.cad);
-  return { valueReduction: Math.round(valueReduction), actualSavings: Math.round(valueReduction * rate) };
+  return {
+    valueReduction: Math.round(valueReduction),
+    actualSavings: Math.round(valueReduction * rate),
+  };
 }

@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
   CheckCircle2,
@@ -35,6 +35,7 @@ import {
 } from "recharts";
 import {
   readIntake,
+  updateIntake,
   currency,
   UPLOAD_LIMITS,
   fileToDataUrl,
@@ -47,11 +48,20 @@ import { getMyBilling } from "@/lib/billing";
 import { getHealthScore, type HealthScoreResult } from "@/lib/ai-health-score";
 import {
   getModuleAnalysis,
+  askModuleQuestion,
   type BatchModuleId,
+  type ModuleAnalysisInput,
   type ModuleResultMap,
+  type StrategyEntry,
 } from "@/lib/ai-report-modules";
-import { getComps, type CompsResult } from "@/lib/cad-comps";
+import { getComps, type CompsResult, type CompProperty } from "@/lib/cad-comps";
+import { computeComparableStats, type RankedComp } from "@/lib/comps-analysis";
 import { estimateSavings } from "@/lib/savings-estimate";
+import {
+  classifyPropertyCategory,
+  getAssessmentRatioInfo,
+  applyValueTrendAdjustment,
+} from "@/lib/texas-tax-rates";
 import { CompsMap, useLeaflet } from "@/components/CompsMap";
 import { findExistingProperty, addProperty, type PropertyRecord } from "@/lib/properties";
 import { listProtests, type ProtestRecord } from "@/lib/protests";
@@ -94,6 +104,35 @@ export const Route = createFileRoute("/ai-report")({
 // paid subscription — there is no sign-in-only tier and no per-user "pick any
 // 3" quota; which modules are free is fixed by module number, not user choice.
 const FREE_MODULE_COUNT = 3;
+
+// Real comps-derived signal fed into Module 2's prompt (see loadModule() below) —
+// median/min/max of the same real comparable market values CompsMap/CompsScatter
+// already render, not a new fetch or an invented figure.
+function buildCompsSummary(compsData: CompsResult | null) {
+  const values = (compsData?.comps ?? [])
+    .map((c) => c.marketValue)
+    .filter((v): v is number => v != null);
+  if (values.length === 0 || !compsData) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  return {
+    median: sorted[Math.floor(sorted.length / 2)],
+    min: sorted[0],
+    max: sorted[sorted.length - 1],
+    count: compsData.comps.length,
+  };
+}
+
+// Real value-history-jump signal fed into Module 2's prompt — same
+// applyValueTrendAdjustment() real trend-vs-own-history check success-
+// probability.ts already reuses; baseReductionPct is passed as 0 since only the
+// jump detection is needed here, not a reduction percentage.
+function buildValueTrend(valueHistory: IntakeState["valueHistory"]) {
+  const history = (valueHistory ?? [])
+    .map((h) => ({ year: h.year, value: h.appraisedValue ?? h.marketValue ?? null }))
+    .filter((h): h is { year: number; value: number } => h.value != null);
+  const trend = applyValueTrendAdjustment(0, history);
+  return { jumpTriggered: trend.jumpTriggered, jumpPct: trend.jumpPct };
+}
 
 function Report() {
   const nav = useNavigate();
@@ -165,7 +204,9 @@ function Report() {
         setEvidenceDocs(
           docs.filter(
             (d) =>
-              d.propertyId === resolvedProperty.id && d.documentType === EVIDENCE_DOCUMENT_TYPE,
+              d.propertyId === resolvedProperty.id &&
+              (d.documentType === EVIDENCE_DOCUMENT_TYPE ||
+                d.documentType?.startsWith("Strategy Evidence: ")),
           ),
         ),
       )
@@ -205,14 +246,22 @@ function Report() {
     setAuthorizing(true);
   }
 
-  const MAX_EVIDENCE_FILES = 4;
+  // Shared pool across Improvement Condition's evidence upload and Module 2's
+  // per-strategy evidence gate (up to 5-6 strategies) — raised from the original
+  // 4 (Improvement-only) to give each a realistic amount of headroom.
+  const MAX_EVIDENCE_FILES = 8;
 
   // Takes a plain File[] rather than the FileList straight off an <input> — FileList
   // is a live view of the input, so if the caller clears input.value right after
   // selecting (to allow re-picking the same file later), the FileList empties out
   // before this async function gets around to reading it. Converting to an array in
   // the onChange handler itself, before the input is cleared, avoids that.
-  async function handleUploadEvidence(files: File[]) {
+  //
+  // `strategyId` tags uploads coming from Module 2's per-strategy evidence gate
+  // (see StrategyDetail in ModulePreviewBody) with which strategy they satisfy;
+  // omitted, it falls back to the original Improvement Condition document type so
+  // that module's existing upload flow is unchanged.
+  async function handleUploadEvidence(files: File[], strategyId?: string) {
     if (!user) return;
     const property = await ensureProperty();
     if (!property) {
@@ -225,6 +274,7 @@ function Report() {
       return;
     }
     const toUpload = files.slice(0, room);
+    const documentType = strategyId ? `Strategy Evidence: ${strategyId}` : EVIDENCE_DOCUMENT_TYPE;
     setUploadingEvidence(true);
     try {
       const uploaded: DocumentRecord[] = [];
@@ -235,7 +285,7 @@ function Report() {
           );
           continue;
         }
-        uploaded.push(await uploadDocument(user.id, property.id, file, EVIDENCE_DOCUMENT_TYPE));
+        uploaded.push(await uploadDocument(user.id, property.id, file, documentType));
       }
       if (uploaded.length > 0) {
         setEvidenceDocs((prev) => [...prev, ...uploaded]);
@@ -248,6 +298,33 @@ function Report() {
     }
   }
 
+  // Free-text fallback for Module 2's per-strategy evidence gate (see
+  // StrategyDetail) — persisted the same way the rest of intake state is, via
+  // sessionStorage, so it survives a refresh but never leaves the browser.
+  function answerStrategy(strategyId: string, answer: string) {
+    const next = updateIntake({
+      strategyAnswers: { ...(state.strategyAnswers ?? {}), [strategyId]: answer },
+    });
+    setState(next);
+    toast.success("Answer saved.");
+  }
+
+  // Powers every module's "Ask AI" box (see ModuleQABox) — grounded in the
+  // same record loadModule() sends plus whatever that module has already
+  // generated, so an answer never comes from a blank slate.
+  async function askQuestion(moduleId: string, question: string): Promise<string> {
+    const input: ModuleAnalysisInput = {
+      address: state.address,
+      cad: state.cad,
+      propertyType: state.propertyType,
+      landValue: state.landValue,
+      improvementValue: state.improvementValue,
+      totalValue: state.totalValue,
+      taxYear: state.taxYear,
+    };
+    return askModuleQuestion(moduleId, question, input, moduleData[moduleId]?.data ?? null);
+  }
+
   function loadModule(id: string, opts?: { force?: boolean }) {
     // No AI call backs this module anymore — it renders straight from the
     // deterministic `estimated` value (see estimateSavings() above).
@@ -256,7 +333,7 @@ function Report() {
     if ((existing && (existing.loading || (existing.data && !opts?.force))) || !state.totalValue)
       return;
     setModuleData((prev) => ({ ...prev, [id]: { data: null, loading: true, error: null } }));
-    const input = {
+    const input: ModuleAnalysisInput = {
       address: state.address,
       cad: state.cad,
       propertyType: state.propertyType,
@@ -266,15 +343,49 @@ function Report() {
       taxYear: state.taxYear,
     };
 
+    // Module 2 ("strategy") ranks the same 5 arguments modules 3/4/5/7/6
+    // investigate — scoped to just this module's own entry (not the whole
+    // ranking) so its prompt gets one clear priority signal, not noise from
+    // strategies it has nothing to do with. Only present once Module 2 has
+    // resolved — see the eager-load effect's sequencing below.
+    const strategyData = moduleData.strategy?.data as ModuleResultMap["strategy"] | undefined;
+    if (strategyData) {
+      const relevant = strategyData.strategies
+        .filter((s) => s.relatedModules.includes(id))
+        .map((s) => ({ strategy: s.name, score: s.strengthScore }));
+      if (relevant.length > 0) input.priorityContext = relevant;
+    }
+
     async function run() {
       if (id === "health") return getHealthScore(input);
+
+      // Real signals (never fabricated) fed into the Strategy module's own
+      // reasoning — see buildCompsSummary()/buildValueTrend() below and
+      // buildRecord() in the edge function.
+      if (id === "strategy") {
+        input.compsSummary = buildCompsSummary(compsMap.data);
+        input.assessmentRatio = getAssessmentRatioInfo(
+          state.cad,
+          classifyPropertyCategory(state.propertyType),
+        );
+        input.valueTrend = buildValueTrend(state.valueHistory);
+        input.evidenceFileNames = evidenceDocs.map((d) => d.fileName);
+      }
+      // Grounds the Market Value module's guidance in the real comps already
+      // fetched for this property (median/range/count) instead of generic
+      // advice — same real signal, same helper, as the Strategy module above.
+      if (id === "comps") {
+        input.compsSummary = buildCompsSummary(compsMap.data);
+      }
+
       // Improvement Condition reads uploaded evidence (photos/repair estimates/
       // appraisals) back from storage and attaches it so the AI grounds its
       // guidance in what's actually shown rather than only general advice — see
       // handleUploadEvidence() above and ai-report-modules/index.ts's evidence
       // handling. Capped to the 4 most recent, mirroring the server-side cap.
-      if (id === "improvement" && evidenceDocs.length > 0) {
-        const recent = evidenceDocs.slice(-4);
+      const improvementDocs = evidenceDocs.filter((d) => d.documentType === EVIDENCE_DOCUMENT_TYPE);
+      if (id === "improvement" && improvementDocs.length > 0) {
+        const recent = improvementDocs.slice(-4);
         const evidenceImages = await Promise.all(
           recent.map(async (doc) => {
             const url = await getDocumentUrl(doc.storagePath);
@@ -395,23 +506,55 @@ function Report() {
   // unconditionally) and "income" needs user-uploaded data that doesn't
   // exist yet, so both are skipped here exactly like loadModule() itself
   // already skips "savings".
+  // comps/site/improvement/zoning investigate the exact 5 strategies Module 2
+  // ranks, so they're sequenced to fire after it (see the effect below) rather
+  // than in this immediate batch, which is why they're excluded here.
+  const SEQUENCED_AFTER_STRATEGY = new Set(["comps", "site", "improvement", "zoning"]);
+
   useEffect(() => {
     if (!state.totalValue) return;
     for (const m of MODULES) {
-      if (m.id === "savings" || m.id === "income") continue;
+      if (m.id === "savings" || m.id === "income" || SEQUENCED_AFTER_STRATEGY.has(m.id)) continue;
       if (m.n <= FREE_MODULE_COUNT || hasFullAccess) loadModule(m.id);
     }
-    loadCompsMap();
-    // loadModule/loadCompsMap close over moduleData/compsMap for their
-    // own-fetch guards, which is exactly why they're left out of this
-    // dependency list — including them would re-fire this effect (and, via
-    // the loading-state update inside loadModule, immediately re-fire
-    // itself again) on every single module's own load, an infinite loop
-    // just like the hub doors' entrance-animation bug earlier. Property
-    // identity and access level are the only real triggers for "should we
-    // start loading modules."
+    // loadModule closes over moduleData for its own-fetch guard, which is
+    // exactly why it's left out of this dependency list — including it would
+    // re-fire this effect (and, via the loading-state update inside
+    // loadModule, immediately re-fire itself again) on every single module's
+    // own load, an infinite loop just like the hub doors' entrance-animation
+    // bug earlier. Property identity and access level are the only real
+    // triggers for "should we start loading modules."
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.totalValue, hasFullAccess]);
+
+  // comps/site/improvement/zoning wait for Module 2 (Strategy) to resolve —
+  // or a capped 6s timeout, so a slow/failed Strategy call never stalls the
+  // rest of the page indefinitely — before firing, so loadModule() above can
+  // attach Module 2's per-strategy score as priorityContext to each. Also
+  // kicks off the comps map fetch immediately (unsequenced): it's not an AI
+  // call, and Module 2 itself wants compsSummary as an input when available.
+  useEffect(() => {
+    if (!state.totalValue) return;
+    loadCompsMap();
+    const strategyState = moduleData.strategy;
+    const fire = () => {
+      for (const id of SEQUENCED_AFTER_STRATEGY) {
+        const m = MODULES.find((mm) => mm.id === id);
+        if (m && (m.n <= FREE_MODULE_COUNT || hasFullAccess)) loadModule(m.id);
+      }
+    };
+    if (strategyState?.data || strategyState?.error) {
+      fire();
+      return;
+    }
+    const t = setTimeout(fire, 6000);
+    return () => clearTimeout(t);
+    // Same rationale as the effect above for omitting loadModule/loadCompsMap;
+    // moduleData.strategy's data/error are read explicitly instead of the
+    // whole moduleData map so this only re-fires on Module 2's own state
+    // transitions, not every other module's load.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.totalValue, hasFullAccess, moduleData.strategy?.data, moduleData.strategy?.error]);
 
   function openModule(m: Module) {
     if (hasFullAccess || m.n <= FREE_MODULE_COUNT) {
@@ -575,6 +718,8 @@ function Report() {
                 uploadingEvidence={false}
                 onUploadEvidence={() => {}}
                 onForceReload={() => {}}
+                onAnswerStrategy={() => {}}
+                onAskQuestion={() => Promise.resolve("")}
               />
             </div>
           ));
@@ -604,6 +749,8 @@ function Report() {
             uploadingEvidence={uploadingEvidence}
             onUploadEvidence={handleUploadEvidence}
             onForceReload={() => loadModule(openModel.id, { force: true })}
+            onAnswerStrategy={answerStrategy}
+            onAskQuestion={askQuestion}
           />
           <div className="mt-6 flex gap-2 justify-end">
             <button onClick={() => setOpenId(null)} className="btn-outline">
@@ -714,6 +861,14 @@ function ModuleCard({
             ? "Error"
             : "Completed";
   const insight = unlocked ? moduleInsight(m, moduleState, compsMap, estimated, totalValue) : null;
+  // Module 2's own score for this module's strategy, once it's resolved — see
+  // the priorityContext sequencing in loadModule()/the eager-load effects
+  // above. Only comps/site/improvement/income/zoning map to one of Module 2's
+  // 5 fixed strategies; other modules never show this badge.
+  const strategyData = moduleData.strategy?.data as ModuleResultMap["strategy"] | undefined;
+  const priorityScore = strategyData?.strategies.find((s) =>
+    s.relatedModules.includes(m.id),
+  )?.strengthScore;
   return (
     <div className="card-elev overflow-hidden flex flex-col">
       <div className="p-5 flex-1 flex flex-col">
@@ -724,7 +879,18 @@ function ModuleCard({
               {m.shortName}
             </h3>
           </div>
-          <StatusChip status={status} />
+          <div className="flex shrink-0 items-center gap-1.5">
+            {priorityScore != null && (
+              <span
+                className="whitespace-nowrap text-[10px] font-semibold"
+                style={{ color: scoreColor(priorityScore) }}
+                title="Strategy module's priority ranking for this argument"
+              >
+                Priority {priorityScore}
+              </span>
+            )}
+            <StatusChip status={status} />
+          </div>
         </div>
         <div className="mt-4 flex-1 flex flex-col justify-center">
           <ModuleVisual
@@ -838,9 +1004,7 @@ function ModuleVisual({
   }
 
   if (m.id === "comps" && compsMap.data?.comps.length) {
-    const compValues = compsMap.data.comps
-      .map((c) => c.marketValue)
-      .filter((v): v is number => v != null);
+    const stats = computeComparableStats(compsMap.data.subject, compsMap.data.comps, totalValue);
     return (
       <div>
         <div className="flex items-baseline gap-1.5">
@@ -853,24 +1017,49 @@ function ModuleVisual({
             subjectValue={compsMap.data.subject?.marketValue ?? null}
           />
         </div>
-        {compValues.length > 0 && (
-          <div className="mt-1.5 grid grid-cols-2 gap-1.5">
-            <div className="rounded-md bg-success/10 px-2 py-1">
-              <div className="text-[8px] uppercase tracking-wide text-success">Market Range</div>
-              <div className="truncate text-[11px] font-semibold text-success">
-                {compactCurrency(Math.min(...compValues))}–
-                {compactCurrency(Math.max(...compValues))}
-              </div>
-            </div>
-            {totalValue != null && (
-              <div className="rounded-md bg-destructive/10 px-2 py-1">
-                <div className="text-[8px] uppercase tracking-wide text-destructive">CAD Value</div>
-                <div className="truncate text-[11px] font-semibold text-destructive">
-                  {compactCurrency(totalValue)}
+        {stats.limitedData ? (
+          <div className="mt-1.5 rounded-md bg-warning/15 px-2 py-1 text-[11px] text-warning-foreground">
+            Limited Comparable Data
+          </div>
+        ) : (
+          stats.indicated && (
+            <div className="mt-1.5 grid grid-cols-3 gap-1.5">
+              <div className="rounded-md bg-success/10 px-2 py-1">
+                <div className="text-[8px] uppercase tracking-wide text-success">
+                  Indicated Range
+                </div>
+                <div className="truncate text-[11px] font-semibold text-success">
+                  {compactCurrency(stats.indicated.min)}–{compactCurrency(stats.indicated.max)}
                 </div>
               </div>
-            )}
-          </div>
+              {stats.subjectValue != null && (
+                <div className="rounded-md bg-destructive/10 px-2 py-1">
+                  <div className="text-[8px] uppercase tracking-wide text-destructive">
+                    CAD Value
+                  </div>
+                  <div className="truncate text-[11px] font-semibold text-destructive">
+                    {compactCurrency(stats.subjectValue)}
+                  </div>
+                </div>
+              )}
+              {stats.valuationGapPct != null && (
+                <div className="rounded-md bg-secondary/60 px-2 py-1">
+                  <div className="text-[8px] uppercase tracking-wide text-muted-foreground">
+                    Valuation Gap
+                  </div>
+                  <div
+                    className="truncate text-[11px] font-semibold"
+                    style={{
+                      color: scoreColor(100 - Math.min(100, Math.abs(stats.valuationGapPct))),
+                    }}
+                  >
+                    {stats.valuationGapPct > 0 ? "+" : ""}
+                    {stats.valuationGapPct}%
+                  </div>
+                </div>
+              )}
+            </div>
+          )
         )}
       </div>
     );
@@ -909,28 +1098,8 @@ function ModuleVisual({
     }
     case "strategy": {
       const d = moduleState.data as ModuleResultMap["strategy"];
-      if (d.factorScores.length > 0) {
-        return (
-          <div>
-            <div className="mb-1.5 text-xs font-medium truncate">{d.recommendation}</div>
-            <RankedFactorList factors={d.factorScores} color={m.color} />
-          </div>
-        );
-      }
-      return (
-        <div>
-          <div className="flex items-baseline gap-1.5">
-            <span
-              className="font-serif text-xl font-bold"
-              style={{ color: scoreColor(d.confidencePct) }}
-            >
-              {d.confidencePct}%
-            </span>
-            <span className="text-xs text-muted-foreground">confidence</span>
-          </div>
-          <div className="mt-0.5 text-sm font-medium truncate">{d.recommendation}</div>
-        </div>
-      );
+      if (d.strategies.length === 0) return null;
+      return <StrategyRankList strategies={d.strategies} color={m.color} max={5} />;
     }
     case "comps": {
       const d = moduleState.data as ModuleResultMap["comps"];
@@ -944,15 +1113,15 @@ function ModuleVisual({
       const d = moduleState.data as ModuleResultMap["site"];
       const subject = compsMap.data?.subject;
       return (
-        <div className="grid grid-cols-[5rem_1fr] gap-2">
+        <div>
           {subject ? (
-            <SiteMapThumb lat={subject.latitude} lng={subject.longitude} height={80} />
+            <SiteMapThumb lat={subject.latitude} lng={subject.longitude} height={128} />
           ) : (
-            <div className="grid h-20 place-items-center rounded-lg bg-secondary/40">
-              <MapPin className="h-5 w-5 text-muted-foreground" />
+            <div className="grid h-32 place-items-center rounded-lg bg-secondary/40">
+              <MapPin className="h-6 w-6 text-muted-foreground" />
             </div>
           )}
-          <div className="min-w-0">
+          <div className="mt-2.5">
             <MiniMeter value={d.priorityScore} label="documentation priority" />
             {d.checklist.length > 0 && (
               <div className="mt-1.5">
@@ -1014,7 +1183,7 @@ function ModuleVisual({
             </span>
           </div>
           <ExecutiveBadges
-            strategy={strategyData?.recommendation ?? null}
+            strategy={strategyData?.strategies[0]?.name ?? null}
             keyEvidence={keyEvidence}
             valueRange={valueRange}
             nextStep={d.nextStep}
@@ -1067,6 +1236,110 @@ function CompsScatter({
         <span>◆ subject vs comps</span>
         <span>{compactCurrency(max)}</span>
       </div>
+    </div>
+  );
+}
+
+// A real deed date (see CompProperty.lastTransferDt), never a sale price —
+// formatted plainly so it can't be mistaken for one.
+function formatTransferDate(v?: string | null): string | null {
+  if (!v) return null;
+  const d = new Date(v);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+}
+
+function formatAcres(v?: number | null): string | null {
+  if (v == null) return null;
+  return `${v.toFixed(v < 1 ? 2 : 1)} ac`;
+}
+
+// $-per-acre, the real per-unit metric this data actually supports — not a
+// $/SF substitute, since no building-size field exists (see comps-analysis.ts).
+function valuePerAcre(marketValue?: number | null, acreage?: number | null): number | null {
+  if (marketValue == null || !acreage || acreage < 0.05) return null;
+  return marketValue / acreage;
+}
+
+// Real per-comp comparison table — Property / Last Transfer / Land Size /
+// Assessed Value / $ per Acre / Distance / Similarity, all real fields (see
+// comps-analysis.ts). Each row expands on click (not hover, so it works on
+// touch too) rather than a tooltip, same pattern as Module 2's StrategyDetail.
+function ComparableTable({ ranked }: { ranked: RankedComp[] }) {
+  const [expandedPid, setExpandedPid] = useState<number | null>(null);
+  if (ranked.length === 0) return null;
+  return (
+    <div className="mt-3 overflow-x-auto rounded-lg border border-border">
+      <table className="w-full min-w-[640px] text-left text-xs">
+        <thead className="bg-secondary/60 text-[10px] uppercase tracking-wide text-muted-foreground">
+          <tr>
+            <th className="px-3 py-2 font-semibold">Property</th>
+            <th className="px-3 py-2 font-semibold">Last Transfer</th>
+            <th className="px-3 py-2 font-semibold">Land Size</th>
+            <th className="px-3 py-2 font-semibold">Assessed Value</th>
+            <th className="px-3 py-2 font-semibold">$ / Acre</th>
+            <th className="px-3 py-2 font-semibold">Distance</th>
+            <th className="px-3 py-2 font-semibold">Similarity</th>
+          </tr>
+        </thead>
+        <tbody>
+          {ranked.map((c) => {
+            const expanded = expandedPid === c.pid;
+            const perAcre = valuePerAcre(c.marketValue, c.legalAcreage);
+            return (
+              <Fragment key={c.pid}>
+                <tr
+                  onClick={() => setExpandedPid(expanded ? null : c.pid)}
+                  className="cursor-pointer border-t border-border/60 hover:bg-secondary/40"
+                >
+                  <td className="max-w-[10rem] truncate px-3 py-2">
+                    {c.address || `Property #${c.pid}`}
+                  </td>
+                  <td className="px-3 py-2 text-muted-foreground">
+                    {formatTransferDate(c.lastTransferDt) ?? "—"}
+                  </td>
+                  <td className="px-3 py-2 text-muted-foreground">
+                    {formatAcres(c.legalAcreage) ?? "—"}
+                  </td>
+                  <td className="px-3 py-2">
+                    {c.marketValue != null ? compactCurrency(c.marketValue) : "—"}
+                  </td>
+                  <td className="px-3 py-2 text-muted-foreground">
+                    {perAcre != null ? compactCurrency(perAcre) : "—"}
+                  </td>
+                  <td className="px-3 py-2 text-muted-foreground">{c.distanceMi.toFixed(2)} mi</td>
+                  <td
+                    className="px-3 py-2 font-semibold"
+                    style={{ color: scoreColor(c.similarity) }}
+                  >
+                    {c.similarity}
+                  </td>
+                </tr>
+                {expanded && (
+                  <tr className="border-t border-border/60 bg-secondary/30">
+                    <td colSpan={7} className="px-3 py-3">
+                      <div className="grid gap-1.5 text-xs text-muted-foreground sm:grid-cols-2">
+                        <div>Owner: {c.ownerName ?? "Not on file"}</div>
+                        <div>Land value: {c.landValue != null ? currency(c.landValue) : "—"}</div>
+                        <div>
+                          Improvement value:{" "}
+                          {c.improvementValue != null ? currency(c.improvementValue) : "—"}
+                        </div>
+                        <div>
+                          Appraised value:{" "}
+                          {c.appraisedValue != null ? currency(c.appraisedValue) : "—"}
+                        </div>
+                        {c.zoning && <div>Zoning: {c.zoning}</div>}
+                        <div>Source: {c.pid ? `CAD record #${c.pid}` : "CAD public record"}</div>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -1290,19 +1563,19 @@ function moduleInsight(
     }
     case "strategy": {
       const d = moduleState.data as ModuleResultMap["strategy"];
-      if (d.factorScores.length === 0) return null;
-      const top = [...d.factorScores].sort((a, b) => b.score - a.score)[0];
-      return `AI recommends focus on ${top.label}`;
+      if (d.strategies.length === 0) return null;
+      if (d.topStrategySummary) return d.topStrategySummary;
+      const top = d.strategies.slice(0, 2).map((s) => s.name);
+      return `AI recommends focus on ${top.join(" & ")}`;
     }
     case "comps": {
-      const comps =
-        compsMap.data?.comps.filter(
-          (c): c is typeof c & { marketValue: number } => c.marketValue != null,
-        ) ?? [];
-      if (comps.length === 0 || totalValue == null) return null;
-      const sorted = comps.map((c) => c.marketValue).sort((a, b) => a - b);
-      const median = sorted[Math.floor(sorted.length / 2)];
-      return totalValue > median ? "Potential Overvaluation" : "Fairly Valued";
+      const stats = computeComparableStats(
+        compsMap.data?.subject ?? null,
+        compsMap.data?.comps ?? [],
+        totalValue,
+      );
+      if (stats.limitedData || stats.valuationGapPct == null) return null;
+      return stats.valuationGapPct > 0 ? "Potential Overvaluation" : "Fairly Valued";
     }
     case "site":
     case "improvement": {
@@ -1375,12 +1648,20 @@ function SiteMapThumb({ lat, lng, height = 140 }: { lat: number; lng: number; he
     iconSize: [14, 14],
     iconAnchor: [7, 7],
   });
+  // Leaflet's default attribution control (including its "Leaflet" link and
+  // built-in donation flag icon) is sized for a full map, not an 80px card
+  // thumbnail — at that size it visually swallows most of the tile image.
+  // Below that threshold we drop the control and show a minimal text credit
+  // instead, which still satisfies Esri's attribution requirement; the
+  // larger 220px modal map keeps Leaflet's normal control.
+  const compact = height < 150;
   return (
-    <div className="overflow-hidden rounded-lg border border-border" style={{ height }}>
+    <div className="relative overflow-hidden rounded-lg border border-border" style={{ height }}>
       <MapContainer
         center={[lat, lng]}
         zoom={17}
         zoomControl={false}
+        attributionControl={!compact}
         dragging={false}
         scrollWheelZoom={false}
         doubleClickZoom={false}
@@ -1393,6 +1674,11 @@ function SiteMapThumb({ lat, lng, height = 140 }: { lat: number; lng: number; he
         />
         <Marker position={[lat, lng]} icon={icon} />
       </MapContainer>
+      {compact && (
+        <span className="pointer-events-none absolute bottom-0 right-0 rounded-tl bg-black/45 px-1 text-[8px] leading-tight text-white">
+          Tiles © Esri
+        </span>
+      )}
     </div>
   );
 }
@@ -1444,62 +1730,278 @@ function ChecklistIconRows({ items, color }: { items: string[]; color: IconColor
           >
             <AlertTriangle className="h-3 w-3" />
           </span>
-          <span className="min-w-0 flex-1 truncate text-xs">{item}</span>
+          <span className="min-w-0 flex-1 line-clamp-2 text-xs">{item}</span>
         </div>
       ))}
     </div>
   );
 }
 
-// Ranked priority-bar list for Strategy's factorScores — used on both the
-// card and (new) the modal, which previously had no bars at all, only a
-// gauge + prose.
-// Cycling generic icon set for the ranked-factor rows below — purely
-// decorative visual rhythm matching the reference's icon+bar rows, not
-// tied to any real per-factor category since factorScores' labels are
-// free AI text (e.g. "Unequal Appraisal"), not a typed enum a specific
-// icon could honestly represent.
-const RANK_ICONS: LucideIcon[] = [Home, MapPin, Building2, DollarSign, CheckCircle2];
+// Icon for a ranked strategy — reuses the Module's own icon for the 5 fixed
+// strategies (so "Comparable Sales" shows the same icon as the Market Value
+// module card, etc.) via relatedModules; falls back to a generic icon for an
+// AI-added "Other: ..." strategy, which doesn't map to any of Modules 3-7.
+function strategyIcon(s: StrategyEntry): LucideIcon {
+  const relatedId = s.relatedModules[0];
+  const mod = relatedId ? MODULES.find((mm) => mm.id === relatedId) : undefined;
+  return mod?.icon ?? Target;
+}
 
-function RankedFactorList({
-  factors,
+// Stable per-strategy key for tagging uploaded evidence (documents.document_type,
+// see handleUploadEvidence in Report()) and storing the free-text evidence-gate
+// answer (IntakeState.strategyAnswers) — derived from the AI's own strategy name
+// so no separate id/lookup table is needed.
+function strategySlug(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+// Compact ranked row for the card preview — used by both ModuleVisual's
+// "strategy" case and StrategyDetail's header below.
+function StrategyBar({ s, rank, color }: { s: StrategyEntry; rank: number; color: IconColor }) {
+  const Icon = strategyIcon(s);
+  return (
+    <div className="flex items-center gap-2.5">
+      <span
+        className="grid h-5 w-5 shrink-0 place-items-center rounded-full text-[10px] font-bold text-white"
+        style={{ backgroundColor: color.solid }}
+      >
+        {rank}
+      </span>
+      <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-xs text-muted-foreground">{s.name}</div>
+        <div className="h-1.5 rounded-full bg-secondary/60">
+          <div
+            className="h-1.5 rounded-full"
+            style={{ width: `${s.strengthScore}%`, backgroundColor: scoreColor(s.strengthScore) }}
+          />
+        </div>
+      </div>
+      {s.dataSufficient ? (
+        <span
+          className="w-7 shrink-0 text-right text-xs font-semibold"
+          style={{ color: scoreColor(s.strengthScore) }}
+        >
+          {s.strengthScore}
+        </span>
+      ) : (
+        <span className="shrink-0 whitespace-nowrap rounded-full bg-warning/20 px-1.5 py-0.5 text-[9px] font-semibold text-warning-foreground">
+          Data Needed
+        </span>
+      )}
+    </div>
+  );
+}
+
+function StrategyRankList({
+  strategies,
   color,
+  max,
 }: {
-  factors: { label: string; score: number }[];
+  strategies: StrategyEntry[];
   color: IconColor;
+  max?: number;
 }) {
-  const ranked = [...factors].sort((a, b) => b.score - a.score);
+  const shown = max ? strategies.slice(0, max) : strategies;
   return (
     <div className="grid gap-2">
-      {ranked.map((f, i) => {
-        const RankIcon = RANK_ICONS[i % RANK_ICONS.length];
-        return (
-          <div key={f.label} className="flex items-center gap-2.5">
-            <RankIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-            <span
-              className="grid h-5 w-5 shrink-0 place-items-center rounded-full text-[10px] font-bold text-white"
-              style={{ backgroundColor: color.solid }}
-            >
-              {i + 1}
-            </span>
-            <div className="min-w-0 flex-1">
-              <div className="truncate text-xs text-muted-foreground">{f.label}</div>
-              <div className="h-1.5 rounded-full bg-secondary/60">
-                <div
-                  className="h-1.5 rounded-full"
-                  style={{ width: `${f.score}%`, backgroundColor: scoreColor(f.score) }}
-                />
-              </div>
-            </div>
-            <span
-              className="w-7 shrink-0 text-right text-xs font-semibold"
-              style={{ color: scoreColor(f.score) }}
-            >
-              {f.score}
-            </span>
+      {shown.map((s, i) => (
+        <StrategyBar key={s.name} s={s} rank={i + 1} color={color} />
+      ))}
+    </div>
+  );
+}
+
+// Full per-strategy breakdown for the modal — why AI selected it, supporting
+// findings, valuation relevance, existing/missing evidence, confidence, and
+// recommended investigation, all real fields from the "strategy" MODULE_SPEC
+// (see supabase/functions/ai-report-modules/index.ts). When the AI flagged
+// dataSufficient false, this also renders the evidence gate: an upload button
+// (tagging the file with this strategy via handleUploadEvidence's strategyId
+// param) and a free-text answer fallback — if the user supplies neither, the
+// score still shows but is marked as an unguaranteed estimate, per the
+// non-blocking evidence-gate design (Module 2 never renders an empty state).
+function StrategyDetail({
+  s,
+  rank,
+  color,
+  evidenceDocs,
+  uploadingEvidence,
+  onUploadEvidence,
+  answer,
+  onAnswerStrategy,
+}: {
+  s: StrategyEntry;
+  rank: number;
+  color: IconColor;
+  evidenceDocs: DocumentRecord[];
+  uploadingEvidence: boolean;
+  onUploadEvidence: (files: File[], strategyId: string) => void;
+  answer: string | undefined;
+  onAnswerStrategy: (strategyId: string, answer: string) => void;
+}) {
+  const Icon = strategyIcon(s);
+  const slug = strategySlug(s.name);
+  const uploaded = evidenceDocs.filter((d) => d.documentType === `Strategy Evidence: ${slug}`);
+  const [draft, setDraft] = useState(answer ?? "");
+  const hasAnyEvidence = uploaded.length > 0 || !!answer?.trim();
+
+  return (
+    <div className="card-elev p-4">
+      <div className="flex items-center gap-2.5">
+        <NumberBadge n={rank} color={color} size="sm" />
+        <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-semibold">{s.name}</div>
+          {s.primaryReason && (
+            <div className="truncate text-xs text-muted-foreground">{s.primaryReason}</div>
+          )}
+        </div>
+        {s.dataSufficient ? (
+          <span
+            className="shrink-0 font-serif text-lg font-bold"
+            style={{ color: scoreColor(s.strengthScore) }}
+          >
+            {s.strengthScore}
+          </span>
+        ) : (
+          <span className="shrink-0 whitespace-nowrap rounded-full bg-warning/20 px-2 py-1 text-[10px] font-semibold text-warning-foreground">
+            Additional Data Needed
+          </span>
+        )}
+      </div>
+
+      <div className="mt-3 grid gap-2.5 text-xs sm:grid-cols-2">
+        {s.whySelected && (
+          <div>
+            <div className="font-semibold text-foreground">Why AI selected it</div>
+            <p className="text-muted-foreground">{s.whySelected}</p>
           </div>
-        );
-      })}
+        )}
+        {s.supportingFindings && (
+          <div>
+            <div className="font-semibold text-foreground">Supporting findings</div>
+            <p className="text-muted-foreground">{s.supportingFindings}</p>
+          </div>
+        )}
+        {s.valuationRelevance && (
+          <div>
+            <div className="font-semibold text-foreground">Potential valuation relevance</div>
+            <p className="text-muted-foreground">{s.valuationRelevance}</p>
+          </div>
+        )}
+        {s.recommendedInvestigation && (
+          <div>
+            <div className="font-semibold text-foreground">Recommended investigation</div>
+            <p className="text-muted-foreground">{s.recommendedInvestigation}</p>
+          </div>
+        )}
+      </div>
+
+      {(s.existingEvidence.length > 0 || s.missingEvidence.length > 0) && (
+        <div className="mt-3 grid gap-2.5 sm:grid-cols-2">
+          {s.existingEvidence.length > 0 && (
+            <div>
+              <div className="text-[10px] font-semibold uppercase tracking-wide text-success">
+                Existing Evidence
+              </div>
+              <ul className="mt-1 grid gap-0.5 text-xs text-muted-foreground">
+                {s.existingEvidence.map((e, i) => (
+                  <li key={i}>• {e}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {s.missingEvidence.length > 0 && (
+            <div>
+              <div className="text-[10px] font-semibold uppercase tracking-wide text-warning-foreground">
+                Missing Evidence
+              </div>
+              <ul className="mt-1 grid gap-0.5 text-xs text-muted-foreground">
+                {s.missingEvidence.map((e, i) => (
+                  <li key={i}>• {e}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="mt-3">
+        <MiniMeter value={s.confidencePct} label="Confidence" />
+      </div>
+
+      {s.relatedModules.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-1">
+          {s.relatedModules.map((id) => {
+            const relatedModule = MODULES.find((mm) => mm.id === id);
+            return relatedModule ? <Chip key={id}>Related: {relatedModule.shortName}</Chip> : null;
+          })}
+        </div>
+      )}
+
+      {!s.dataSufficient && (
+        <div className="mt-3 border-t border-border/60 pt-3 print:hidden">
+          <div className="text-xs font-semibold text-warning-foreground">
+            Additional Data Needed
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Upload supporting documents or answer below so AI can complete this strategy with real
+            evidence.
+          </p>
+          {uploaded.length > 0 && (
+            <ul className="mt-2 grid gap-0.5 text-xs text-muted-foreground">
+              {uploaded.map((d) => (
+                <li key={d.id}>{d.fileName}</li>
+              ))}
+            </ul>
+          )}
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <label
+              className={`btn-outline text-xs cursor-pointer ${uploadingEvidence ? "pointer-events-none opacity-60" : ""}`}
+            >
+              {uploadingEvidence ? "Uploading…" : "Upload Evidence"}
+              <input
+                type="file"
+                accept="image/*,.pdf"
+                multiple
+                className="hidden"
+                disabled={uploadingEvidence}
+                onChange={(e) => {
+                  const selected = e.target.files ? Array.from(e.target.files) : [];
+                  e.target.value = "";
+                  if (selected.length > 0) onUploadEvidence(selected, slug);
+                }}
+              />
+            </label>
+          </div>
+          <div className="mt-2 flex gap-2">
+            <input
+              type="text"
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              placeholder="Or type an answer instead…"
+              className="min-w-0 flex-1 rounded-md border border-border bg-background px-2.5 py-1.5 text-xs"
+            />
+            <button
+              type="button"
+              disabled={!draft.trim()}
+              onClick={() => onAnswerStrategy(slug, draft.trim())}
+              className="btn-outline text-xs disabled:opacity-50"
+            >
+              Save
+            </button>
+          </div>
+          {!hasAnyEvidence && (
+            <p className="mt-2 text-[11px] italic text-muted-foreground">
+              Estimate — not guaranteed, missing evidence.
+            </p>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -1601,7 +2103,10 @@ function MiniGauge({ value, label }: { value: number; label: string }) {
   );
 }
 
-function ModulePreviewBody({
+// Renders the actual per-module body — split from ModulePreviewBody below so
+// the "Ask AI" Q&A box (see ModuleQABox) can be appended once, after whichever
+// early-return branch below fires, instead of being duplicated into each one.
+function ModulePreviewContent({
   m,
   estimated,
   state,
@@ -1614,6 +2119,7 @@ function ModulePreviewBody({
   uploadingEvidence,
   onUploadEvidence,
   onForceReload,
+  onAnswerStrategy,
 }: {
   m: Module;
   estimated: {
@@ -1630,8 +2136,10 @@ function ModulePreviewBody({
   allowEvidenceUpload: boolean;
   evidenceDocs: DocumentRecord[];
   uploadingEvidence: boolean;
-  onUploadEvidence: (files: File[]) => void;
+  onUploadEvidence: (files: File[], strategyId?: string) => void;
   onForceReload: () => void;
+  onAnswerStrategy: (strategyId: string, answer: string) => void;
+  onAskQuestion: (moduleId: string, question: string) => Promise<string>;
 }) {
   if (m.requiresUserData) {
     return (
@@ -1685,32 +2193,54 @@ function ModulePreviewBody({
   if (m.id === "comps") {
     const d = moduleState?.data as ModuleResultMap["comps"] | undefined;
     const map = compsMap.data;
-    const compValues =
-      map?.comps.map((c) => c.marketValue).filter((v): v is number => v != null) ?? [];
+    const stats = computeComparableStats(map?.subject ?? null, map?.comps ?? [], state.totalValue);
     return (
       <div className="mt-4">
-        {compValues.length > 0 && (
-          <div className="mb-3 grid grid-cols-2 gap-2">
-            <div className="rounded-lg bg-success/10 p-3">
-              <div className="text-[10px] font-semibold uppercase tracking-wide text-success">
-                Market Value Range
+        {stats.limitedData ? (
+          <div className="mb-3 rounded-lg bg-warning/15 p-3 text-sm text-warning-foreground">
+            <span className="font-semibold">Limited Comparable Data.</span> Fewer than 3 comparable
+            properties with a usable assessed value were found in this subdivision — the system may
+            continue using other appraisal methods (see Protest Strategy) rather than relying on
+            this alone.
+          </div>
+        ) : (
+          stats.indicated && (
+            <div className="mb-3 grid grid-cols-3 gap-2">
+              <div className="rounded-lg bg-success/10 p-3">
+                <div className="text-[10px] font-semibold uppercase tracking-wide text-success">
+                  Indicated Value Range
+                </div>
+                <div className="mt-0.5 text-lg font-bold text-success">
+                  {compactCurrency(stats.indicated.min)}–{compactCurrency(stats.indicated.max)}
+                </div>
               </div>
-              <div className="mt-0.5 text-lg font-bold text-success">
-                {compactCurrency(Math.min(...compValues))}–
-                {compactCurrency(Math.max(...compValues))}
+              {stats.subjectValue != null && (
+                <div className="rounded-lg bg-destructive/10 p-3">
+                  <div className="text-[10px] font-semibold uppercase tracking-wide text-destructive">
+                    CAD Value
+                  </div>
+                  <div className="mt-0.5 text-lg font-bold text-destructive">
+                    {compactCurrency(stats.subjectValue)}
+                  </div>
+                </div>
+              )}
+              <div className="rounded-lg bg-secondary/60 p-3">
+                <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  Valuation Gap
+                </div>
+                <div className="mt-0.5 text-lg font-bold">
+                  {stats.valuationGapPct != null
+                    ? `${stats.valuationGapPct > 0 ? "+" : ""}${stats.valuationGapPct}%`
+                    : "—"}
+                </div>
+                {stats.confidencePct != null && (
+                  <div className="mt-1 text-[10px] text-muted-foreground">
+                    Comparable confidence: {stats.confidencePct}%
+                  </div>
+                )}
               </div>
             </div>
-            {state.totalValue != null && (
-              <div className="rounded-lg bg-destructive/10 p-3">
-                <div className="text-[10px] font-semibold uppercase tracking-wide text-destructive">
-                  CAD Value
-                </div>
-                <div className="mt-0.5 text-lg font-bold text-destructive">
-                  {compactCurrency(state.totalValue)}
-                </div>
-              </div>
-            )}
-          </div>
+          )
         )}
         {compsMap.loading && (
           <div className="h-[280px] animate-pulse rounded-lg border border-border bg-secondary/40" />
@@ -1721,6 +2251,66 @@ function ModulePreviewBody({
               {map.comps.length} nearby properties in the same subdivision
             </div>
             <CompsMap subject={map.subject} comps={map.comps} />
+            <ComparableTable ranked={stats.ranked} />
+            <div className="mt-3 grid gap-2 rounded-lg bg-secondary/40 p-3 text-xs text-muted-foreground sm:grid-cols-2">
+              <div>
+                <div className="font-semibold text-foreground">Methodology</div>
+                <p className="mt-0.5">
+                  Comps are properties sharing this property's own CAD subdivision code — a real
+                  grouping the county itself uses. Similarity blends assessed-value proximity,
+                  distance, land-size proximity, and property-type match into one 0-100 score; the
+                  indicated range uses the top 5 by similarity.
+                </p>
+              </div>
+              <div>
+                <div className="font-semibold text-foreground">Sources</div>
+                <p className="mt-0.5">
+                  {state.cad ?? "County appraisal district"} public property records. Texas does not
+                  require sale prices to be publicly disclosed, so "Last Transfer" reflects a real
+                  deed date only — never a sale price.
+                </p>
+              </div>
+            </div>
+            {state.deeds && state.deeds.length > 0 && (
+              <div className="mt-3">
+                <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  This Property's Deed History
+                </div>
+                <div className="mt-1.5 overflow-x-auto rounded-lg border border-border">
+                  <table className="w-full min-w-[520px] text-left text-xs">
+                    <thead className="bg-secondary/60 text-[10px] uppercase tracking-wide text-muted-foreground">
+                      <tr>
+                        <th className="px-3 py-2 font-semibold">Date</th>
+                        <th className="px-3 py-2 font-semibold">Type</th>
+                        <th className="px-3 py-2 font-semibold">Seller</th>
+                        <th className="px-3 py-2 font-semibold">Buyer</th>
+                        <th className="px-3 py-2 font-semibold">Instrument #</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {state.deeds.map((deed, i) => (
+                        <tr key={i} className="border-t border-border/60">
+                          <td className="px-3 py-2 text-muted-foreground">
+                            {deed.date?.slice(0, 10) ?? "—"}
+                          </td>
+                          <td className="px-3 py-2 text-muted-foreground">
+                            {deed.description ?? deed.type ?? "—"}
+                          </td>
+                          <td className="px-3 py-2 text-muted-foreground">{deed.seller ?? "—"}</td>
+                          <td className="px-3 py-2 text-muted-foreground">{deed.buyer ?? "—"}</td>
+                          <td className="px-3 py-2 text-muted-foreground">
+                            {deed.instrumentNum ?? "—"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  No sale price is shown because none is publicly recorded under Texas law.
+                </p>
+              </div>
+            )}
           </>
         )}
         {loading ? (
@@ -1790,23 +2380,37 @@ function ModulePreviewBody({
   switch (m.id) {
     case "strategy": {
       const d = moduleState.data as ModuleResultMap["strategy"];
+      if (d.strategies.length === 0) {
+        return (
+          <p className="mt-4 text-sm text-muted-foreground">
+            AI cannot proceed without enough property data to evaluate any strategy yet.
+          </p>
+        );
+      }
       return (
         <div className="mt-4 grid gap-4">
-          <div className="grid gap-4 sm:grid-cols-[10rem_1fr] items-center">
-            <RadialGauge value={d.confidencePct} sublabel="AI Confidence" />
-            <div>
-              <div className="font-serif text-xl font-semibold">{d.recommendation}</div>
-              <p className="mt-1 text-sm text-muted-foreground">{d.rationale}</p>
+          {d.topStrategySummary && <p className="text-sm font-medium">{d.topStrategySummary}</p>}
+          <div className="card-elev p-4">
+            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Ranked Strategies
             </div>
+            <StrategyRankList strategies={d.strategies} color={m.color} />
           </div>
-          {d.factorScores.length > 0 && (
-            <div className="card-elev p-4">
-              <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                Priority Factors
-              </div>
-              <RankedFactorList factors={d.factorScores} color={m.color} />
-            </div>
-          )}
+          <div className="grid gap-3">
+            {d.strategies.map((s, i) => (
+              <StrategyDetail
+                key={s.name}
+                s={s}
+                rank={i + 1}
+                color={m.color}
+                evidenceDocs={evidenceDocs}
+                uploadingEvidence={uploadingEvidence}
+                onUploadEvidence={onUploadEvidence}
+                answer={state.strategyAnswers?.[strategySlug(s.name)]}
+                onAnswerStrategy={onAnswerStrategy}
+              />
+            ))}
+          </div>
         </div>
       );
     }
@@ -1828,6 +2432,9 @@ function ModulePreviewBody({
     }
     case "improvement": {
       const d = moduleState.data as ModuleResultMap["improvement"];
+      const improvementDocs = evidenceDocs.filter(
+        (doc) => doc.documentType === EVIDENCE_DOCUMENT_TYPE,
+      );
       return (
         <div className="mt-4">
           <ImprovementIconRing items={d.checklist} color={m.color} />
@@ -1845,9 +2452,9 @@ function ModulePreviewBody({
                 Property photos, repair estimates, or appraisals — AI will cite specific details
                 from what you upload instead of only general guidance.
               </p>
-              {evidenceDocs.length > 0 && (
+              {improvementDocs.length > 0 && (
                 <ul className="mt-2 grid gap-1 text-xs text-muted-foreground">
-                  {evidenceDocs.map((doc) => (
+                  {improvementDocs.map((doc) => (
                     <li key={doc.id}>{doc.fileName}</li>
                   ))}
                 </ul>
@@ -1870,7 +2477,7 @@ function ModulePreviewBody({
                     }}
                   />
                 </label>
-                {evidenceDocs.length > 0 && (
+                {improvementDocs.length > 0 && (
                   <button
                     disabled={loading}
                     onClick={onForceReload}
@@ -1951,7 +2558,7 @@ function ModulePreviewBody({
             </span>
           </div>
           <ExecutiveBadges
-            strategy={strategyData?.recommendation ?? null}
+            strategy={strategyData?.strategies[0]?.name ?? null}
             keyEvidence={keyEvidence}
             valueRange={valueRange}
             nextStep={d.nextStep}
@@ -1972,6 +2579,94 @@ function ModulePreviewBody({
   }
 
   return <p className="mt-4 text-sm">{m.teaser}</p>;
+}
+
+// Thin wrapper around ModulePreviewContent that appends the "Ask AI" Q&A box
+// once, regardless of which of ModulePreviewContent's several early-return
+// branches rendered — see the comment on ModulePreviewContent above. Skipped
+// for "income" (no analysis exists yet to ground an answer in) and "savings"
+// (a deterministic formula, not an AI call) — every other module gets one.
+function ModulePreviewBody(props: Parameters<typeof ModulePreviewContent>[0]) {
+  const showQA = !props.m.requiresUserData && props.m.id !== "savings" && !!props.moduleState?.data;
+  return (
+    <>
+      <ModulePreviewContent {...props} />
+      {showQA && <ModuleQABox moduleId={props.m.id} onAskQuestion={props.onAskQuestion} />}
+    </>
+  );
+}
+
+// Per-module "Ask AI" follow-up box — ephemeral by design (plain component
+// state, not persisted anywhere), so it resets whenever the modal closes and
+// reopens. Answers are grounded server-side in this module's own already-
+// generated data — see askModuleQuestion() in ai-report-modules.ts.
+function ModuleQABox({
+  moduleId,
+  onAskQuestion,
+}: {
+  moduleId: string;
+  onAskQuestion: (moduleId: string, question: string) => Promise<string>;
+}) {
+  const [question, setQuestion] = useState("");
+  const [asking, setAsking] = useState(false);
+  const [thread, setThread] = useState<{ question: string; answer: string }[]>([]);
+  const [error, setError] = useState<string | null>(null);
+
+  async function submit() {
+    const q = question.trim();
+    if (!q || asking) return;
+    setAsking(true);
+    setError(null);
+    try {
+      const answer = await onAskQuestion(moduleId, q);
+      setThread((prev) => [...prev, { question: q, answer }]);
+      setQuestion("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not get an answer. Please retry.");
+    } finally {
+      setAsking(false);
+    }
+  }
+
+  return (
+    <div className="mt-4 border-t border-border/60 pt-4 print:hidden">
+      <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        Ask AI About This Module
+      </div>
+      {thread.length > 0 && (
+        <div className="mt-2 grid gap-2.5">
+          {thread.map((t, i) => (
+            <div key={i} className="text-sm">
+              <div className="font-medium">{t.question}</div>
+              <div className="mt-0.5 text-muted-foreground">{t.answer}</div>
+            </div>
+          ))}
+        </div>
+      )}
+      {error && <p className="mt-2 text-xs text-destructive">{error}</p>}
+      <div className="mt-2 flex gap-2">
+        <input
+          type="text"
+          value={question}
+          onChange={(e) => setQuestion(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") submit();
+          }}
+          placeholder="Ask a follow-up question…"
+          disabled={asking}
+          className="min-w-0 flex-1 rounded-md border border-border bg-background px-2.5 py-1.5 text-sm disabled:opacity-60"
+        />
+        <button
+          type="button"
+          onClick={submit}
+          disabled={asking || !question.trim()}
+          className="btn-outline text-sm disabled:opacity-50"
+        >
+          {asking ? "Asking…" : "Ask"}
+        </button>
+      </div>
+    </div>
+  );
 }
 
 function scoreColor(score: number): string {
