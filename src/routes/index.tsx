@@ -55,10 +55,15 @@ function Home() {
   const [address, setAddress] = useState("");
   const [propertyKind, setPropertyKind] = useState<PropertyKind>("commercial");
   const [uploading, setUploading] = useState(false);
+  // See the matching state in intake.tsx for why this exists — blocks
+  // submitting a Google-sourced address before its Place Details upgrade
+  // (real street name, not e.g. "Market Pl Blvd") has landed. Matters just as
+  // much here: this is the address that gets carried forward into /intake.
+  const [resolvingAddress, setResolvingAddress] = useState(false);
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!address.trim()) return;
+    if (!address.trim() || resolvingAddress) return;
     resetIntake();
     updateIntake({ address: address.trim(), propertyKind });
     navigate({ to: "/intake" });
@@ -163,13 +168,18 @@ function Home() {
                 <AddressAutocomplete
                   value={address}
                   onChange={setAddress}
+                  onResolving={setResolvingAddress}
                   placeholder={`Enter a ${propertyKind} property address in Texas`}
                   className="flex-1 bg-transparent text-foreground placeholder:text-muted-foreground px-4 py-3 outline-none rounded-lg"
                   ariaLabel={`${propertyKind === "commercial" ? "Commercial" : "Residential"} property address`}
                 />
                 <MicButton onResult={setAddress} />
-                <button type="submit" className="btn-accent">
-                  Start Free AI Property Review
+                <button
+                  type="submit"
+                  disabled={resolvingAddress}
+                  className="btn-accent disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {resolvingAddress ? "Resolving…" : "Start Free AI Property Review"}
                 </button>
               </form>
             </div>

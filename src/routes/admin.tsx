@@ -852,6 +852,10 @@ function UserProperties({ userId }: { userId: string }) {
   const [propsError, setPropsError] = useState<string | null>(null);
   const [newAddress, setNewAddress] = useState("");
   const [adding, setAdding] = useState(false);
+  // See the matching state in intake.tsx for why this exists — blocks
+  // submitting a Google-sourced address before its Place Details upgrade
+  // (real street name, not e.g. "Market Pl Blvd") has landed.
+  const [resolvingAddress, setResolvingAddress] = useState(false);
 
   useEffect(() => {
     listProperties(userId)
@@ -864,7 +868,7 @@ function UserProperties({ userId }: { userId: string }) {
 
   async function handleAdd(e: React.FormEvent) {
     e.preventDefault();
-    if (!newAddress.trim()) return;
+    if (!newAddress.trim() || resolvingAddress) return;
     setAdding(true);
     try {
       const created = await addProperty(userId, { address: newAddress.trim() });
@@ -896,11 +900,15 @@ function UserProperties({ userId }: { userId: string }) {
         <AddressAutocomplete
           value={newAddress}
           onChange={setNewAddress}
+          onResolving={setResolvingAddress}
           placeholder="Add a property address"
           className="rounded-md border border-input bg-background px-3 py-2 text-sm"
         />
-        <button disabled={adding} className="btn-outline text-sm disabled:opacity-60">
-          {adding ? "Adding…" : "Add"}
+        <button
+          disabled={adding || resolvingAddress}
+          className="btn-outline text-sm disabled:opacity-60"
+        >
+          {adding ? "Adding…" : resolvingAddress ? "Resolving…" : "Add"}
         </button>
       </form>
       {propsLoading ? (

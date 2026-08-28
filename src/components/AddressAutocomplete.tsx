@@ -4,6 +4,20 @@ type Props = {
   value: string;
   onChange: (value: string) => void;
   onPlaceSelected?: (formattedAddress: string) => void;
+  // Fires true right when a Google suggestion is picked and its Place
+  // Details follow-up call starts, then false once it settles (success,
+  // failure, or abort alike). A Google selection shows an immediate but
+  // still-provisional value (the raw, sometimes mid-word-abbreviated
+  // Autocomplete prediction text, e.g. "Market Pl Blvd" — the real "Market
+  // Place Boulevard" a CAD site's own data expects lands ~1-2s later) before
+  // it's upgraded to the real address. Without a way to signal that gap, a
+  // caller with its own submit button (e.g. intake.tsx's "Validate address")
+  // has no way to know a fast click-through would submit that provisional
+  // text instead of waiting for the real one — confirmed live as the same
+  // root cause as the CAD-matching bug this two-step value update exists to
+  // avoid, just reachable through a race instead of a permanent mismatch.
+  // Never fires for a Nominatim selection, which has no such follow-up step.
+  onResolving?: (resolving: boolean) => void;
   placeholder?: string;
   className?: string;
   ariaLabel?: string;
@@ -190,24 +204,67 @@ async function fetchGoogleSuggestions(query: string, signal: AbortSignal): Promi
     }));
 }
 
+type GoogleAddressComponent = {
+  longText?: string;
+  shortText?: string;
+  types?: string[];
+};
+
+// Built from addressComponents' longText (the un-abbreviated form, e.g.
+// "Market Place Boulevard") rather than the pre-abbreviated formattedAddress
+// string (e.g. "Market Pl Blvd"). Confirmed live chasing a real false
+// "not found" on a real property (1800 Market Place Blvd, Irving): Google's
+// formattedAddress abbreviates mid-name words like "Place" -> "Pl", not just
+// the trailing suffix — but Dallas CAD's own FULL_STREET_NAME field spells it
+// out ("MARKET PLACE BLVD"), and cad-lookup's word-boundary-anchored LIKE
+// matching (coreStreetName/coreClauseOr) requires the core street name to be
+// followed immediately by a space/comma/end-of-string, so the abbreviated
+// "Market Pl" — followed by "ace" in the county's real data, not a boundary —
+// silently matched nothing. longText avoids this whole class of mismatch;
+// the app's own coreStreetName() already strips a full trailing suffix word
+// ("Boulevard" included) the same way it strips the abbreviated form.
+function buildAddressFromComponents(components?: GoogleAddressComponent[]): string | null {
+  if (!components) return null;
+  const find = (type: string) => components.find((c) => c.types?.includes(type))?.longText;
+  const streetNumber = find("street_number");
+  const route = find("route");
+  if (!route) return null;
+  const city = find("locality") || find("postal_town") || find("sublocality");
+  // Short form ("TX") deliberately kept for the state — matches this app's
+  // postal-style convention everywhere else (formatNominatimAddress, etc.);
+  // only the street name's mid-word abbreviation was the actual CAD-matching
+  // problem, not the state abbreviation.
+  const state = components.find((c) => c.types?.includes("administrative_area_level_1"))?.shortText;
+  const zip = find("postal_code");
+  const line1 = [streetNumber, route].filter(Boolean).join(" ");
+  const cityState = [city, state].filter(Boolean).join(", ");
+  const tail = [cityState, zip].filter(Boolean).join(" ");
+  return [line1, tail].filter(Boolean).join(", ") || null;
+}
+
 // Only called once, when the user actually picks a Google suggestion (not on
-// every keystroke) — fetches the one field Autocomplete itself doesn't
-// return: a real postal code, needed for the same zip-priority matching
-// cad-lookup's "nearby" fallback already relies on for a bare-road address
-// (e.g. a property whose CAD situs has no house number at all — see
-// extractZip() in supabase/functions/cad-lookup/index.ts). Falls back to the
-// Autocomplete label itself (no zip) if this call fails for any reason,
+// every keystroke) — fetches what Autocomplete's prediction text doesn't
+// carry: a real postal code (needed for the same zip-priority matching
+// cad-lookup's "nearby" fallback already relies on for a bare-road address —
+// see extractZip() in supabase/functions/cad-lookup/index.ts) and the
+// un-abbreviated street name (see buildAddressFromComponents above). Falls
+// back to the Autocomplete label itself if this call fails for any reason,
 // rather than blocking selection.
 async function fetchGooglePlaceDetails(
   placeId: string,
   signal: AbortSignal,
 ): Promise<string | null> {
   const res = await fetch(
-    `https://places.googleapis.com/v1/places/${placeId}?fields=formattedAddress`,
+    `https://places.googleapis.com/v1/places/${placeId}?fields=addressComponents,formattedAddress`,
     { signal, headers: { "X-Goog-Api-Key": GOOGLE_API_KEY! } },
   );
   if (!res.ok) return null;
-  const data = (await res.json()) as { formattedAddress?: string };
+  const data = (await res.json()) as {
+    addressComponents?: GoogleAddressComponent[];
+    formattedAddress?: string;
+  };
+  const built = buildAddressFromComponents(data.addressComponents);
+  if (built) return built;
   return data.formattedAddress ? cleanGoogleLabel(data.formattedAddress) : null;
 }
 
@@ -220,6 +277,7 @@ export function AddressAutocomplete({
   value,
   onChange,
   onPlaceSelected,
+  onResolving,
   placeholder,
   className,
   ariaLabel,
@@ -248,6 +306,16 @@ export function AddressAutocomplete({
   // Doesn't affect the "external setter" case this effect exists for (voice
   // input etc.) since only selectSuggestion() ever writes to this ref.
   const lastSelfSetValueRef = useRef<string | null>(null);
+  // Incremented at the start of every Google selection; each selection
+  // captures its own value and checks it still matches after the Place
+  // Details await. Without this, picking a second suggestion before the
+  // first one's Place Details call finishes lets the stale first call's
+  // continuation (its own fetch is aborted, but the .catch(() => null) means
+  // execution carries on regardless) overwrite the value the second,
+  // already-selected suggestion just set — same underlying "provisional
+  // value where a caller expects a final one" class of bug as onResolving
+  // above, just triggered by a second selection instead of a fast submit.
+  const selectionIdRef = useRef(0);
 
   useEffect(() => {
     return () => {
@@ -330,22 +398,35 @@ export function AddressAutocomplete({
     setActiveIndex(-1);
 
     if (s.googlePlaceId) {
+      const mySelectionId = ++selectionIdRef.current;
       lastSelfSetValueRef.current = s.label;
       onChange(s.label);
+      onResolving?.(true);
       const controller = new AbortController();
       abortRef.current = controller;
       const detailed = await fetchGooglePlaceDetails(s.googlePlaceId, controller.signal).catch(
         () => null,
       );
+      // A newer selection has since taken over — leave the value, resolving
+      // state, and onPlaceSelected callback entirely to it; this stale call
+      // has nothing left to contribute.
+      if (selectionIdRef.current !== mySelectionId) return;
       const finalLabel = detailed ?? s.label;
       lastSelfSetValueRef.current = finalLabel;
       onChange(finalLabel);
+      onResolving?.(false);
       onPlaceSelected?.(finalLabel);
       return;
     }
 
+    // Also supersedes any still-pending Google resolution from a previous
+    // selection (see the comment on selectionIdRef above) — without this, a
+    // Nominatim pick right after a Google one could still get silently
+    // overwritten once that stale Google call's Place Details await settles.
+    selectionIdRef.current++;
     lastSelfSetValueRef.current = s.label;
     onChange(s.label);
+    onResolving?.(false);
     onPlaceSelected?.(s.label);
   }
 

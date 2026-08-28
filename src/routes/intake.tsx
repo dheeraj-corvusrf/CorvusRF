@@ -30,7 +30,8 @@ export const Route = createFileRoute("/intake")({
       { title: "Property Intake — CorvusPT.ai" },
       {
         name: "description",
-        content: "Validate your Texas commercial or residential property and start your free AI review.",
+        content:
+          "Validate your Texas commercial or residential property and start your free AI review.",
       },
       { property: "og:title", content: "Property Intake" },
       { property: "og:description", content: "Address, notice, and CAD validation." },
@@ -56,6 +57,15 @@ function Intake() {
   const [step, setStep] = useState<Step>("address");
   const [error, setError] = useState<string | null>(null);
   const [address, setAddress] = useState("");
+  // True for the ~1-2s window after picking a Google suggestion, while its
+  // Place Details follow-up call is upgrading the provisional (sometimes
+  // mid-word-abbreviated, e.g. "Market Pl Blvd" vs the real "Market Place
+  // Boulevard") value to the real address CAD lookup needs. Blocks
+  // "Validate address" during that window — without it, a fast click-through
+  // right after selecting submits the still-provisional text and produces
+  // the same false "couldn't locate this property" as the abbreviation bug
+  // itself, just reachable through timing instead of every time.
+  const [resolvingAddress, setResolvingAddress] = useState(false);
   const [propertyKind, setPropertyKind] = useState<PropertyKind>("commercial");
   const [noticeName, setNoticeName] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -144,7 +154,8 @@ function Intake() {
     // instead of re-running the comps lookup for nothing — a performance
     // nicety now, not a correctness requirement, since the estimate would
     // come out identical either way.
-    const savingsKey = next.cad && next.accountNumber ? `${next.cad}::${next.accountNumber}` : next.address;
+    const savingsKey =
+      next.cad && next.accountNumber ? `${next.cad}::${next.accountNumber}` : next.address;
     let nextSavings: SavingsEstimate;
     if (savingsKey && next.cachedSavingsKey === savingsKey && next.cachedSavings !== undefined) {
       nextSavings = next.cachedSavings;
@@ -300,7 +311,7 @@ function Intake() {
           <form
             onSubmit={(e) => {
               e.preventDefault();
-              if (!address.trim()) return;
+              if (!address.trim() || resolvingAddress) return;
               updateIntake({ address: address.trim(), propertyKind });
               runValidation(address.trim());
             }}
@@ -309,10 +320,17 @@ function Intake() {
             <AddressAutocomplete
               value={address}
               onChange={setAddress}
+              onResolving={setResolvingAddress}
               placeholder="e.g. 500 Main St, Houston, TX 77002"
               className="rounded-md border border-input bg-background px-4 py-3"
             />
-            <button className="btn-primary btn-primary-hover">Validate address</button>
+            <button
+              type="submit"
+              disabled={resolvingAddress}
+              className="btn-primary btn-primary-hover disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {resolvingAddress ? "Resolving…" : "Validate address"}
+            </button>
           </form>
 
           <div
@@ -325,8 +343,8 @@ function Intake() {
               {isDragging ? "Drop to upload" : "Have your appraisal notice?"}
             </p>
             <p className="text-xs text-muted-foreground">
-              PDF / PNG / JPG, up to {Math.round(UPLOAD_LIMITS.maxFileBytes / (1024 * 1024))} MB,
-              up to {UPLOAD_LIMITS.maxPages} pages.
+              PDF / PNG / JPG, up to {Math.round(UPLOAD_LIMITS.maxFileBytes / (1024 * 1024))} MB, up
+              to {UPLOAD_LIMITS.maxPages} pages.
             </p>
             <label className="mt-3 btn-outline cursor-pointer inline-flex">
               <input
@@ -419,7 +437,11 @@ function Intake() {
                       type="button"
                       onClick={() => !isResidential && selectNearby(r)}
                       disabled={isResidential}
-                      title={isResidential ? "Residential — CorvusPT currently serves commercial properties only" : undefined}
+                      title={
+                        isResidential
+                          ? "Residential — CorvusPT currently serves commercial properties only"
+                          : undefined
+                      }
                       className={`row-hover flex items-center justify-between gap-3 rounded-lg border border-border p-3 text-left ${
                         isResidential ? "opacity-50 grayscale cursor-not-allowed" : ""
                       }`}
@@ -476,10 +498,14 @@ function Intake() {
         <section className="mt-8 card-elev overflow-hidden">
           <div className="bg-accent/10 px-6 pt-10 pb-8 text-center">
             <p className="text-sm font-medium text-muted-foreground">Potential Protest Savings*</p>
-            <p className="mt-1 font-serif text-5xl font-bold text-accent">{currency(savings.amount)}</p>
+            <p className="mt-1 font-serif text-5xl font-bold text-accent">
+              {currency(savings.amount)}
+            </p>
             <p className="mt-2 text-sm text-muted-foreground">{state.address}</p>
             {state.accountNumber && (
-              <p className="text-xs font-medium text-muted-foreground">PARCEL: {state.accountNumber}</p>
+              <p className="text-xs font-medium text-muted-foreground">
+                PARCEL: {state.accountNumber}
+              </p>
             )}
 
             {/* The savings figure alone doesn't answer "how much do I actually
@@ -498,7 +524,9 @@ function Intake() {
               <div>
                 <div className="text-xs text-muted-foreground">Est. Bill After Protest</div>
                 <div className="mt-0.5 font-serif text-xl font-semibold text-success">
-                  {currency((state.totalValue ?? 0) * (savings.effectiveTaxRatePct / 100) - savings.amount)}
+                  {currency(
+                    (state.totalValue ?? 0) * (savings.effectiveTaxRatePct / 100) - savings.amount,
+                  )}
                 </div>
               </div>
             </div>
@@ -524,7 +552,10 @@ function Intake() {
                 <span className="badge-soft sm:col-span-2 w-fit">
                   Modeled from real Texas protest data — no direct comps available
                 </span>
-                <Field label="Typical Reduction for This Property" value={`${savings.reductionPct}%`} />
+                <Field
+                  label="Typical Reduction for This Property"
+                  value={`${savings.reductionPct}%`}
+                />
                 <Field label="Effective Tax Rate Used" value={`${savings.effectiveTaxRatePct}%`} />
                 <Field label="Your Assessed Value" value={currency(state.totalValue)} bold />
                 <div className="sm:col-span-2">
@@ -543,9 +574,10 @@ function Intake() {
             <p className="mt-4 text-xs text-muted-foreground">
               {savings.basis === "comps"
                 ? `*Estimated from ${savings.compsCount} real comparable properties in your subdivision, at your county's ~${savings.effectiveTaxRatePct}% effective tax rate. Your actual result depends on the hearing outcome and county-specific factors.`
-                : "*Modeled from real, published Texas protest-outcome data for this property's county and category — no directly comparable properties were available for this address, so this isn't a specific analysis of your property. Your actual result depends on the hearing outcome and county-specific factors."}
-              {" "}Tax bill figures use your county's estimated effective tax rate applied to the CAD's assessed value —
-              not a bill pulled from the county, and before any exemptions (e.g. homestead) you may qualify for.
+                : "*Modeled from real, published Texas protest-outcome data for this property's county and category — no directly comparable properties were available for this address, so this isn't a specific analysis of your property. Your actual result depends on the hearing outcome and county-specific factors."}{" "}
+              Tax bill figures use your county's estimated effective tax rate applied to the CAD's
+              assessed value — not a bill pulled from the county, and before any exemptions (e.g.
+              homestead) you may qualify for.
             </p>
           </div>
         </section>
@@ -568,10 +600,14 @@ function Intake() {
             <Field label="Land Value" value={currency(state.landValue)} />
             <Field label="Improvement Value" value={currency(state.improvementValue)} />
             <Field label="Total Appraised Value" value={currency(state.totalValue)} bold />
-            {state.legalDescription && <Field label="Legal Description" value={state.legalDescription} />}
+            {state.legalDescription && (
+              <Field label="Legal Description" value={state.legalDescription} />
+            )}
             {state.subdivision && <Field label="Subdivision" value={state.subdivision} />}
             {state.geoId && <Field label="Geographic ID" value={state.geoId} />}
-            {state.mailingAddress && <Field label="Owner Mailing Address" value={state.mailingAddress} />}
+            {state.mailingAddress && (
+              <Field label="Owner Mailing Address" value={state.mailingAddress} />
+            )}
             {state.ownershipPct != null && (
               <Field label="% Ownership" value={`${state.ownershipPct}%`} />
             )}
@@ -702,7 +738,10 @@ function Stepper({ step }: { step: Step }) {
         const active = (keys as readonly string[]).includes(step);
         const isLast = i === items.length - 1;
         return (
-          <li key={label} className={`flex items-center gap-1.5 sm:gap-2 ${isLast ? "" : "flex-1"}`}>
+          <li
+            key={label}
+            className={`flex items-center gap-1.5 sm:gap-2 ${isLast ? "" : "flex-1"}`}
+          >
             <span
               className={`h-6 w-6 shrink-0 rounded-full grid place-items-center ${
                 active ? "bg-primary text-primary-foreground" : "bg-secondary text-muted-foreground"
@@ -713,7 +752,9 @@ function Stepper({ step }: { step: Step }) {
             {/* Full labels once there's room (sm+); numbers-only on narrow
                 phones so 4 steps fit without pushing the page into
                 horizontal scroll. */}
-            <span className={`hidden sm:inline ${active ? "text-foreground" : "text-muted-foreground"}`}>
+            <span
+              className={`hidden sm:inline ${active ? "text-foreground" : "text-muted-foreground"}`}
+            >
               {label}
             </span>
             {/* Connector grows to fill the gap to the next step, so the whole
@@ -735,4 +776,3 @@ function Field({ label, value, bold }: { label: string; value?: string; bold?: b
     </div>
   );
 }
-
