@@ -1,7 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Phone } from "lucide-react";
+import { useAuth } from "@/lib/auth";
+import { getMyProfile } from "@/lib/profile";
 
 const PHONE_DISPLAY = "(469) 501-9362";
 const PHONE_TEL = "+14695019362";
@@ -22,12 +24,35 @@ export const Route = createFileRoute("/contact")({
 });
 
 function Contact() {
+  const { user } = useAuth();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [message, setMessage] = useState("");
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Signed-in users already have a name/email on file — asking for it again
+  // on the contact form is redundant. `null` while unresolved (still
+  // loading, or not signed in) means "show the fields"; once loaded, the
+  // fields are skipped and this is used to fill the submission instead.
+  const [knownContact, setKnownContact] = useState<{ name: string; email: string } | null>(null);
+
+  useEffect(() => {
+    if (!user) {
+      setKnownContact(null);
+      return;
+    }
+    getMyProfile(user.id)
+      .then((profile) => {
+        const fullName = [profile.firstName, profile.lastName].filter(Boolean).join(" ").trim();
+        setKnownContact({ name: fullName, email: profile.email || user.email || "" });
+      })
+      .catch((err) => {
+        // Falls back to showing the fields (same as signed-out) rather than
+        // blocking the form on a failed profile fetch.
+        console.error("Could not load your profile for the contact form:", err);
+      });
+  }, [user]);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -47,8 +72,8 @@ function Contact() {
       const formData = new FormData();
       formData.set("access_key", accessKey);
       formData.set("subject", "New CorvusPT.ai contact form submission");
-      formData.set("name", name);
-      formData.set("email", email);
+      formData.set("name", knownContact?.name || name);
+      formData.set("email", knownContact?.email || email);
       formData.set("message", message);
 
       const res = await fetch("https://api.web3forms.com/submit", {
@@ -104,25 +129,37 @@ function Contact() {
           </div>
         ) : (
           <form onSubmit={onSubmit} className="mt-8 grid gap-4">
-            <label className="grid gap-1 text-sm">
-              <span className="font-medium">Name</span>
-              <input
-                required
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                className="rounded-md border border-input bg-background px-3 py-2"
-              />
-            </label>
-            <label className="grid gap-1 text-sm">
-              <span className="font-medium">Email</span>
-              <input
-                required
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="rounded-md border border-input bg-background px-3 py-2"
-              />
-            </label>
+            {knownContact ? (
+              <p className="text-sm text-muted-foreground">
+                Contacting as{" "}
+                <span className="font-medium text-foreground">
+                  {knownContact.name || knownContact.email}
+                </span>
+                {knownContact.name && ` (${knownContact.email})`}.
+              </p>
+            ) : (
+              <>
+                <label className="grid gap-1 text-sm">
+                  <span className="font-medium">Name</span>
+                  <input
+                    required
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    className="rounded-md border border-input bg-background px-3 py-2"
+                  />
+                </label>
+                <label className="grid gap-1 text-sm">
+                  <span className="font-medium">Email</span>
+                  <input
+                    required
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="rounded-md border border-input bg-background px-3 py-2"
+                  />
+                </label>
+              </>
+            )}
             <label className="grid gap-1 text-sm">
               <span className="font-medium">How can we help?</span>
               <textarea
