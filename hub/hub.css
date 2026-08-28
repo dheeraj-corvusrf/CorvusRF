@@ -183,17 +183,30 @@ body.doors-page footer {
   color: #fff;
   text-decoration: none;
   overflow: hidden;
-  background: oklch(0.08 0.01 258);
+  /* Lit-from-above-left, same diagonal as .door-panel's own gradient below —
+     this only actually shows in the casing margin around the door leaf (the
+     leaf itself covers the rest), but that's exactly the "flat black strip"
+     a doorway's real frame/architrave never is: a real casing catches light
+     unevenly the same way the door face does. */
+  background: linear-gradient(165deg, oklch(0.24 0.02 258) 0, oklch(0.08 0.01 258) 3rem);
+  /* Widened from the original 0.5rem flat casing to 0.875rem, with an
+     actual light/dark pair right at its inner edge (a real moulding's lit
+     bevel face next to its shadowed groove) — a single soft-opacity ring
+     read as barely-there at the old thin width; this crisp pairing reads
+     unmistakably as a beveled 3D frame instead of a flat black bar. Kept in
+     sync with .door-panel's own inset just below. */
   box-shadow:
-    inset 0 0 0 0.5rem oklch(0.11 0.015 258),
-    inset 0 0 0 0.625rem oklch(1 0 0 / 0.06);
+    inset 0 0 0 0.875rem oklch(0.1 0.015 258),
+    inset 0 0 0 1rem oklch(0.55 0.02 258 / 0.9),
+    inset 0 0 0 1.0625rem oklch(0.04 0.01 258 / 0.9),
+    inset 0 0 0 1.125rem oklch(1 0 0 / 0.08);
   perspective: 1500px;
   cursor: pointer;
 }
 
 .door-panel {
   position: absolute;
-  inset: 0.5rem;
+  inset: 1.125rem;
   z-index: 1;
   overflow: hidden;
   border-radius: 0.25rem;
