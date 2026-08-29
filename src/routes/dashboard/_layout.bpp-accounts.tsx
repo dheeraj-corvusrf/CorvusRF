@@ -4,7 +4,6 @@ import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
 import { listBppAccounts, addBppAccount, deleteBppAccount, type BppAccountRecord } from "@/lib/bpp-accounts";
 import { Skeleton } from "@/components/ui/skeleton";
-import { PortfolioTabs } from "@/components/PortfolioTabs";
 
 export const Route = createFileRoute("/dashboard/_layout/bpp-accounts")({
   component: BppAccounts,
@@ -84,10 +83,6 @@ function BppAccounts() {
         </button>
       </div>
 
-      <div className="mt-4">
-        <PortfolioTabs />
-      </div>
-
       {showForm && (
         <form onSubmit={handleAdd} className="mt-6 card-elev p-6 grid gap-3 sm:grid-cols-2">
           <input
@@ -137,7 +132,7 @@ function BppAccounts() {
         ) : accounts.length > 0 ? (
           <div className="grid gap-4">
             {accounts.map((a) => (
-              <div key={a.id} className="card-elev p-5 flex items-start justify-between gap-4 flex-wrap">
+              <div key={a.id} className="card-elev row-hover p-5 flex items-start justify-between gap-4 flex-wrap">
                 <div>
                   <h3 className="font-semibold">{a.businessName}</h3>
                   <p className="text-sm text-muted-foreground">

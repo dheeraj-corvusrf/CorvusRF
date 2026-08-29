@@ -1,13 +1,42 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Plus, Briefcase, Upload, Sparkles, ArrowUpRight, Trash2, AlertTriangle } from "lucide-react";
-import { BarChart, Bar, XAxis, YAxis, Cell, LabelList, ResponsiveContainer, PieChart, Pie } from "recharts";
+import {
+  Plus,
+  Briefcase,
+  Upload,
+  Sparkles,
+  ArrowUpRight,
+  Trash2,
+  AlertTriangle,
+  Building2,
+  FileText,
+  Scale,
+  TrendingDown,
+  type LucideIcon,
+} from "lucide-react";
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  Cell,
+  LabelList,
+  ResponsiveContainer,
+  PieChart,
+  Pie,
+} from "recharts";
 import { useAuth } from "@/lib/auth";
-import { currency, resetIntake, classifyAndStoreDocument } from "@/lib/intake-store";
+import { currency, resetIntake, classifyAndStoreDocument, updateIntake } from "@/lib/intake-store";
 import { listProperties, deleteProperty, type PropertyRecord } from "@/lib/properties";
 import { useSavingsBackfill } from "@/hooks/use-savings-backfill";
-import { getEffectiveTaxRate, getBaseReductionPct, classifyPropertyCategory } from "@/lib/texas-tax-rates";
+import { useHealthScoreBackfill } from "@/hooks/use-health-score-backfill";
+import { listHealthScores, type PropertyAiScore } from "@/lib/property-scores";
+import {
+  getEffectiveTaxRate,
+  getBaseReductionPct,
+  classifyPropertyCategory,
+} from "@/lib/texas-tax-rates";
 import { listBppAccounts, type BppAccountRecord } from "@/lib/bpp-accounts";
 import { listDocuments, type DocumentRecord } from "@/lib/documents";
 import { listProtests, type ProtestRecord, type ProtestStatus } from "@/lib/protests";
@@ -17,6 +46,8 @@ import { getDeadlineNudge } from "@/lib/deadline-nudge";
 import { getHearingNudge } from "@/lib/hearing-nudge";
 import { AnimatedNumber } from "@/components/AnimatedNumber";
 import { useFileDrop } from "@/hooks/use-file-drop";
+import { ICON_COLORS } from "@/lib/icon-colors";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 
 export const Route = createFileRoute("/dashboard/_layout/")({
   component: Overview,
@@ -43,6 +74,7 @@ function Overview() {
   const [bppAccounts, setBppAccounts] = useState<BppAccountRecord[]>([]);
   const [documents, setDocuments] = useState<DocumentRecord[]>([]);
   const [protests, setProtests] = useState<ProtestRecord[]>([]);
+  const [healthScores, setHealthScores] = useState<Record<string, PropertyAiScore>>({});
   const [loaded, setLoaded] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [askQuery, setAskQuery] = useState("");
@@ -60,18 +92,38 @@ function Overview() {
       listBppAccounts(user.id),
       listDocuments(user.id),
       listProtests(user.id),
+      listHealthScores(user.id),
     ])
-      .then(([props, bpp, docs, prot]) => {
+      .then(([props, bpp, docs, prot, scores]) => {
         setProperties(props);
         setBppAccounts(bpp);
         setDocuments(docs);
         setProtests(prot);
+        setHealthScores(scores);
       })
       .catch((err) => console.error(err))
       .finally(() => setLoaded(true));
   }, [user]);
 
   useSavingsBackfill(properties, setProperties);
+  useHealthScoreBackfill(properties, healthScores, setHealthScores);
+
+  function openAiReport(p: PropertyRecord) {
+    updateIntake({
+      address: p.address,
+      cad: p.cad ?? undefined,
+      accountNumber: p.accountNumber ?? undefined,
+      ownerName: p.ownerName ?? undefined,
+      propertyType: p.propertyType ?? undefined,
+      landValue: p.landValue ?? undefined,
+      improvementValue: p.improvementValue ?? undefined,
+      totalValue: p.totalValue ?? undefined,
+      taxYear: p.taxYear ?? undefined,
+      valueHistory: p.valueHistory ?? undefined,
+      confirmed: true,
+    });
+    nav({ to: "/ai-report" });
+  }
 
   const addressFor = (propertyId: string) =>
     properties.find((p) => p.id === propertyId)?.address ?? "Property removed";
@@ -88,7 +140,12 @@ function Overview() {
         if (p.estimatedSavings != null) return sum + p.estimatedSavings;
         if (!p.totalValue) return sum;
         const category = classifyPropertyCategory(p.propertyType);
-        return sum + Math.round(p.totalValue * getBaseReductionPct(p.cad, category) * getEffectiveTaxRate(p.cad));
+        return (
+          sum +
+          Math.round(
+            p.totalValue * getBaseReductionPct(p.cad, category) * getEffectiveTaxRate(p.cad),
+          )
+        );
       }, 0),
     [properties],
   );
@@ -144,7 +201,8 @@ function Overview() {
   const urgentProperties = properties
     .map((p) => ({ property: p, ...getPropertyProtestStatus(p, protests) }))
     .filter(
-      (u): u is typeof u & { daysLeft: number } => u.status === "needs_action" && u.daysLeft != null,
+      (u): u is typeof u & { daysLeft: number } =>
+        u.status === "needs_action" && u.daysLeft != null,
     )
     .sort((a, b) => a.daysLeft - b.daysLeft);
 
@@ -247,15 +305,17 @@ function Overview() {
   const firstName = user?.user_metadata?.first_name as string | undefined;
 
   return (
-    <div className="grid grid-cols-1 min-w-0 gap-6">
+    <div className="dashboard-contrast grid grid-cols-1 min-w-0 gap-6">
       <div>
         <span className="badge-soft">
           <span className="h-1.5 w-1.5 rounded-full bg-accent" /> AI is watching your properties
         </span>
-        <h1 className="mt-3 font-serif text-3xl font-semibold">
+        <h1 className="mt-3 font-serif text-3xl font-bold">
           Welcome back{firstName ? `, ${firstName}` : ""}.
         </h1>
-        <p className="text-muted-foreground">Pick any entry point below — AI figures out the right workflow.</p>
+        <p className="text-muted-foreground">
+          Pick any entry point below — AI figures out the right workflow.
+        </p>
       </div>
 
       {nudge && urgentProperties.length > 0 && (
@@ -293,166 +353,251 @@ function Overview() {
       )}
 
       {/* Entry points */}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Link
-          to="/intake"
-          onClick={() => resetIntake()}
-          className="card-elev p-4 transition-all hover:-translate-y-0.5 hover:bg-secondary/40 hover:shadow-elev"
-        >
-          <span className="grid h-9 w-9 place-items-center rounded-lg bg-accent/15 text-accent">
-            <Plus className="h-4 w-4" />
-          </span>
-          <div className="mt-3 flex items-center gap-1 font-medium">
-            Add Property <ArrowUpRight className="h-3.5 w-3.5" />
-          </div>
-          <p className="mt-1 text-xs text-muted-foreground">
-            AI normalizes, checks county records, flags mismatches.
-          </p>
-        </Link>
+      <div>
+        <h2 className="font-serif text-xl font-bold">Quick Actions</h2>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <Link
+            to="/intake"
+            onClick={() => resetIntake()}
+            className="card-elev p-4 transition-all hover:-translate-y-0.5 hover:bg-secondary/40 hover:shadow-elev"
+          >
+            <span
+              className={`grid h-9 w-9 place-items-center rounded-lg ${ICON_COLORS[0].bg} ${ICON_COLORS[0].text}`}
+            >
+              <Plus className="h-4 w-4" />
+            </span>
+            <div className="mt-3 flex items-center gap-1 text-base font-semibold">
+              Add Property <ArrowUpRight className="h-3.5 w-3.5" />
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              AI normalizes, checks county records, flags mismatches.
+            </p>
+          </Link>
 
-        <Link
-          to="/dashboard/bpp-accounts"
-          className="card-elev p-4 transition-all hover:-translate-y-0.5 hover:bg-secondary/40 hover:shadow-elev"
-          style={{ animationDelay: "60ms" }}
-        >
-          <span className="grid h-9 w-9 place-items-center rounded-lg bg-accent/15 text-accent">
-            <Briefcase className="h-4 w-4" />
-          </span>
-          <div className="mt-3 flex items-center gap-1 font-medium">
-            Add BPP Account <ArrowUpRight className="h-3.5 w-3.5" />
-          </div>
-          <p className="mt-1 text-xs text-muted-foreground">Track a business personal property account.</p>
-        </Link>
+          <Link
+            to="/dashboard/bpp-accounts"
+            className="card-elev p-4 transition-all hover:-translate-y-0.5 hover:bg-secondary/40 hover:shadow-elev"
+            style={{ animationDelay: "60ms" }}
+          >
+            <span
+              className={`grid h-9 w-9 place-items-center rounded-lg ${ICON_COLORS[1].bg} ${ICON_COLORS[1].text}`}
+            >
+              <Briefcase className="h-4 w-4" />
+            </span>
+            <div className="mt-3 flex items-center gap-1 text-base font-semibold">
+              Add BPP Account <ArrowUpRight className="h-3.5 w-3.5" />
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Track a business personal property account.
+            </p>
+          </Link>
 
-        <label
-          className={`card-elev p-4 cursor-pointer block transition-all ${
-            uploading ? "opacity-60 pointer-events-none" : "hover:-translate-y-0.5 hover:bg-secondary/40 hover:shadow-elev"
-          } ${isDraggingNotice ? "border-accent bg-accent/5" : ""}`}
-          style={{ animationDelay: "120ms" }}
-          {...noticeDropHandlers}
-        >
-          <span className="grid h-9 w-9 place-items-center rounded-lg bg-accent/15 text-accent">
-            <Upload className="h-4 w-4" />
-          </span>
-          <div className="mt-3 font-medium">
-            {isDraggingNotice ? "Drop to upload" : uploading ? "Reading document…" : "Upload Notice"}
-          </div>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Drop any tax notice — AI extracts fields and routes it.
-          </p>
-          <input
-            type="file"
-            className="hidden"
-            accept=".pdf,image/*"
-            disabled={uploading}
-            onChange={(e) => {
-              const f = e.target.files?.[0];
-              if (f) onUploadNotice(f);
-            }}
-          />
-        </label>
+          <label
+            className={`card-elev p-4 cursor-pointer block transition-all ${
+              uploading
+                ? "opacity-60 pointer-events-none"
+                : "hover:-translate-y-0.5 hover:bg-secondary/40 hover:shadow-elev"
+            } ${isDraggingNotice ? "border-accent bg-accent/5" : ""}`}
+            style={{ animationDelay: "120ms" }}
+            {...noticeDropHandlers}
+          >
+            <span
+              className={`grid h-9 w-9 place-items-center rounded-lg ${ICON_COLORS[2].bg} ${ICON_COLORS[2].text}`}
+            >
+              <Upload className="h-4 w-4" />
+            </span>
+            <div className="mt-3 text-base font-semibold">
+              {isDraggingNotice
+                ? "Drop to upload"
+                : uploading
+                  ? "Reading document…"
+                  : "Upload Notice"}
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Drop any tax notice — AI extracts fields and routes it.
+            </p>
+            <input
+              type="file"
+              className="hidden"
+              accept=".pdf,image/*"
+              disabled={uploading}
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) onUploadNotice(f);
+              }}
+            />
+          </label>
 
-        <form
-          onSubmit={submitAsk}
-          className="card-elev p-4 transition-all hover:-translate-y-0.5 hover:shadow-elev"
-          style={{ animationDelay: "180ms" }}
-        >
-          <span className="grid h-9 w-9 place-items-center rounded-lg bg-accent/15 text-accent">
-            <Sparkles className="h-4 w-4" />
-          </span>
-          <div className="mt-3 font-medium">Ask AI</div>
-          <input
-            value={askQuery}
-            onChange={(e) => setAskQuery(e.target.value)}
-            placeholder="Describe the situation…"
-            disabled={asking}
-            className="mt-2 w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs outline-none placeholder:text-muted-foreground disabled:opacity-60"
-          />
-        </form>
+          <form
+            onSubmit={submitAsk}
+            className="card-elev p-4 transition-all hover:-translate-y-0.5 hover:shadow-elev"
+            style={{ animationDelay: "180ms" }}
+          >
+            <span
+              className={`grid h-9 w-9 place-items-center rounded-lg ${ICON_COLORS[4].bg} ${ICON_COLORS[4].text}`}
+            >
+              <Sparkles className="h-4 w-4" />
+            </span>
+            <div className="mt-3 text-base font-semibold">Ask AI</div>
+            <input
+              value={askQuery}
+              onChange={(e) => setAskQuery(e.target.value)}
+              placeholder="Describe the situation…"
+              disabled={asking}
+              className="mt-2 w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs outline-none placeholder:text-muted-foreground disabled:opacity-60"
+            />
+          </form>
+        </div>
       </div>
 
       {/* Stats */}
-      <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-5">
-        <StatCard label="Properties" value={loaded ? properties.length : null} to="/dashboard/properties" delayMs={0} />
-        <StatCard label="BPP Accounts" value={loaded ? bppAccounts.length : null} to="/dashboard/bpp-accounts" delayMs={40} />
-        <StatCard label="Documents" value={loaded ? documents.length : null} to="/dashboard/documents" delayMs={80} />
-        <StatCard label="Cases" value={loaded ? protests.length : null} to="/dashboard/properties" delayMs={120} />
-        <StatCard label="Est. Savings" value={loaded ? estimatedSavings : null} format={currency} delayMs={160} />
+      <div>
+        <h2 className="font-serif text-xl font-bold">Your Portfolio at a Glance</h2>
+        <div className="mt-3 grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-5">
+          <StatCard
+            label="Properties"
+            value={loaded ? properties.length : null}
+            to="/dashboard/properties"
+            delayMs={0}
+            icon={Building2}
+            color={ICON_COLORS[0]}
+          />
+          <StatCard
+            label="BPP Accounts"
+            value={loaded ? bppAccounts.length : null}
+            to="/dashboard/bpp-accounts"
+            delayMs={40}
+            icon={Briefcase}
+            color={ICON_COLORS[1]}
+          />
+          <StatCard
+            label="Documents"
+            value={loaded ? documents.length : null}
+            to="/dashboard/documents"
+            delayMs={80}
+            icon={FileText}
+            color={ICON_COLORS[2]}
+          />
+          <StatCard
+            label="Cases"
+            value={loaded ? protests.length : null}
+            to="/dashboard/properties"
+            delayMs={120}
+            icon={Scale}
+            color={ICON_COLORS[4]}
+          />
+          <StatCard
+            label="Est. Savings"
+            value={loaded ? estimatedSavings : null}
+            format={currency}
+            delayMs={160}
+            icon={TrendingDown}
+            color={ICON_COLORS[5]}
+          />
+        </div>
       </div>
 
-      {properties.length > 0 && (
-        <div className="card-elev p-5 min-w-0">
-          <h3 className="font-semibold">Portfolio Value</h3>
-          <PortfolioValueChart properties={properties} />
-        </div>
-      )}
-
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <div className="card-elev p-5 min-w-0">
-          <h3 className="font-semibold">Cases & AI Recommendations</h3>
-          {protests.length > 0 ? (
-            <ProtestStatusChart protests={protests} addressFor={addressFor} />
-          ) : (
-            <p className="mt-2 text-sm text-muted-foreground">No cases yet. Use an entry point above.</p>
-          )}
-        </div>
-
-        <div className="card-elev p-5 min-w-0">
-          <div className="flex items-center justify-between">
-            <h3 className="font-semibold">Deadlines</h3>
-            <Link to="/dashboard/deadlines" className="text-xs text-accent hover:underline">
-              View all
-            </Link>
-          </div>
-          {upcoming.length > 0 ? (
-            <div className="mt-3 grid min-w-0 gap-2">
-              {upcoming.map((u, i) => (
-                <div key={i} className="flex items-center justify-between gap-2 text-sm min-w-0">
-                  <span className="truncate min-w-0">
-                    {u.label} — {u.property.address}
-                  </span>
-                  <span className="shrink-0 text-xs text-muted-foreground">
-                    {u.when.toLocaleDateString()}
-                  </span>
-                </div>
-              ))}
+      <div>
+        <h2 className="font-serif text-xl font-bold">Insights &amp; Activity</h2>
+        <div className="mt-3 grid grid-cols-1 gap-6">
+          {properties.length > 0 && (
+            <div className="card-elev p-5 min-w-0">
+              <h3 className="text-base font-bold">Portfolio Value</h3>
+              <PortfolioValueChart properties={properties} onOpenReport={openAiReport} />
             </div>
-          ) : (
-            <p className="mt-2 text-sm text-muted-foreground">
-              No deadlines yet. AI will surface them as you add properties.
-            </p>
           )}
-        </div>
-      </div>
 
-      <div className="card-elev p-5 min-w-0">
-        <h3 className="font-semibold">Recent Activity</h3>
-        {activity.length > 0 ? (
-          <div className="mt-3 grid min-w-0 gap-2">
-            {activity.map((a, i) => (
-              <div key={i} className="flex items-center justify-between gap-2 text-sm min-w-0">
-                <span className="shrink-0 text-muted-foreground">{a.label}</span>
-                <span className="truncate min-w-0">{a.detail}</span>
-                <span className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
-                  {new Date(a.ts).toLocaleDateString()}
-                  {a.propertyId && (
-                    <button
-                      onClick={() => handleDeleteProperty(a.propertyId!)}
-                      disabled={deletingId === a.propertyId}
-                      aria-label="Delete property"
-                      title="Delete property"
-                      className="text-muted-foreground hover:text-destructive disabled:opacity-60"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
-                  )}
-                </span>
+          {properties.length > 0 && (
+            <div className="card-elev p-5 min-w-0">
+              <h3 className="text-base font-bold">Top Protest Opportunities</h3>
+              <TopOpportunities
+                properties={properties}
+                healthScores={healthScores}
+                onOpenReport={openAiReport}
+              />
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div className="card-elev p-5 min-w-0">
+              <h3 className="text-base font-bold">Cases & AI Recommendations</h3>
+              {protests.length > 0 ? (
+                <ProtestStatusChart protests={protests} addressFor={addressFor} />
+              ) : (
+                <p className="mt-2 text-sm text-muted-foreground">
+                  No cases yet. Use an entry point above.
+                </p>
+              )}
+            </div>
+
+            <div className="card-elev p-5 min-w-0">
+              <div className="flex items-center justify-between">
+                <h3 className="text-base font-bold">Deadlines</h3>
+                <Link to="/dashboard/deadlines" className="text-xs text-accent hover:underline">
+                  View all
+                </Link>
               </div>
-            ))}
+              {upcoming.length > 0 ? (
+                <div className="mt-3 grid min-w-0 gap-2">
+                  {upcoming.map((u, i) => (
+                    <div
+                      key={i}
+                      className="flex items-center justify-between gap-2 text-sm min-w-0"
+                    >
+                      <span className="truncate min-w-0">
+                        {u.label} — {u.property.address}
+                      </span>
+                      <span className="shrink-0 text-xs text-muted-foreground">
+                        {u.when.toLocaleDateString()}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="mt-2 text-sm text-muted-foreground">
+                  No deadlines yet. AI will surface them as you add properties.
+                </p>
+              )}
+            </div>
           </div>
-        ) : (
-          <p className="mt-2 text-sm text-muted-foreground">No activity yet.</p>
-        )}
+
+          <div className="card-elev p-5 min-w-0">
+            <h3 className="text-base font-bold">Recent Activity</h3>
+            {activity.length > 0 ? (
+              <div className="mt-3 grid min-w-0 gap-2">
+                {activity.map((a, i) => (
+                  <div
+                    key={i}
+                    className="group row-hover rounded-md flex items-center justify-between gap-2 px-2 py-1 text-sm min-w-0"
+                  >
+                    <span className="shrink-0 text-muted-foreground">{a.label}</span>
+                    <span className="truncate min-w-0">{a.detail}</span>
+                    <span className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
+                      {new Date(a.ts).toLocaleDateString()}
+                      {a.propertyId && (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              onClick={() => handleDeleteProperty(a.propertyId!)}
+                              disabled={deletingId === a.propertyId}
+                              aria-label="Delete property"
+                              className="opacity-100 transition-all hover:scale-110 hover:text-destructive disabled:opacity-60 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100 text-muted-foreground"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent>Delete property</TooltipContent>
+                        </Tooltip>
+                      )}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-2 text-sm text-muted-foreground">No activity yet.</p>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -464,17 +609,24 @@ function StatCard({
   to,
   format,
   delayMs = 0,
+  icon: Icon,
+  color = ICON_COLORS[0],
 }: {
   label: string;
   value: number | null;
   to?: "/dashboard/properties" | "/dashboard/bpp-accounts" | "/dashboard/documents";
   format?: (n: number) => string;
   delayMs?: number;
+  icon: LucideIcon;
+  color?: (typeof ICON_COLORS)[number];
 }) {
   const content = (
     <>
-      <div className="text-xs text-muted-foreground">{label}</div>
-      <div className="mt-1 font-serif text-2xl font-semibold">
+      <span className={`grid h-8 w-8 place-items-center rounded-lg ${color.bg} ${color.text}`}>
+        <Icon className="h-4 w-4" />
+      </span>
+      <div className="mt-2 text-sm font-medium text-muted-foreground">{label}</div>
+      <div className="mt-1 font-serif text-3xl font-bold">
         {value === null ? "…" : <AnimatedNumber value={value} format={format} />}
       </div>
     </>
@@ -497,16 +649,37 @@ function StatCard({
   );
 }
 
-const PORTFOLIO_COLORS = ["var(--accent)", "var(--success)", "var(--warning)", "#8b5cf6", "#ec4899", "#14b8a6"];
+const PORTFOLIO_COLORS = [
+  "var(--accent)",
+  "var(--success)",
+  "var(--warning)",
+  "#8b5cf6",
+  "#ec4899",
+  "#14b8a6",
+];
 
-function PortfolioValueChart({ properties }: { properties: PropertyRecord[] }) {
+// Each bar opens that property's AI report — the whole point of showing "which
+// properties make up my portfolio" is to be able to jump straight into one, not
+// just look at the chart. Bars get a pointer cursor and darken slightly on
+// hover (native SVG :hover, no extra state needed) as the button affordance;
+// the Y-axis address labels are real buttons too, for the same click target
+// without needing to land precisely on a (sometimes short) bar.
+function PortfolioValueChart({
+  properties,
+  onOpenReport,
+}: {
+  properties: PropertyRecord[];
+  onOpenReport: (p: PropertyRecord) => void;
+}) {
   const data = properties
     .filter((p) => p.totalValue != null)
     .sort((a, b) => (b.totalValue ?? 0) - (a.totalValue ?? 0))
     .slice(0, 8)
     .map((p) => ({
+      id: p.id,
       name: p.address.length > 28 ? `${p.address.slice(0, 26)}…` : p.address,
       value: p.totalValue ?? 0,
+      property: p,
     }));
 
   if (data.length === 0) {
@@ -523,11 +696,21 @@ function PortfolioValueChart({ properties }: { properties: PropertyRecord[] }) {
           width={160}
           tickLine={false}
           axisLine={false}
-          tick={{ fontSize: 12 }}
+          tick={(props) => <PortfolioAxisTick {...props} data={data} onOpenReport={onOpenReport} />}
         />
-        <Bar dataKey="value" radius={[0, 6, 6, 0]} barSize={22}>
+        <Bar
+          dataKey="value"
+          radius={[0, 6, 6, 0]}
+          barSize={22}
+          cursor="pointer"
+          onClick={(entry: (typeof data)[number]) => onOpenReport(entry.property)}
+        >
           {data.map((_, i) => (
-            <Cell key={i} fill={PORTFOLIO_COLORS[i % PORTFOLIO_COLORS.length]} />
+            <Cell
+              key={i}
+              fill={PORTFOLIO_COLORS[i % PORTFOLIO_COLORS.length]}
+              className="transition-opacity hover:opacity-80"
+            />
           ))}
           <LabelList
             dataKey="value"
@@ -538,6 +721,97 @@ function PortfolioValueChart({ properties }: { properties: PropertyRecord[] }) {
         </Bar>
       </BarChart>
     </ResponsiveContainer>
+  );
+}
+
+// Recharts' <YAxis tick> renders raw SVG, not HTML — a real <button> can't go
+// here, so this renders a <text> that behaves like one (pointer cursor,
+// underline-on-hover, click handler) using the same per-row property lookup
+// the bars themselves use.
+function PortfolioAxisTick(
+  props: {
+    x?: number;
+    y?: number;
+    payload?: { value: string };
+  } & {
+    data: { name: string; property: PropertyRecord }[];
+    onOpenReport: (p: PropertyRecord) => void;
+  },
+) {
+  const { x = 0, y = 0, payload, data, onOpenReport } = props;
+  const row = data.find((d) => d.name === payload?.value);
+  if (!row) return null;
+  const lines = row.name.split(/(?<=,)\s+/);
+  return (
+    <text
+      x={x}
+      y={y}
+      dy={4}
+      textAnchor="end"
+      fontSize={12}
+      fill="var(--foreground)"
+      cursor="pointer"
+      className="hover:underline"
+      onClick={() => onOpenReport(row.property)}
+    >
+      {lines.map((line, i) => (
+        <tspan key={i} x={x} dy={i === 0 ? -((lines.length - 1) * 6) : 12}>
+          {line}
+        </tspan>
+      ))}
+    </text>
+  );
+}
+
+// Ranks properties by their AI "Protest Opportunity" score (the same score shown
+// per-property on /dashboard/properties as AiScoreBadge) so a multi-property owner
+// sees which properties look like the strongest opportunities first, instead of
+// reviewing each one individually. Properties with no score yet (backfilling in the
+// background — see useHealthScoreBackfill) simply don't appear until one exists.
+function TopOpportunities({
+  properties,
+  healthScores,
+  onOpenReport,
+}: {
+  properties: PropertyRecord[];
+  healthScores: Record<string, PropertyAiScore>;
+  onOpenReport: (p: PropertyRecord) => void;
+}) {
+  const ranked = properties
+    .filter((p) => healthScores[p.id])
+    .sort((a, b) => healthScores[b.id].score - healthScores[a.id].score)
+    .slice(0, 5);
+
+  if (ranked.length === 0) {
+    return (
+      <p className="mt-2 text-sm text-muted-foreground">
+        No scored properties yet — AI scores appear shortly after you add a property.
+      </p>
+    );
+  }
+
+  return (
+    <div className="mt-3 grid gap-3">
+      {ranked.map((p) => {
+        const score = healthScores[p.id];
+        return (
+          <div
+            key={p.id}
+            className="row-hover rounded-md flex items-center justify-between gap-3 px-2 py-2 min-w-0"
+          >
+            <div className="min-w-0">
+              <div className="truncate text-sm font-medium">{p.address}</div>
+              <p className="text-xs text-accent">
+                AI Score: {score.score}/100 — {score.summary}
+              </p>
+            </div>
+            <button onClick={() => onOpenReport(p)} className="btn-outline shrink-0 text-xs py-1.5">
+              View AI Report
+            </button>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
@@ -576,7 +850,14 @@ function ProtestStatusChart({
       <div className="mt-3 grid grid-cols-[7rem_1fr] items-center gap-3">
         <ResponsiveContainer width="100%" height={110}>
           <PieChart>
-            <Pie data={data} dataKey="value" nameKey="name" innerRadius={30} outerRadius={50} paddingAngle={2}>
+            <Pie
+              data={data}
+              dataKey="value"
+              nameKey="name"
+              innerRadius={30}
+              outerRadius={50}
+              paddingAngle={2}
+            >
               {data.map((d) => (
                 <Cell key={d.status} fill={STATUS_COLORS[d.status]} />
               ))}

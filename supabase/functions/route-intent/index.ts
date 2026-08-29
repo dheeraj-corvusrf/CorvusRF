@@ -28,17 +28,17 @@ const DESTINATIONS = [
       "an EPIN, or checking what's owed — since uploading a notice or entering an address is " +
       "the real way AI extracts and acts on all of those.",
   },
-  { path: "/pricing", about: "See CorvusRF's pricing plans." },
+  { path: "/pricing", about: "See CorvusPT's pricing plans." },
   { path: "/sign-in", about: "Sign in or create an account." },
   {
     path: "/contact",
-    about: "Talk to a human at CorvusRF — the fallback for anything else.",
+    about: "Talk to a human at CorvusPT — the fallback for anything else.",
   },
 ] as const;
 
 const ALLOWED_PATHS = new Set(DESTINATIONS.map((d) => d.path));
 
-const SYSTEM = `You are CorvusRF's homepage assistant for Texas commercial property tax questions.
+const SYSTEM = `You are CorvusPT's homepage assistant for Texas commercial property tax questions.
 Given a short user query, pick the single best destination from this fixed list — never invent a
 destination outside it — and write a short, friendly one-sentence response explaining why:
 

@@ -16,6 +16,15 @@ Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   try {
+    const { returnPath } = (await req.json().catch(() => ({}))) as { returnPath?: string };
+    // Only ever appended to a server-validated origin below, never used as a whole
+    // URL — but requiring a leading "/" (not "//", which a browser would treat as
+    // protocol-relative) keeps this from being coaxed into pointing off-origin.
+    const safePath =
+      returnPath && returnPath.startsWith("/") && !returnPath.startsWith("//")
+        ? returnPath
+        : "/dashboard";
+
     const secretKey = Deno.env.get("STRIPE_SECRET_KEY");
     if (!secretKey) throw new Error("Missing STRIPE_SECRET_KEY");
 
@@ -56,7 +65,7 @@ Deno.serve(async (req: Request) => {
 
     const session = await stripe.billingPortal.sessions.create({
       customer: profile.stripe_customer_id,
-      return_url: `${origin}/CorvusRF/dashboard`,
+      return_url: `${origin}${safePath}`,
     });
 
     return new Response(JSON.stringify({ url: session.url }), {

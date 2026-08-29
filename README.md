@@ -1,4 +1,4 @@
-# CorvusRF.ai
+# CorvusPT.ai
 
 Texas property tax assistant, built with [Lovable](https://lovable.dev).
 

@@ -65,14 +65,168 @@ export async function listAllUsers(): Promise<AdminUserRecord[]> {
   return (data as ProfileRow[]).map(fromRow);
 }
 
-export async function updateUserPlan(userId: string, plan: PlanValue): Promise<void> {
-  const { error } = await supabase.from("profiles").update({ plan }).eq("id", userId);
+export type AdminAuditEntry = {
+  id: string;
+  actorEmail: string;
+  action: string;
+  targetEmail: string | null;
+  detail: string | null;
+  createdAt: string;
+};
+
+type AdminAuditRow = {
+  id: string;
+  actor_email: string;
+  action: string;
+  target_email: string | null;
+  detail: string | null;
+  created_at: string;
+};
+
+// Best-effort: a logging failure shouldn't roll back or surface an error for an
+// admin action that itself already succeeded — see the try/catch below and the
+// matching posture in admin-create-user/admin-delete-user's own inserts.
+async function logAdminAction(input: {
+  action: string;
+  targetUserId?: string | null;
+  targetEmail?: string | null;
+  detail?: string | null;
+}): Promise<void> {
+  try {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return;
+    const { error } = await supabase.from("admin_audit_log").insert({
+      actor_id: user.id,
+      actor_email: user.email ?? "",
+      action: input.action,
+      target_user_id: input.targetUserId ?? null,
+      target_email: input.targetEmail ?? null,
+      detail: input.detail ?? null,
+    });
+    if (error) console.error("admin_audit_log insert failed:", error);
+  } catch (err) {
+    console.error("admin_audit_log insert failed:", err);
+  }
+}
+
+export async function listAdminAuditLog(limit = 50): Promise<AdminAuditEntry[]> {
+  const { data, error } = await supabase
+    .from("admin_audit_log")
+    .select("id, actor_email, action, target_email, detail, created_at")
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return (data as AdminAuditRow[]).map((row) => ({
+    id: row.id,
+    actorEmail: row.actor_email,
+    action: row.action,
+    targetEmail: row.target_email,
+    detail: row.detail,
+    createdAt: row.created_at,
+  }));
+}
+
+export type BetaLead = {
+  id: string;
+  fullName: string;
+  workEmail: string;
+  company: string;
+  areaOfInterest: string;
+  useCase: string | null;
+  sourceDoor: string | null;
+  createdAt: string;
+  invitedAt: string | null;
+};
+
+type BetaLeadRow = {
+  id: string;
+  full_name: string;
+  work_email: string;
+  company: string;
+  area_of_interest: string;
+  use_case: string | null;
+  source_door: string | null;
+  created_at: string;
+  invited_at: string | null;
+};
+
+// Submissions from hub/index.html's public "Request Beta Access" form (see
+// supabase/functions/submit-beta-lead) — a separate static site with no
+// login of its own, so these rows have no user_id and rely purely on the
+// admin-only select policy on beta_leads, not the usual owner-scoped RLS.
+export async function listBetaLeads(): Promise<BetaLead[]> {
+  const { data, error } = await supabase
+    .from("beta_leads")
+    .select(
+      "id, full_name, work_email, company, area_of_interest, use_case, source_door, created_at, invited_at",
+    )
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return (data as BetaLeadRow[]).map((row) => ({
+    id: row.id,
+    fullName: row.full_name,
+    workEmail: row.work_email,
+    company: row.company,
+    areaOfInterest: row.area_of_interest,
+    useCase: row.use_case,
+    sourceDoor: row.source_door,
+    createdAt: row.created_at,
+    invitedAt: row.invited_at,
+  }));
+}
+
+// Called after createUserAccount() successfully sends the real invite email
+// (see below) — this only records that it happened, it's a separate write
+// from the invite itself since invited_at lives on beta_leads, not
+// anything the admin-create-user edge function touches.
+export async function markBetaLeadInvited(id: string): Promise<string> {
+  const invitedAt = new Date().toISOString();
+  const { error } = await supabase
+    .from("beta_leads")
+    .update({ invited_at: invitedAt })
+    .eq("id", id);
+  if (error) throw error;
+  return invitedAt;
+}
+
+export async function deleteBetaLead(id: string): Promise<void> {
+  const { error } = await supabase.from("beta_leads").delete().eq("id", id);
   if (error) throw error;
 }
 
-export async function updateUserAdminStatus(userId: string, isAdmin: boolean): Promise<void> {
-  const { error } = await supabase.from("profiles").update({ is_admin: isAdmin }).eq("id", userId);
-  if (error) throw error;
+// Both of these now go through a service-role edge function rather than a direct
+// client update — Postgres column grants on profiles (see supabase/schema.sql)
+// no longer allow the plain client to write plan/is_admin at all, and the edge
+// function verifies admin status server-side instead of relying on this module
+// only ever being imported from the admin UI (which doesn't stop anyone from
+// calling the underlying client methods directly). Each function logs its own
+// admin_audit_log row server-side, so the separate logAdminAction() call these
+// used to make is gone too — it can't be skipped independently of the update now.
+export async function updateUserPlan(
+  userId: string,
+  plan: PlanValue,
+  context?: { targetEmail?: string; previousPlan?: PlanValue },
+): Promise<void> {
+  await invokeEdgeFunction("admin-update-plan", {
+    userId,
+    plan,
+    targetEmail: context?.targetEmail,
+    previousPlan: context?.previousPlan,
+  });
+}
+
+export async function updateUserAdminStatus(
+  userId: string,
+  isAdmin: boolean,
+  context?: { targetEmail?: string },
+): Promise<void> {
+  await invokeEdgeFunction("admin-update-admin-status", {
+    userId,
+    isAdmin,
+    targetEmail: context?.targetEmail,
+  });
 }
 
 export async function deleteUserAccount(userId: string): Promise<void> {
@@ -81,12 +235,14 @@ export async function deleteUserAccount(userId: string): Promise<void> {
 
 export async function createUserAccount(input: {
   email: string;
-  password: string;
   firstName: string;
   lastName: string;
   phone: string;
 }): Promise<void> {
-  await invokeEdgeFunction("admin-create-user", input);
+  await invokeEdgeFunction("admin-create-user", {
+    ...input,
+    redirectPath: `${import.meta.env.BASE_URL}reset-password`,
+  });
 }
 
 export const PROTEST_STATUS_OPTIONS: { value: ProtestStatus; label: string }[] = [
@@ -118,6 +274,13 @@ export type AdminProtestRecord = {
   improvementValue: number | null;
   taxYear: number | null;
   accountNumber: string | null;
+  // The tax year this specific protest was filed for (protests.tax_year), distinct
+  // from `taxYear` above (the property's current tax year). A property re-filed in
+  // multiple years (see "Re-file for {year}" on the dashboard) has one protest row
+  // per year, so grouping the admin queue by year needs this, not the property's
+  // single current value. Falls back to the property's tax year for protest rows
+  // created before this column existed and were never backfilled.
+  protestFilingYear: number | null;
   // Case-progress fields (see src/lib/protests.ts and protest-case.ts) — carried
   // here too so the admin panel can open the same CaseProgress workflow the
   // customer dashboard uses, without a second fetch.
@@ -149,6 +312,7 @@ type AdminProtestRow = {
   final_value: number | null;
   escalation_path: EscalationPath | null;
   closed_at: string | null;
+  tax_year: number | null;
   properties: {
     address: string;
     cad: string | null;
@@ -169,7 +333,7 @@ export async function listAllProtests(): Promise<AdminProtestRecord[]> {
   const { data, error } = await supabase
     .from("protests")
     .select(
-      "id, property_id, user_id, status, notes, requested_at, updated_at, original_value, settlement_offer_value, settlement_offer_received_at, hearing_date, arb_decision, arb_decision_date, final_value, escalation_path, closed_at, properties(address, cad, property_type, protest_deadline, total_value, land_value, improvement_value, tax_year, account_number)",
+      "id, property_id, user_id, status, notes, requested_at, updated_at, original_value, settlement_offer_value, settlement_offer_received_at, hearing_date, arb_decision, arb_decision_date, final_value, escalation_path, closed_at, tax_year, properties(address, cad, property_type, protest_deadline, total_value, land_value, improvement_value, tax_year, account_number)",
     )
     .order("requested_at", { ascending: false });
   if (error) throw error;
@@ -190,6 +354,7 @@ export async function listAllProtests(): Promise<AdminProtestRecord[]> {
     improvementValue: row.properties?.improvement_value ?? null,
     taxYear: row.properties?.tax_year ?? null,
     accountNumber: row.properties?.account_number ?? null,
+    protestFilingYear: row.tax_year ?? row.properties?.tax_year ?? null,
     originalValue: row.original_value,
     settlementOfferValue: row.settlement_offer_value,
     settlementOfferReceivedAt: row.settlement_offer_received_at,
@@ -224,6 +389,7 @@ export function toProtestRecord(record: AdminProtestRecord): ProtestRecord {
     finalValue: record.finalValue,
     escalationPath: record.escalationPath,
     closedAt: record.closedAt,
+    taxYear: record.protestFilingYear,
   };
 }
 
@@ -246,23 +412,45 @@ export function toPropertyRecordStub(record: AdminProtestRecord): PropertyRecord
     estimatedSavings: null,
     savingsBasis: null,
     createdAt: record.requestedAt,
+    // Not selected by listAllProtests() — the admin panel's case-progress view has
+    // no value-history chart, so this is never read there (same posture as the
+    // other admin-unrelated fields stubbed above).
+    valueHistory: null,
   };
 }
 
-export async function updateProtestStatus(protestId: string, status: ProtestStatus): Promise<void> {
+export async function updateProtestStatus(
+  protestId: string,
+  status: ProtestStatus,
+  context?: { propertyAddress?: string | null; requesterEmail?: string },
+): Promise<void> {
   const { error } = await supabase
     .from("protests")
     .update({ status, updated_at: new Date().toISOString() })
     .eq("id", protestId);
   if (error) throw error;
+  await logAdminAction({
+    action: "update_protest_status",
+    targetEmail: context?.requesterEmail,
+    detail: `${context?.propertyAddress ?? "protest"}: status → ${status}`,
+  });
 }
 
-export async function updateProtestNotes(protestId: string, notes: string): Promise<void> {
+export async function updateProtestNotes(
+  protestId: string,
+  notes: string,
+  context?: { propertyAddress?: string | null; requesterEmail?: string },
+): Promise<void> {
   const { error } = await supabase
     .from("protests")
     .update({ notes, updated_at: new Date().toISOString() })
     .eq("id", protestId);
   if (error) throw error;
+  await logAdminAction({
+    action: "update_protest_notes",
+    targetEmail: context?.requesterEmail,
+    detail: `${context?.propertyAddress ?? "protest"}: notes updated`,
+  });
 }
 
 export type AdminDocumentRecord = {
@@ -283,14 +471,14 @@ export async function listDocumentsForProperty(propertyId: string): Promise<Admi
     .eq("property_id", propertyId)
     .order("uploaded_at", { ascending: false });
   if (error) throw error;
-  return (data as { id: string; file_name: string; document_type: string | null; uploaded_at: string }[]).map(
-    (row) => ({
-      id: row.id,
-      fileName: row.file_name,
-      documentType: row.document_type,
-      uploadedAt: row.uploaded_at,
-    }),
-  );
+  return (
+    data as { id: string; file_name: string; document_type: string | null; uploaded_at: string }[]
+  ).map((row) => ({
+    id: row.id,
+    fileName: row.file_name,
+    documentType: row.document_type,
+    uploadedAt: row.uploaded_at,
+  }));
 }
 
 export type CaseSummaryResult = {

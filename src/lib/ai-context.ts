@@ -30,5 +30,5 @@ export async function buildUserContext(userId: string): Promise<string> {
     return `- ${parts.join(" | ")}`;
   });
 
-  return `The signed-in user owns these properties on CorvusRF.ai:\n${lines.join("\n")}`;
+  return `The signed-in user owns these properties on CorvusPT.ai:\n${lines.join("\n")}`;
 }

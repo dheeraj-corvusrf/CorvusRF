@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import type { FormEvent, ReactNode } from "react";
+import type { FormEvent } from "react";
 import { toast } from "sonner";
 import { currency } from "@/lib/intake-store";
 import { useAuth } from "@/lib/auth";
@@ -14,7 +14,7 @@ import {
   type TaxBillRecord,
 } from "@/lib/tax-bills";
 import { Skeleton } from "@/components/ui/skeleton";
-import { PortfolioTabs } from "@/components/PortfolioTabs";
+import { Modal } from "@/components/Modal";
 
 export const Route = createFileRoute("/dashboard/_layout/tax-bills")({
   component: TaxBills,
@@ -164,10 +164,6 @@ function TaxBills() {
         </button>
       </div>
 
-      <div className="mt-4">
-        <PortfolioTabs />
-      </div>
-
       {bills.length > 0 && (
         <p className="mt-4 text-sm text-muted-foreground">
           {dueCount} bill{dueCount === 1 ? "" : "s"} due, {paidCount} paid
@@ -245,7 +241,7 @@ function TaxBills() {
                     const isPaid = !!bill.paidAt;
                     const hasRefund = bill.refundAmount != null || bill.refundReceivedAt;
                     return (
-                      <div key={bill.id} className="card-elev p-4">
+                      <div key={bill.id} className="card-elev row-hover p-4">
                         <div className="flex items-center justify-between flex-wrap gap-2">
                           <div>
                             <div className="font-medium">
@@ -409,15 +405,3 @@ function TaxBills() {
   );
 }
 
-function Modal({ children, onClose }: { children: ReactNode; onClose: () => void }) {
-  return (
-    <div
-      className="fixed inset-0 z-50 grid place-items-center p-4 bg-primary/60 backdrop-blur-sm"
-      onClick={onClose}
-    >
-      <div className="card-elev p-6 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
-        {children}
-      </div>
-    </div>
-  );
-}

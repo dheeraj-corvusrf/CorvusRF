@@ -1,6 +1,6 @@
 // Approximate combined effective property tax rates (county + school district +
 // city/MUD + special districts, as a fraction of assessed value) for the counties
-// CorvusRF has real CAD data for, keyed by the exact `cad` string cad-lookup
+// CorvusPT has real CAD data for, keyed by the exact `cad` string cad-lookup
 // returns for that county. Sourced from multiple independent 2025 public rate
 // surveys (SmartAsset, Ballard Property Tax Protest, tax-rates.org, Texas
 // Comptroller county data) rather than any single source, since no two publish

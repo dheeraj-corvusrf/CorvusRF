@@ -3,13 +3,14 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "re
 import { useAuth } from "@/lib/auth";
 import { supabase } from "@/lib/supabase";
 import { checkIsAdmin } from "@/lib/admin";
+import { shouldShowShell } from "@/components/AppShell";
 
 const NAV = [
   { to: "/", label: "Home" },
   { to: "/how-it-works", label: "How It Works" },
-  { to: "/property-protest", label: "Property Protest" },
-  { to: "/bpp-rendition", label: "BPP Rendition" },
-  { to: "/tax-payment", label: "Tax Payment" },
+  { to: "/property-protest", label: "Protest" },
+  { to: "/bpp-rendition", label: "Personal Property" },
+  { to: "/tax-payment", label: "Pay Taxes" },
   { to: "/pricing", label: "Pricing" },
   { to: "/contact", label: "Contact Us" },
 ] as const;
@@ -28,8 +29,14 @@ export function SiteNav() {
   const { user } = useAuth();
   const signedIn = !!user;
   const [isAdmin, setIsAdmin] = useState(false);
+  // AppShell renders its own "Dashboard"-first tab bar directly under this
+  // nav on every signed-in page except "/" and a few auth/admin routes (see
+  // shouldShowShell) — skip injecting a second "Dashboard" link here on those
+  // pages so the two rows don't repeat the same entry right on top of each other.
   const navItems = signedIn
-    ? [NAV[0], { to: "/dashboard", label: "Dashboard" } as const, ...NAV.slice(1)]
+    ? shouldShowShell(pathname)
+      ? NAV
+      : [NAV[0], { to: "/dashboard", label: "Dashboard" } as const, ...NAV.slice(1)]
     : NAV;
 
   useEffect(() => {
@@ -81,7 +88,11 @@ export function SiteNav() {
       }
       const containerRect = container.getBoundingClientRect();
       const linkRect = link.getBoundingClientRect();
-      setIndicator({ left: linkRect.left - containerRect.left, width: linkRect.width, visible: true });
+      setIndicator({
+        left: linkRect.left - containerRect.left,
+        width: linkRect.width,
+        visible: true,
+      });
     }
     recompute();
     window.addEventListener("resize", recompute);
@@ -99,15 +110,20 @@ export function SiteNav() {
         <Link to="/" className="flex items-center gap-2">
           <LogoMark />
           <span className="font-serif text-lg font-semibold tracking-tight">
-            CorvusRF<span className="text-accent">.ai</span>
+            Corvus<span className="text-emerald-600 dark:text-emerald-400">PT</span>
+            <span className="text-accent">.ai</span>
           </span>
         </Link>
 
         <nav ref={navContainerRef} className="relative hidden lg:flex items-center gap-1">
           <span
             aria-hidden
-            className="absolute inset-y-1 rounded-md bg-secondary transition-[left,width] duration-300 ease-out"
-            style={{ left: indicator.left, width: indicator.width, opacity: indicator.visible ? 1 : 0 }}
+            className="absolute inset-y-1 rounded-md bg-nav-highlight transition-[left,width] duration-300 ease-out"
+            style={{
+              left: indicator.left,
+              width: indicator.width,
+              opacity: indicator.visible ? 1 : 0,
+            }}
           />
           {navItems.map((item) => (
             <Link
@@ -116,8 +132,8 @@ export function SiteNav() {
                 linkRefs.current[item.to] = el;
               }}
               to={item.to}
-              className="relative rounded-md px-3 py-2 text-sm font-medium text-foreground/80 transition-colors hover:bg-secondary/60 hover:text-foreground"
-              activeProps={{ className: "text-foreground" }}
+              className="relative rounded-md px-3 py-2 text-sm font-medium text-foreground/80 transition-colors hover:bg-nav-highlight hover:text-nav-highlight-foreground"
+              activeProps={{ className: "text-nav-highlight-foreground" }}
               activeOptions={{ exact: item.to === "/" }}
             >
               {item.label}
@@ -151,6 +167,20 @@ export function SiteNav() {
                   >
                     Subscription
                   </Link>
+                  <Link
+                    to="/dashboard/billing"
+                    onClick={() => setProfileOpen(false)}
+                    className="block rounded-md px-3 py-2 transition-colors hover:bg-secondary"
+                  >
+                    Billing
+                  </Link>
+                  <Link
+                    to="/dashboard/settings"
+                    onClick={() => setProfileOpen(false)}
+                    className="block rounded-md px-3 py-2 transition-colors hover:bg-secondary"
+                  >
+                    Settings
+                  </Link>
                   {isAdmin && (
                     <Link
                       to="/admin"
@@ -174,7 +204,11 @@ export function SiteNav() {
               )}
             </div>
           ) : (
-            <Link to="/sign-in" className="btn-outline hidden sm:inline-flex text-sm">
+            <Link
+              to="/sign-in"
+              search={{ redirect: pathname }}
+              className="btn-outline hidden sm:inline-flex text-sm"
+            >
               Sign In
             </Link>
           )}
@@ -201,7 +235,12 @@ export function SiteNav() {
               </Link>
             ))}
             {!signedIn && (
-              <Link to="/sign-in" onClick={() => setOpen(false)} className="btn-outline mt-2">
+              <Link
+                to="/sign-in"
+                search={{ redirect: pathname }}
+                onClick={() => setOpen(false)}
+                className="btn-outline mt-2"
+              >
                 Sign In
               </Link>
             )}
@@ -212,70 +251,24 @@ export function SiteNav() {
   );
 }
 
+// Trimmed down to just the copyright/coverage line — the full multi-column
+// footer (logo blurb + Platform/Services/Company link columns) was removed
+// site-wide as redundant with the top nav, but this bottom line stays as the
+// one place stating real county coverage.
 export function SiteFooter() {
   return (
     <footer className="border-t border-border/70 bg-secondary/40">
-      <div className="container-page grid gap-8 py-12 md:grid-cols-4">
-        <div>
-          <div className="flex items-center gap-2">
-            <LogoMark />
-            <span className="font-serif text-lg font-semibold">
-              CorvusRF<span className="text-accent">.ai</span>
-            </span>
-          </div>
-          <p className="mt-3 text-sm text-muted-foreground">
-            Texas property tax help, powered by AI. Real property protest, BPP, payments,
-            and savings — one platform.
-          </p>
-        </div>
-        <FooterCol
-          title="Platform"
-          links={[
-            ["Property Tax Management", "/property-tax-management"],
-            ["How It Works", "/how-it-works"],
-            ["Pricing", "/pricing"],
-          ]}
-        />
-        <FooterCol
-          title="Services"
-          links={[
-            ["Property Protest", "/property-protest"],
-            ["BPP Rendition", "/bpp-rendition"],
-            ["Tax Payment", "/tax-payment"],
-          ]}
-        />
-        <FooterCol
-          title="Company"
-          links={[
-            ["Contact Us", "/contact"],
-            ["Sign In", "/sign-in"],
-          ]}
-        />
-      </div>
-      <div className="border-t border-border/70">
-        <div className="container-page py-5 text-xs text-muted-foreground flex flex-wrap justify-between gap-2">
-          <span>© {new Date().getFullYear()} CorvusRF.ai — Texas Property Tax AI.</span>
-          <span>Serving all 254 Texas counties.</span>
-        </div>
+      <div className="container-page py-5 text-xs text-muted-foreground flex flex-wrap justify-between gap-2">
+        <span>
+          © {new Date().getFullYear()} CorvusPT.ai — Texas Property Tax AI. All rights reserved.
+        </span>
+        {/* Matches supabase/functions/cad-lookup/index.ts's countyQueriesInOrder
+            (Collin, Montgomery, Denton, Harris, Tarrant, Fort Bend, Williamson,
+            Grayson, Travis, Bexar, Dallas) — the real counties with a live data
+            source, not an aspirational "all 254" claim. */}
+        <span>Serving 11 Texas counties.</span>
       </div>
     </footer>
-  );
-}
-
-function FooterCol({ title, links }: { title: string; links: [string, string][] }) {
-  return (
-    <div>
-      <h4 className="text-sm font-semibold text-foreground">{title}</h4>
-      <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
-        {links.map(([label, to]) => (
-          <li key={to}>
-            <Link to={to} className="hover:text-foreground">
-              {label}
-            </Link>
-          </li>
-        ))}
-      </ul>
-    </div>
   );
 }
 
@@ -285,7 +278,13 @@ function LogoMark() {
       className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-brand text-brand-foreground"
       aria-hidden
     >
-      <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">
+      <svg
+        viewBox="0 0 24 24"
+        className="h-5 w-5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+      >
         <path d="M4 20c3-6 5-9 8-9s5 3 8 9" strokeLinecap="round" />
         <circle cx="16" cy="7" r="2" fill="currentColor" />
       </svg>

@@ -60,9 +60,12 @@ export function AdminCaseProgressModal({
             onReload={load}
           />
           <DocumentsSection
+            userId={userId}
             protest={protest}
             property={property}
             strategyRecommendation={caseData?.strategyRecommendation ?? null}
+            onUpdate={onUpdate}
+            allowSigning={false}
           />
           <CaseProgress protest={protest} property={property} caseData={caseData} onUpdate={onUpdate} />
         </>

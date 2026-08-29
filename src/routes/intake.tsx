@@ -1,10 +1,12 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useEffect, useId, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Check } from "lucide-react";
+import { ArrowLeft, Check, MapPin, ExternalLink } from "lucide-react";
 import { AnimatedSteps } from "@/components/AnimatedSteps";
 import { CircularSearchLoader } from "@/components/CircularSearchLoader";
-import { AreaChart, Area, XAxis, YAxis, ResponsiveContainer, Tooltip } from "recharts";
+import { ValueHistorySection } from "@/components/ValueHistorySection";
+import { MapPinPicker } from "@/components/MapPinPicker";
+import { getCadRecordUrl, isDirectCadRecordUrl } from "@/lib/cad-record-url";
 import {
   readIntake,
   updateIntake,
@@ -14,8 +16,8 @@ import {
   type IntakeState,
   type PropertyKind,
 } from "@/lib/intake-store";
-import type { CadValueHistoryEntry } from "@/lib/cad-lookup";
-import { cadLookup } from "@/lib/cad-lookup";
+import { cadLookup, type CadRecord } from "@/lib/cad-lookup";
+import { classifyPropertyCategory } from "@/lib/texas-tax-rates";
 import { AddressAutocomplete } from "@/components/AddressAutocomplete";
 import { useAuth } from "@/lib/auth";
 import { addProperty, findExistingProperty, type PropertyRecord } from "@/lib/properties";
@@ -27,10 +29,11 @@ import { useFileDrop } from "@/hooks/use-file-drop";
 export const Route = createFileRoute("/intake")({
   head: () => ({
     meta: [
-      { title: "Property Intake — CorvusRF.ai" },
+      { title: "Property Intake — CorvusPT.ai" },
       {
         name: "description",
-        content: "Validate your Texas commercial or residential property and start your free AI review.",
+        content:
+          "Validate your Texas commercial or residential property and start your free AI review.",
       },
       { property: "og:title", content: "Property Intake" },
       { property: "og:description", content: "Address, notice, and CAD validation." },
@@ -39,7 +42,16 @@ export const Route = createFileRoute("/intake")({
   component: Intake,
 });
 
-type Step = "address" | "validating" | "notice" | "savings" | "confirm" | "notfound" | "classifying";
+type Step =
+  | "address"
+  | "validating"
+  | "notice"
+  | "savings"
+  | "confirm"
+  | "notfound"
+  | "multiple"
+  | "classifying"
+  | "residential-blocked";
 
 function Intake() {
   const nav = useNavigate();
@@ -48,11 +60,33 @@ function Intake() {
   const [step, setStep] = useState<Step>("address");
   const [error, setError] = useState<string | null>(null);
   const [address, setAddress] = useState("");
+  // True for the ~1-2s window after picking a Google suggestion, while its
+  // Place Details follow-up call is upgrading the provisional (sometimes
+  // mid-word-abbreviated, e.g. "Market Pl Blvd" vs the real "Market Place
+  // Boulevard") value to the real address CAD lookup needs. Blocks
+  // "Validate address" during that window — without it, a fast click-through
+  // right after selecting submits the still-provisional text and produces
+  // the same false "couldn't locate this property" as the abbreviation bug
+  // itself, just reachable through timing instead of every time.
+  const [resolvingAddress, setResolvingAddress] = useState(false);
+  const [pickingOnMap, setPickingOnMap] = useState(false);
   const [propertyKind, setPropertyKind] = useState<PropertyKind>("commercial");
   const [noticeName, setNoticeName] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [alreadySaved, setAlreadySaved] = useState<PropertyRecord | null>(null);
+  const [nearby, setNearby] = useState<CadRecord[]>([]);
+  // Populated when cad-lookup finds more than one real, distinct CAD account
+  // at the exact same address (see cad-lookup.ts's "multiple" result) —
+  // e.g. a day care and a strip center on adjacent lots sharing one civic
+  // address, each with a completely different legal owner. Never silently
+  // guessed; the user picks which one via the "multiple" step below.
+  const [multipleOptions, setMultipleOptions] = useState<CadRecord[]>([]);
+  // Bumped on every new lookup and by cancelValidation() — an in-flight
+  // request checks this before ever touching state, so hitting Cancel (or
+  // starting a second search) can't have a stale response silently repaint
+  // the screen out from under whatever the user is looking at now.
+  const requestIdRef = useRef(0);
   // See estimateSavings() for the comps -> AI -> baseline cascade. null only
   // means we don't even have an assessed value to estimate from yet (the
   // savings step is skipped straight to confirm in that case).
@@ -74,87 +108,158 @@ function Intake() {
     }
   }, []);
 
+  // Shared by a real cadLookup() match and by picking one of the "nearby"
+  // suggestions on the notfound step (which already has a full real CadRecord
+  // in hand — no reason to make a second network round-trip for the same data).
+  async function applyCadRecord(record: CadRecord, requestId: number) {
+    // The commercial/residential toggle above is just the user's own guess
+    // — the CAD record is authoritative. Block here too (not just at the
+    // toggle) since someone can still reach this page with an address that
+    // turns out to be a true single-family home the county itself codes as
+    // residential (state code "A"/"C1" or descriptive text like "Single
+    // Family") — classifyPropertyCategory() already does this exact
+    // classification for the savings-estimate formula tier, so reuse it
+    // rather than inventing a second, possibly-inconsistent check.
+    if (requestIdRef.current !== requestId) return;
+    if (classifyPropertyCategory(record.propertyType) === "residential") {
+      setState(
+        updateIntake({
+          address: record.propertyAddress,
+          cad: record.cad,
+          propertyType: record.propertyType ?? undefined,
+        }),
+      );
+      setStep("residential-blocked");
+      return;
+    }
+    const next = updateIntake({
+      address: record.propertyAddress,
+      cad: record.cad,
+      accountNumber: record.accountNumber ?? undefined,
+      ownerName: record.ownerName ?? undefined,
+      propertyType: record.propertyType ?? undefined,
+      landValue: record.landValue ?? undefined,
+      improvementValue: record.improvementValue ?? undefined,
+      totalValue: record.totalValue ?? undefined,
+      taxYear: record.taxYear ?? undefined,
+      legalDescription: record.legalDescription ?? undefined,
+      subdivision: record.subdivision ?? undefined,
+      geoId: record.geoId ?? undefined,
+      mailingAddress: record.mailingAddress ?? undefined,
+      ownershipPct: record.ownershipPct ?? undefined,
+      protestStatus: record.protestStatus ?? undefined,
+      valueHistory: record.valueHistory ?? undefined,
+      deeds: record.deeds ?? undefined,
+    });
+    setState(next);
+
+    // See estimateSavings() for the comps -> formula cascade — both tiers are
+    // fully deterministic (no AI call), so the same property always produces
+    // the same number. Only null (no assessed value at all) skips the
+    // savings step straight to confirm.
+    //
+    // Still cached against this exact property (cad+accountNumber, or
+    // address when no account number exists) so refreshing the page or
+    // re-validating the same address mid-intake reuses the prior result
+    // instead of re-running the comps lookup for nothing — a performance
+    // nicety now, not a correctness requirement, since the estimate would
+    // come out identical either way.
+    const savingsKey =
+      next.cad && next.accountNumber ? `${next.cad}::${next.accountNumber}` : next.address;
+    let nextSavings: SavingsEstimate;
+    if (savingsKey && next.cachedSavingsKey === savingsKey && next.cachedSavings !== undefined) {
+      nextSavings = next.cachedSavings;
+    } else {
+      nextSavings = await estimateSavings({
+        cad: next.cad,
+        accountNumber: next.accountNumber,
+        address: next.address,
+        propertyType: next.propertyType,
+        landValue: next.landValue,
+        improvementValue: next.improvementValue,
+        totalValue: next.totalValue,
+        taxYear: next.taxYear,
+        valueHistory: next.valueHistory,
+      });
+      updateIntake({ cachedSavings: nextSavings, cachedSavingsKey: savingsKey });
+    }
+    if (requestIdRef.current !== requestId) return;
+    setSavings(nextSavings);
+    setStep(nextSavings ? "savings" : "confirm");
+    // Check whether this exact CAD record is already on the user's account —
+    // shown as a notice on the confirm screen instead of letting them hit
+    // "Confirm Property" again for something already saved.
+    if (user && next.address) {
+      findExistingProperty(user.id, {
+        address: next.address,
+        cad: next.cad,
+        accountNumber: next.accountNumber,
+      })
+        .then(setAlreadySaved)
+        .catch((err) => console.error(err));
+    }
+  }
+
   async function runValidation(addr: string) {
+    const requestId = ++requestIdRef.current;
     setStep("validating");
     setError(null);
     setAlreadySaved(null);
+    setNearby([]);
+    setMultipleOptions([]);
     try {
       const res = await cadLookup(addr);
+      if (requestIdRef.current !== requestId) return;
+      if (res.matched === "multiple") {
+        setMultipleOptions(res.options);
+        setStep("multiple");
+        return;
+      }
       if (!res.matched) {
+        setNearby(res.nearby);
         setStep("notfound");
         return;
       }
-      const next = updateIntake({
-        address: res.record.propertyAddress,
-        cad: res.record.cad,
-        accountNumber: res.record.accountNumber ?? undefined,
-        ownerName: res.record.ownerName ?? undefined,
-        propertyType: res.record.propertyType ?? undefined,
-        landValue: res.record.landValue ?? undefined,
-        improvementValue: res.record.improvementValue ?? undefined,
-        totalValue: res.record.totalValue ?? undefined,
-        taxYear: res.record.taxYear ?? undefined,
-        legalDescription: res.record.legalDescription ?? undefined,
-        subdivision: res.record.subdivision ?? undefined,
-        geoId: res.record.geoId ?? undefined,
-        mailingAddress: res.record.mailingAddress ?? undefined,
-        ownershipPct: res.record.ownershipPct ?? undefined,
-        protestStatus: res.record.protestStatus ?? undefined,
-        valueHistory: res.record.valueHistory ?? undefined,
-        deeds: res.record.deeds ?? undefined,
-      });
-      setState(next);
-
-      // See estimateSavings() for the comps -> formula cascade — both tiers are
-      // fully deterministic (no AI call), so the same property always produces
-      // the same number. Only null (no assessed value at all) skips the
-      // savings step straight to confirm.
-      //
-      // Still cached against this exact property (cad+accountNumber, or
-      // address when no account number exists) so refreshing the page or
-      // re-validating the same address mid-intake reuses the prior result
-      // instead of re-running the comps lookup for nothing — a performance
-      // nicety now, not a correctness requirement, since the estimate would
-      // come out identical either way.
-      const savingsKey = next.cad && next.accountNumber ? `${next.cad}::${next.accountNumber}` : next.address;
-      let nextSavings: SavingsEstimate;
-      if (savingsKey && next.cachedSavingsKey === savingsKey && next.cachedSavings !== undefined) {
-        nextSavings = next.cachedSavings;
-      } else {
-        nextSavings = await estimateSavings({
-          cad: next.cad,
-          accountNumber: next.accountNumber,
-          address: next.address,
-          propertyType: next.propertyType,
-          landValue: next.landValue,
-          improvementValue: next.improvementValue,
-          totalValue: next.totalValue,
-          taxYear: next.taxYear,
-          valueHistory: next.valueHistory,
-        });
-        updateIntake({ cachedSavings: nextSavings, cachedSavingsKey: savingsKey });
-      }
-      setSavings(nextSavings);
-      setStep(nextSavings ? "savings" : "confirm");
-      // Check whether this exact CAD record is already on the user's account —
-      // shown as a notice on the confirm screen instead of letting them hit
-      // "Confirm Property" again for something already saved.
-      if (user && next.address) {
-        findExistingProperty(user.id, {
-          address: next.address,
-          cad: next.cad,
-          accountNumber: next.accountNumber,
-        })
-          .then(setAlreadySaved)
-          .catch((err) => console.error(err));
-      }
+      await applyCadRecord(res.record, requestId);
     } catch (err) {
+      if (requestIdRef.current !== requestId) return;
       console.error(err);
       const message =
         err instanceof Error ? err.message : "Could not look up this property. Please try again.";
       toast.error(message);
       setStep("address");
     }
+  }
+
+  // Shared by picking one of the "nearby" suggestions and one of the
+  // "multiple accounts at this address" options — both already have a full
+  // real CadRecord in hand, so this just applies it directly with no second
+  // network round-trip. `fallbackStep` is where a failure sends the user
+  // back to (each list only exists within its own step).
+  async function selectCadCandidate(record: CadRecord, fallbackStep: "notfound" | "multiple") {
+    const requestId = ++requestIdRef.current;
+    setStep("validating");
+    setError(null);
+    setAlreadySaved(null);
+    try {
+      await applyCadRecord(record, requestId);
+    } catch (err) {
+      if (requestIdRef.current !== requestId) return;
+      console.error(err);
+      const message =
+        err instanceof Error ? err.message : "Could not use this property. Please try again.";
+      toast.error(message);
+      setStep(fallbackStep);
+    }
+  }
+
+  // Bails out of an in-flight lookup — invalidates it (see requestIdRef
+  // above) so its eventual response can never repaint the screen after the
+  // user has already left, and returns straight to an editable address field
+  // rather than the notfound/residential-blocked dead ends.
+  function cancelValidation() {
+    requestIdRef.current++;
+    setStep("address");
   }
 
   async function onFile(f: File) {
@@ -193,29 +298,41 @@ function Intake() {
           </p>
 
           <div className="mt-4 inline-flex rounded-full border border-border bg-secondary/40 p-1">
-            {(["commercial", "residential"] as const).map((kind) => (
-              <button
-                key={kind}
-                type="button"
-                onClick={() => {
-                  setPropertyKind(kind);
-                  updateIntake({ propertyKind: kind });
-                }}
-                className={`rounded-full px-3 py-1 text-xs font-medium capitalize transition-colors ${
-                  propertyKind === kind
-                    ? "bg-accent text-accent-foreground"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                {kind}
-              </button>
-            ))}
+            {(["commercial", "residential"] as const).map((kind) =>
+              kind === "residential" ? (
+                <button
+                  key={kind}
+                  type="button"
+                  disabled
+                  title="Residential — coming soon"
+                  className="rounded-full px-3 py-1 text-xs font-medium capitalize text-muted-foreground/40 cursor-not-allowed"
+                >
+                  {kind}
+                </button>
+              ) : (
+                <button
+                  key={kind}
+                  type="button"
+                  onClick={() => {
+                    setPropertyKind(kind);
+                    updateIntake({ propertyKind: kind });
+                  }}
+                  className={`rounded-full px-3 py-1 text-xs font-medium capitalize transition-colors ${
+                    propertyKind === kind
+                      ? "bg-accent text-accent-foreground"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {kind}
+                </button>
+              ),
+            )}
           </div>
 
           <form
             onSubmit={(e) => {
               e.preventDefault();
-              if (!address.trim()) return;
+              if (!address.trim() || resolvingAddress) return;
               updateIntake({ address: address.trim(), propertyKind });
               runValidation(address.trim());
             }}
@@ -224,11 +341,37 @@ function Intake() {
             <AddressAutocomplete
               value={address}
               onChange={setAddress}
+              onResolving={setResolvingAddress}
+              // Picking a suggestion directly validates — no separate click on
+              // "Validate address" needed. Takes the address as a parameter
+              // (not read from `address` state) since onPlaceSelected already
+              // hands over the final, fully-resolved value.
+              onPlaceSelected={(addr) => {
+                updateIntake({ address: addr, propertyKind });
+                runValidation(addr);
+              }}
               placeholder="e.g. 500 Main St, Houston, TX 77002"
               className="rounded-md border border-input bg-background px-4 py-3"
             />
-            <button className="btn-primary btn-primary-hover">Validate address</button>
+            <button
+              type="submit"
+              disabled={resolvingAddress}
+              className="btn-primary btn-primary-hover disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {resolvingAddress ? "Resolving…" : "Validate address"}
+            </button>
           </form>
+
+          <div className="mt-3 text-center">
+            <button
+              type="button"
+              onClick={() => setPickingOnMap(true)}
+              className="inline-flex items-center gap-1.5 text-sm text-accent hover:underline"
+            >
+              <MapPin className="h-3.5 w-3.5" />
+              Don't know the exact address? Pin it on the map instead.
+            </button>
+          </div>
 
           <div
             className={`mt-6 rounded-lg border border-dashed p-5 text-center transition-colors ${
@@ -240,8 +383,8 @@ function Intake() {
               {isDragging ? "Drop to upload" : "Have your appraisal notice?"}
             </p>
             <p className="text-xs text-muted-foreground">
-              PDF / PNG / JPG, up to {Math.round(UPLOAD_LIMITS.maxFileBytes / (1024 * 1024))} MB,
-              up to {UPLOAD_LIMITS.maxPages} pages.
+              PDF / PNG / JPG, up to {Math.round(UPLOAD_LIMITS.maxFileBytes / (1024 * 1024))} MB, up
+              to {UPLOAD_LIMITS.maxPages} pages.
             </p>
             <label className="mt-3 btn-outline cursor-pointer inline-flex">
               <input
@@ -267,7 +410,15 @@ function Intake() {
       )}
 
       {step === "validating" && (
-        <section className="mt-8 card-elev p-10 text-center">
+        <section className="mt-8 card-elev p-10 text-center relative">
+          <button
+            type="button"
+            onClick={cancelValidation}
+            className="btn-outline absolute left-4 top-4 gap-1.5 text-xs py-1.5"
+          >
+            <ArrowLeft className="h-3.5 w-3.5" />
+            Cancel
+          </button>
           <CircularSearchLoader className="h-48 w-48 mx-auto" />
           <h2 className="mt-6 font-serif text-2xl font-semibold">Searching for your property…</h2>
           {address && <p className="mt-2 text-muted-foreground">{address}</p>}
@@ -306,6 +457,172 @@ function Intake() {
               Search Again
             </button>
           </div>
+
+          {nearby.length > 0 && (
+            <div className="mt-6 border-t border-border pt-5">
+              <h3 className="text-sm font-semibold">
+                We didn't find that exact address, but found these nearby:
+              </h3>
+              <div className="mt-3 grid gap-2">
+                {nearby.map((r, i) => {
+                  // The county's own record is authoritative, same check
+                  // applyCadRecord() itself makes — this app only serves
+                  // commercial properties, so a residential one is shown but
+                  // disabled rather than left clickable into a dead end.
+                  const category = classifyPropertyCategory(r.propertyType);
+                  const isResidential = category === "residential";
+                  return (
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={() => !isResidential && selectCadCandidate(r, "notfound")}
+                      disabled={isResidential}
+                      title={
+                        isResidential
+                          ? "Residential — CorvusPT currently serves commercial properties only"
+                          : undefined
+                      }
+                      className={`row-hover flex items-center justify-between gap-3 rounded-lg border border-border p-3 text-left ${
+                        isResidential ? "opacity-50 grayscale cursor-not-allowed" : ""
+                      }`}
+                    >
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-semibold">{r.propertyAddress}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {r.cad}
+                          {r.totalValue != null && <> · Assessed {currency(r.totalValue)}</>}
+                        </div>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <span
+                          className={`rounded-full px-2 py-0.5 text-[11px] font-medium capitalize ${
+                            isResidential
+                              ? "bg-secondary text-muted-foreground"
+                              : category === "commercial"
+                                ? "badge-soft"
+                                : "bg-secondary text-muted-foreground"
+                          }`}
+                        >
+                          {category === "unknown" ? "Type unknown" : category}
+                        </span>
+                        {!isResidential && (
+                          <span className="text-sm font-semibold text-accent">Check this →</span>
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </section>
+      )}
+
+      {step === "multiple" && (
+        <section className="mt-8 card-elev p-6">
+          <h2 className="font-serif text-xl font-semibold">
+            We found more than one property at this address.
+          </h2>
+          <p className="mt-1 text-muted-foreground">
+            This address covers multiple separate CAD accounts, each with its own owner. Pick the
+            one you want to protest.
+          </p>
+          <div className="mt-4">
+            <button onClick={() => setStep("address")} className="btn-outline">
+              Edit Address
+            </button>
+          </div>
+
+          <div className="mt-6 grid gap-3 border-t border-border pt-5">
+            {multipleOptions.map((r, i) => {
+              // Same commercial-only gate as the "nearby" list — the county
+              // record is authoritative, so a residential account is shown
+              // (for transparency: the user should still see it exists) but
+              // disabled rather than left clickable into a dead end.
+              const category = classifyPropertyCategory(r.propertyType);
+              const isResidential = category === "residential";
+              const recordUrl = getCadRecordUrl(r);
+              return (
+                <div
+                  key={i}
+                  className={`rounded-lg border border-border p-4 ${isResidential ? "opacity-50 grayscale" : ""}`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      {/* Owner name first and bold — it's the actual
+                          disambiguator a user needs (e.g. "PINNACLE
+                          MONTESSORI..." vs. "AVIGHNA HOLDINGS...", two real
+                          different owners at one shared civic address). */}
+                      <div className="text-sm font-semibold">{r.ownerName ?? "Owner unknown"}</div>
+                      <div className="mt-0.5 truncate text-xs text-muted-foreground">
+                        {r.propertyAddress}
+                      </div>
+                      <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                        {r.accountNumber && <span>Account #{r.accountNumber}</span>}
+                        {r.propertyType && <span className="capitalize">{r.propertyType}</span>}
+                        {r.totalValue != null && <span>Assessed {currency(r.totalValue)}</span>}
+                      </div>
+                    </div>
+                    <span
+                      className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium capitalize ${
+                        isResidential
+                          ? "bg-secondary text-muted-foreground"
+                          : category === "commercial"
+                            ? "badge-soft"
+                            : "bg-secondary text-muted-foreground"
+                      }`}
+                    >
+                      {category === "unknown" ? "Type unknown" : category}
+                    </span>
+                  </div>
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => !isResidential && selectCadCandidate(r, "multiple")}
+                      disabled={isResidential}
+                      title={
+                        isResidential
+                          ? "Residential — CorvusPT currently serves commercial properties only"
+                          : undefined
+                      }
+                      className="btn-primary btn-primary-hover text-sm py-1.5 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      Select This Property
+                    </button>
+                    {recordUrl && (
+                      <a
+                        href={recordUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="btn-outline inline-flex items-center gap-1.5 text-sm py-1.5"
+                      >
+                        <ExternalLink className="h-3.5 w-3.5" />
+                        {isDirectCadRecordUrl(r.cad)
+                          ? "View Official CAD Record"
+                          : `Search on ${r.cad}`}
+                      </a>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
+      {step === "residential-blocked" && (
+        <section className="mt-8 card-elev p-6">
+          <h2 className="font-serif text-xl font-semibold">This is a residential property.</h2>
+          <p className="mt-1 text-muted-foreground">
+            The county's own records classify {state.address ?? "this address"} as residential
+            {state.propertyType ? ` (${state.propertyType})` : ""}. CorvusPT currently serves
+            commercial properties only.
+          </p>
+          <div className="mt-4 flex gap-2">
+            <button onClick={() => setStep("address")} className="btn-outline">
+              Search a Different Address
+            </button>
+          </div>
         </section>
       )}
 
@@ -313,10 +630,14 @@ function Intake() {
         <section className="mt-8 card-elev overflow-hidden">
           <div className="bg-accent/10 px-6 pt-10 pb-8 text-center">
             <p className="text-sm font-medium text-muted-foreground">Potential Protest Savings*</p>
-            <p className="mt-1 font-serif text-5xl font-bold text-accent">{currency(savings.amount)}</p>
+            <p className="mt-1 font-serif text-5xl font-bold text-accent">
+              {currency(savings.amount)}
+            </p>
             <p className="mt-2 text-sm text-muted-foreground">{state.address}</p>
             {state.accountNumber && (
-              <p className="text-xs font-medium text-muted-foreground">PARCEL: {state.accountNumber}</p>
+              <p className="text-xs font-medium text-muted-foreground">
+                PARCEL: {state.accountNumber}
+              </p>
             )}
 
             {/* The savings figure alone doesn't answer "how much do I actually
@@ -335,7 +656,9 @@ function Intake() {
               <div>
                 <div className="text-xs text-muted-foreground">Est. Bill After Protest</div>
                 <div className="mt-0.5 font-serif text-xl font-semibold text-success">
-                  {currency((state.totalValue ?? 0) * (savings.effectiveTaxRatePct / 100) - savings.amount)}
+                  {currency(
+                    (state.totalValue ?? 0) * (savings.effectiveTaxRatePct / 100) - savings.amount,
+                  )}
                 </div>
               </div>
             </div>
@@ -361,7 +684,10 @@ function Intake() {
                 <span className="badge-soft sm:col-span-2 w-fit">
                   Modeled from real Texas protest data — no direct comps available
                 </span>
-                <Field label="Typical Reduction for This Property" value={`${savings.reductionPct}%`} />
+                <Field
+                  label="Typical Reduction for This Property"
+                  value={`${savings.reductionPct}%`}
+                />
                 <Field label="Effective Tax Rate Used" value={`${savings.effectiveTaxRatePct}%`} />
                 <Field label="Your Assessed Value" value={currency(state.totalValue)} bold />
                 <div className="sm:col-span-2">
@@ -380,9 +706,10 @@ function Intake() {
             <p className="mt-4 text-xs text-muted-foreground">
               {savings.basis === "comps"
                 ? `*Estimated from ${savings.compsCount} real comparable properties in your subdivision, at your county's ~${savings.effectiveTaxRatePct}% effective tax rate. Your actual result depends on the hearing outcome and county-specific factors.`
-                : "*Modeled from real, published Texas protest-outcome data for this property's county and category — no directly comparable properties were available for this address, so this isn't a specific analysis of your property. Your actual result depends on the hearing outcome and county-specific factors."}
-              {" "}Tax bill figures use your county's estimated effective tax rate applied to the CAD's assessed value —
-              not a bill pulled from the county, and before any exemptions (e.g. homestead) you may qualify for.
+                : "*Modeled from real, published Texas protest-outcome data for this property's county and category — no directly comparable properties were available for this address, so this isn't a specific analysis of your property. Your actual result depends on the hearing outcome and county-specific factors."}{" "}
+              Tax bill figures use your county's estimated effective tax rate applied to the CAD's
+              assessed value — not a bill pulled from the county, and before any exemptions (e.g.
+              homestead) you may qualify for.
             </p>
           </div>
         </section>
@@ -405,10 +732,14 @@ function Intake() {
             <Field label="Land Value" value={currency(state.landValue)} />
             <Field label="Improvement Value" value={currency(state.improvementValue)} />
             <Field label="Total Appraised Value" value={currency(state.totalValue)} bold />
-            {state.legalDescription && <Field label="Legal Description" value={state.legalDescription} />}
+            {state.legalDescription && (
+              <Field label="Legal Description" value={state.legalDescription} />
+            )}
             {state.subdivision && <Field label="Subdivision" value={state.subdivision} />}
             {state.geoId && <Field label="Geographic ID" value={state.geoId} />}
-            {state.mailingAddress && <Field label="Owner Mailing Address" value={state.mailingAddress} />}
+            {state.mailingAddress && (
+              <Field label="Owner Mailing Address" value={state.mailingAddress} />
+            )}
             {state.ownershipPct != null && (
               <Field label="% Ownership" value={`${state.ownershipPct}%`} />
             )}
@@ -420,48 +751,7 @@ function Intake() {
             </p>
           )}
 
-          {(() => {
-            // A CAD can return one row per year going back a decade-plus with
-            // every value field null (the year existed in the county's system,
-            // but nothing was published for it) — showing a table that's
-            // entirely dashes isn't useful, so only real rows count, and the
-            // whole section stays hidden unless at least one does.
-            const realHistory = (state.valueHistory ?? []).filter(
-              (v) =>
-                v.landValue != null || v.improvementValue != null || v.marketValue != null || v.appraisedValue != null,
-            );
-            if (realHistory.length === 0) return null;
-            return (
-              <div className="mt-6">
-                <h3 className="text-sm font-semibold">Value History</h3>
-                <ValueHistoryChart history={realHistory} />
-                <div className="mt-2 overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="text-left text-xs uppercase tracking-wide text-muted-foreground">
-                        <th className="py-1 pr-4">Year</th>
-                        <th className="py-1 pr-4">Land</th>
-                        <th className="py-1 pr-4">Improvement</th>
-                        <th className="py-1 pr-4">Market</th>
-                        <th className="py-1 pr-4">Appraised</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {realHistory.map((v) => (
-                        <tr key={v.year} className="border-t border-border">
-                          <td className="py-1 pr-4">{v.year}</td>
-                          <td className="py-1 pr-4">{currency(v.landValue)}</td>
-                          <td className="py-1 pr-4">{currency(v.improvementValue)}</td>
-                          <td className="py-1 pr-4">{currency(v.marketValue)}</td>
-                          <td className="py-1 pr-4">{currency(v.appraisedValue)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            );
-          })()}
+          <ValueHistorySection history={state.valueHistory ?? []} />
 
           {state.deeds && state.deeds.length > 0 && (
             <div className="mt-6">
@@ -520,6 +810,7 @@ function Intake() {
                       taxYear: state.taxYear,
                       estimatedSavings: savings?.amount,
                       savingsBasis: savings?.basis,
+                      valueHistory: state.valueHistory,
                     });
                   } catch (err) {
                     setSaving(false);
@@ -562,6 +853,18 @@ function Intake() {
           </div>
         </section>
       )}
+
+      {pickingOnMap && (
+        <MapPinPicker
+          onClose={() => setPickingOnMap(false)}
+          onConfirm={(resolvedAddress) => {
+            setPickingOnMap(false);
+            setAddress(resolvedAddress);
+            updateIntake({ address: resolvedAddress, propertyKind });
+            runValidation(resolvedAddress);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -569,7 +872,7 @@ function Intake() {
 function Stepper({ step }: { step: Step }) {
   const items = [
     ["Address", ["address"]],
-    ["Validate", ["validating", "notfound"]],
+    ["Validate", ["validating", "notfound", "multiple", "residential-blocked"]],
     ["Savings", ["savings"]],
     ["Confirm", ["confirm"]],
   ] as const;
@@ -579,7 +882,10 @@ function Stepper({ step }: { step: Step }) {
         const active = (keys as readonly string[]).includes(step);
         const isLast = i === items.length - 1;
         return (
-          <li key={label} className={`flex items-center gap-1.5 sm:gap-2 ${isLast ? "" : "flex-1"}`}>
+          <li
+            key={label}
+            className={`flex items-center gap-1.5 sm:gap-2 ${isLast ? "" : "flex-1"}`}
+          >
             <span
               className={`h-6 w-6 shrink-0 rounded-full grid place-items-center ${
                 active ? "bg-primary text-primary-foreground" : "bg-secondary text-muted-foreground"
@@ -590,7 +896,9 @@ function Stepper({ step }: { step: Step }) {
             {/* Full labels once there's room (sm+); numbers-only on narrow
                 phones so 4 steps fit without pushing the page into
                 horizontal scroll. */}
-            <span className={`hidden sm:inline ${active ? "text-foreground" : "text-muted-foreground"}`}>
+            <span
+              className={`hidden sm:inline ${active ? "text-foreground" : "text-muted-foreground"}`}
+            >
               {label}
             </span>
             {/* Connector grows to fill the gap to the next step, so the whole
@@ -609,52 +917,6 @@ function Field({ label, value, bold }: { label: string; value?: string; bold?: b
     <div>
       <dt className="text-xs uppercase tracking-wide text-muted-foreground">{label}</dt>
       <dd className={`mt-1 ${bold ? "text-lg font-semibold" : ""}`}>{value ?? "—"}</dd>
-    </div>
-  );
-}
-
-function ValueHistoryChart({ history }: { history: CadValueHistoryEntry[] }) {
-  const gradientId = useId();
-  const points = history
-    .filter((h) => h.appraisedValue != null)
-    .sort((a, b) => a.year - b.year)
-    .map((h) => ({ year: String(h.year), value: h.appraisedValue as number }));
-
-  // Need at least two real points to draw a trend — a single year is just a dot.
-  if (points.length < 2) return null;
-
-  const first = points[0].value;
-  const last = points[points.length - 1].value;
-  const changePct = first !== 0 ? Math.round(((last - first) / first) * 100) : 0;
-  // Rising assessed value is the thing worth flagging to a taxpayer (usually means
-  // a higher bill), so it's colored as a caution, not a plain neutral trend line.
-  const color = changePct > 0 ? "var(--warning)" : changePct < 0 ? "var(--success)" : "var(--muted-foreground)";
-
-  return (
-    <div className="mt-2">
-      <div className="flex items-baseline gap-2">
-        <span className="text-sm font-semibold" style={{ color }}>
-          {changePct > 0 ? "+" : ""}
-          {changePct}%
-        </span>
-        <span className="text-xs text-muted-foreground">
-          since {points[0].year} ({currency(first)} → {currency(last)})
-        </span>
-      </div>
-      <ResponsiveContainer width="100%" height={120}>
-        <AreaChart data={points} margin={{ top: 8, right: 8, bottom: 0, left: 8 }}>
-          <defs>
-            <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="5%" stopColor={color} stopOpacity={0.35} />
-              <stop offset="95%" stopColor={color} stopOpacity={0.03} />
-            </linearGradient>
-          </defs>
-          <XAxis dataKey="year" tickLine={false} axisLine={false} tick={{ fontSize: 11 }} />
-          <YAxis hide domain={["dataMin - dataMin * 0.05", "dataMax + dataMax * 0.05"]} />
-          <Tooltip formatter={(v: number) => currency(v)} labelFormatter={(l) => `Year ${l}`} />
-          <Area type="monotone" dataKey="value" stroke={color} strokeWidth={2} fill={`url(#${gradientId})`} />
-        </AreaChart>
-      </ResponsiveContainer>
     </div>
   );
 }

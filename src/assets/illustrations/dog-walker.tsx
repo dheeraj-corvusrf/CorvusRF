@@ -1,5 +1,5 @@
 // Sourced from unDraw (undraw.co, free for commercial use, no attribution
-// required) and recolored to CorvusRF's navy/gold/teal palette — real illustration
+// required) and recolored to CorvusPT's navy/gold/teal palette — real illustration
 // artwork, not hand-coded shapes.
 export function DogWalkerIllustration({ className }: { className?: string }) {
   return (

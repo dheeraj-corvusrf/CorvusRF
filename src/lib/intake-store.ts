@@ -1,5 +1,10 @@
 // Session-scoped intake store for the guest flow.
-import { classifyDocument, validateDocument, type Extraction, type DocumentType } from "./document-ai";
+import {
+  classifyDocument,
+  validateDocument,
+  type Extraction,
+  type DocumentType,
+} from "./document-ai";
 import { getFirstPage } from "./pdf-utils";
 import type { CadDeed, CadValueHistoryEntry } from "./cad-lookup";
 import type { SavingsEstimate } from "./savings-estimate";
@@ -63,6 +68,10 @@ export type IntakeState = {
   // dollar amount on every refresh. See runValidation() in intake.tsx.
   cachedSavings?: SavingsEstimate;
   cachedSavingsKey?: string;
+  // Free-text fallback answers to a strategy's missing-evidence prompt (Module 2's
+  // evidence gate — see ai-report.tsx), keyed by strategy name. Session-scoped like
+  // the rest of this store; not persisted server-side.
+  strategyAnswers?: Record<string, string>;
 
   // document classification flow
   extraction?: Extraction;
@@ -143,7 +152,10 @@ export const UPLOAD_LIMITS = {
   maxPages: 5,
 };
 
-function fileToDataUrl(file: File): Promise<string> {
+// Takes Blob (not just File) so callers can also convert a fetched document blob —
+// see src/routes/ai-report.tsx's evidence-upload flow, which fetches an already
+// -uploaded document back from its signed URL rather than holding onto the original File.
+export function fileToDataUrl(file: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const r = new FileReader();
     r.onload = () => resolve(String(r.result));
@@ -181,9 +193,14 @@ export async function classifyAndStoreDocument(file: File): Promise<Extraction> 
     dataUrl: firstPage.dataUrl,
   });
   if (!validation.isValid) {
-    appendAudit({ actor: "ai", action: "reject_invalid_document", reason: validation.reason ?? undefined });
+    appendAudit({
+      actor: "ai",
+      action: "reject_invalid_document",
+      reason: validation.reason ?? undefined,
+    });
     throw new Error(
-      validation.reason ?? "This doesn't look like a Texas property tax document. Please try another file.",
+      validation.reason ??
+        "This doesn't look like a Texas property tax document. Please try another file.",
     );
   }
 
@@ -313,7 +330,7 @@ export function routeWorkflows(e: Extraction): WorkflowSuggestion[] {
     out.push({
       workflow: "notice_epin_retrieval",
       label: "Manual Review",
-      message: "AI could not confidently route this document. CorvusRF staff will review.",
+      message: "AI could not confidently route this document. CorvusPT staff will review.",
       primary: true,
     });
   }

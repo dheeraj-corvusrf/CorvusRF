@@ -19,7 +19,7 @@ export type CompProperty = {
 // itself only ever renders after a real browser mounts it. Loading both packages
 // via a dynamic import() inside useEffect (which never runs during SSR) keeps
 // leaflet's module code out of the server bundle entirely.
-type LeafletMods = {
+export type LeafletMods = {
   L: typeof import("leaflet");
   MapContainer: typeof import("react-leaflet").MapContainer;
   TileLayer: typeof import("react-leaflet").TileLayer;
@@ -30,7 +30,10 @@ type LeafletMods = {
 
 let cachedMods: LeafletMods | null = null;
 
-function useLeaflet(): LeafletMods | null {
+// Exported so other components needing a small Leaflet map (e.g. ai-report.tsx's
+// Site Condition thumbnail) share the same dynamic-import/caching logic instead
+// of re-solving the SSR-window-at-import-time problem explained above a second time.
+export function useLeaflet(): LeafletMods | null {
   const [mods, setMods] = useState<LeafletMods | null>(cachedMods);
   useEffect(() => {
     if (cachedMods) return;

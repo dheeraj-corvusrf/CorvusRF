@@ -18,9 +18,9 @@ Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   try {
-    const { email, password, firstName, lastName, phone } = await req.json();
-    if (!email || !password) {
-      return new Response(JSON.stringify({ error: "email and password required" }), {
+    const { email, firstName, lastName, phone, redirectPath } = await req.json();
+    if (!email) {
+      return new Response(JSON.stringify({ error: "email required" }), {
         status: 400,
         headers: corsHeaders,
       });
@@ -62,14 +62,41 @@ Deno.serve(async (req: Request) => {
     }
 
     // The existing handle_new_user trigger fires on this insert and creates the
-    // profiles row automatically, same as normal public signup.
-    const { data: created, error: createErr } = await adminClient.auth.admin.createUser({
+    // profiles row automatically, same as normal public signup. inviteUserByEmail
+    // (rather than createUser with an admin-chosen password) sends Supabase's
+    // built-in invite email with a one-time link — the new user sets their own
+    // password, the admin never sees or picks it for them. redirectTo sends that
+    // link to reset-password, which already handles "set a new password for
+    // whatever session this link just established" for both recovery and invite.
+    //
+    // redirectPath comes from the calling admin's own browser (via
+    // import.meta.env.BASE_URL, same pattern as billing.ts) since this edge
+    // function has no way to know the app's base path on its own — guessing/
+    // hardcoding it here is exactly how the Stripe redirect URLs went stale once
+    // already when the base path last changed.
+    const origin = req.headers.get("origin") ?? Deno.env.get("SUPABASE_URL")!;
+    const safeRedirectPath =
+      typeof redirectPath === "string" && redirectPath.startsWith("/") && !redirectPath.startsWith("//")
+        ? redirectPath
+        : "/reset-password";
+    const { data: created, error: createErr } = await adminClient.auth.admin.inviteUserByEmail(
       email,
-      password,
-      email_confirm: true,
-      user_metadata: { first_name: firstName, last_name: lastName, phone },
-    });
+      {
+        data: { first_name: firstName, last_name: lastName, phone },
+        redirectTo: new URL(safeRedirectPath, origin).toString(),
+      },
+    );
     if (createErr) throw createErr;
+
+    const { error: auditErr } = await adminClient.from("admin_audit_log").insert({
+      actor_id: user.id,
+      actor_email: user.email ?? "",
+      action: "create_user",
+      target_user_id: created.user?.id ?? null,
+      target_email: email,
+      detail: `Invited as ${firstName ?? ""} ${lastName ?? ""}`.trim(),
+    });
+    if (auditErr) console.error("admin_audit_log insert failed:", auditErr);
 
     return new Response(JSON.stringify({ ok: true, userId: created.user?.id }), {
       status: 200,

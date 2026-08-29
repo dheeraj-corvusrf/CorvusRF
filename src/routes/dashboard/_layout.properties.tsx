@@ -5,30 +5,23 @@ import { currency, resetIntake, updateIntake } from "@/lib/intake-store";
 import { useAuth } from "@/lib/auth";
 import { listProperties, deleteProperty, type PropertyRecord } from "@/lib/properties";
 import { useSavingsBackfill } from "@/hooks/use-savings-backfill";
-import { listProtests, type ProtestRecord, type ProtestStatus } from "@/lib/protests";
+import { listProtests, type ProtestRecord } from "@/lib/protests";
 import { listHealthScores, type PropertyAiScore } from "@/lib/property-scores";
 import { getPropertyProtestStatus, type ActionStatus } from "@/lib/portfolio-status";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ProtestAuthorizationFlow } from "@/components/ProtestAuthorizationFlow";
-import { PortfolioTabs } from "@/components/PortfolioTabs";
 import { CaseDetailModal } from "@/components/CaseDetailModal";
 import { generateCasePrep } from "@/lib/protest-case";
+import { CopyButton } from "@/components/CopyButton";
+import { ImportPropertiesModal } from "@/components/ImportPropertiesModal";
+import { AddOwnershipsModal } from "@/components/AddOwnershipsModal";
+import { BulkProtestAuthorizationFlow } from "@/components/BulkProtestAuthorizationFlow";
 
 export const Route = createFileRoute("/dashboard/_layout/properties")({
   component: Properties,
 });
 
-const STATUS_LABEL: Record<ProtestStatus, string> = {
-  requested: "Requested",
-  filed: "Filed",
-  under_review: "Under Review",
-  offer_received: "Offer Received",
-  hearing_scheduled: "Hearing Scheduled",
-  decision_received: "Decision Received",
-  appealing: "Appealing",
-  arbitrating: "Arbitrating",
-  resolved: "Resolved",
-};
+const CURRENT_YEAR = new Date().getFullYear();
 
 function Properties() {
   const navigate = useNavigate();
@@ -41,6 +34,9 @@ function Properties() {
   const [healthScores, setHealthScores] = useState<Record<string, PropertyAiScore>>({});
   const [authorizingProperty, setAuthorizingProperty] = useState<PropertyRecord | null>(null);
   const [caseProperty, setCaseProperty] = useState<PropertyRecord | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
+  const [ownershipsOpen, setOwnershipsOpen] = useState(false);
+  const [authorizingBatch, setAuthorizingBatch] = useState<PropertyRecord[] | null>(null);
 
   useEffect(() => {
     if (!user) return;
@@ -94,6 +90,7 @@ function Properties() {
       improvementValue: p.improvementValue ?? undefined,
       totalValue: p.totalValue ?? undefined,
       taxYear: p.taxYear ?? undefined,
+      valueHistory: p.valueHistory ?? undefined,
       confirmed: true,
     });
     navigate({ to: "/ai-report" });
@@ -103,14 +100,45 @@ function Properties() {
     <div>
       <div className="flex flex-wrap items-end justify-between gap-4">
         <h1 className="font-serif text-2xl font-semibold">My Properties</h1>
-        <Link to="/intake" onClick={() => resetIntake()} className="btn-primary btn-primary-hover">
-          Add another property
-        </Link>
+        <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={() => setImportOpen(true)} className="btn-outline">
+            Import CSV
+          </button>
+          <button type="button" onClick={() => setOwnershipsOpen(true)} className="btn-outline">
+            Add Ownerships
+          </button>
+          <Link
+            to="/intake"
+            onClick={() => resetIntake()}
+            className="btn-primary btn-primary-hover"
+          >
+            Add another property
+          </Link>
+        </div>
       </div>
 
-      <div className="mt-4">
-        <PortfolioTabs />
-      </div>
+      {importOpen && user && (
+        <ImportPropertiesModal
+          userId={user.id}
+          onImported={(imported) => setProperties((prev) => [...imported, ...prev])}
+          onClose={() => setImportOpen(false)}
+        />
+      )}
+
+      {ownershipsOpen && user && (
+        <AddOwnershipsModal
+          userId={user.id}
+          onImported={(imported) => {
+            setProperties((prev) => [...imported, ...prev]);
+            // Proceed straight into protest authorization for exactly the
+            // properties just added, one at a time — see
+            // BulkProtestAuthorizationFlow for why this is still N real
+            // per-property authorizations, not one merged signature.
+            if (imported.length > 0) setAuthorizingBatch(imported);
+          }}
+          onClose={() => setOwnershipsOpen(false)}
+        />
+      )}
 
       <div className="mt-6">
         {listError && <p className="mb-4 text-sm text-destructive">{listError}</p>}
@@ -123,6 +151,13 @@ function Properties() {
           <div className="grid gap-4">
             {sortedProperties.map((p, i) => {
               const existingProtest = protests.find((pr) => pr.propertyId === p.id);
+              // A resolved protest from a prior tax year shouldn't permanently block
+              // filing again — only offer re-filing once the case is actually closed
+              // and a newer tax year has come around (never for an in-progress case).
+              const canReFile =
+                existingProtest?.status === "resolved" &&
+                existingProtest.taxYear != null &&
+                existingProtest.taxYear < CURRENT_YEAR;
               return (
                 <div
                   key={p.id}
@@ -130,21 +165,30 @@ function Properties() {
                   style={{ animationDelay: `${Math.min(i, 8) * 60}ms` }}
                 >
                   <div className="flex items-start justify-between gap-4 flex-wrap">
-                    <div>
+                    <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
                         <span className="text-xs text-muted-foreground">{p.cad}</span>
                         <ActionStatusBadge property={p} protests={protests} />
                       </div>
                       <h3 className="font-serif text-xl font-semibold">{p.address}</h3>
-                      <p className="text-sm text-muted-foreground">
-                        {p.propertyType} • Acct {p.accountNumber} • Tax year {p.taxYear}
+                      <p className="text-sm text-muted-foreground inline-flex items-center flex-wrap gap-1">
+                        {p.propertyType} • Acct {p.accountNumber}
+                        {p.accountNumber && (
+                          <CopyButton value={p.accountNumber} label="Account number copied" />
+                        )}
+                        • Tax year {p.taxYear}
                       </p>
                       <AiScoreBadge score={healthScores[p.id]} />
                     </div>
-                    <div className="text-right">
+                    <div className="text-right shrink-0">
                       <div className="text-xs text-muted-foreground">Assessed value</div>
-                      <div className="text-2xl font-semibold">{currency(p.totalValue ?? undefined)}</div>
-                      <SavingsLine estimatedSavings={p.estimatedSavings} savingsBasis={p.savingsBasis} />
+                      <div className="text-2xl font-semibold">
+                        {currency(p.totalValue ?? undefined)}
+                      </div>
+                      <SavingsLine
+                        estimatedSavings={p.estimatedSavings}
+                        savingsBasis={p.savingsBasis}
+                      />
                     </div>
                   </div>
                   <div className="mt-4 flex gap-2 flex-wrap items-center">
@@ -156,16 +200,20 @@ function Properties() {
                     </Link>
                     {existingProtest ? (
                       <>
-                        <span className="badge-soft">Protest {STATUS_LABEL[existingProtest.status]}</span>
                         <button onClick={() => setCaseProperty(p)} className="btn-outline">
                           View Case
                         </button>
+                        {canReFile && (
+                          <button
+                            onClick={() => setAuthorizingProperty(p)}
+                            className="btn-primary btn-primary-hover"
+                          >
+                            Re-file for {CURRENT_YEAR}
+                          </button>
+                        )}
                       </>
                     ) : (
-                      <button
-                        onClick={() => setAuthorizingProperty(p)}
-                        className="btn-outline"
-                      >
+                      <button onClick={() => setAuthorizingProperty(p)} className="btn-outline">
                         Request Protest Filing
                       </button>
                     )}
@@ -184,7 +232,9 @@ function Properties() {
         ) : (
           <div className="card-elev p-8 text-center">
             <h3 className="font-serif text-xl font-semibold">No properties yet.</h3>
-            <p className="text-muted-foreground mt-1">Start with an address or upload an appraisal notice.</p>
+            <p className="text-muted-foreground mt-1">
+              Start with an address or upload an appraisal notice.
+            </p>
             <Link
               to="/intake"
               onClick={() => resetIntake()}
@@ -212,6 +262,29 @@ function Properties() {
             generateCasePrep(created.id, user.id, authorizingProperty).catch((err) =>
               console.error("Case prep generation failed:", err),
             );
+          }}
+        />
+      )}
+
+      {authorizingBatch && user && (
+        <BulkProtestAuthorizationFlow
+          userId={user.id}
+          properties={authorizingBatch}
+          userEmail={user.email}
+          open={!!authorizingBatch}
+          onOpenChange={(open) => {
+            if (!open) setAuthorizingBatch(null);
+          }}
+          onAllDone={(completedProtests) => {
+            setProtests((prev) => [...completedProtests, ...prev]);
+            for (const created of completedProtests) {
+              const property = authorizingBatch.find((p) => p.id === created.propertyId);
+              if (!property) continue;
+              generateCasePrep(created.id, user.id, property).catch((err) =>
+                console.error("Case prep generation failed:", err),
+              );
+            }
+            setAuthorizingBatch(null);
           }}
         />
       )}
@@ -283,7 +356,9 @@ function SavingsLine({
       <div className="text-lg font-semibold text-accent">
         {currency(estimatedSavings)}
         {(savingsBasis === "formula" || savingsBasis === "ai" || savingsBasis === "baseline") && (
-          <span className="ml-1 align-middle text-[10px] font-normal text-muted-foreground">(estimate)</span>
+          <span className="ml-1 align-middle text-[10px] font-normal text-muted-foreground">
+            (estimate)
+          </span>
         )}
       </div>
     </div>

@@ -3,23 +3,32 @@ import { useState } from "react";
 import { supabase, isSupabaseConfigured } from "@/lib/supabase";
 import { searchPropertiesByOwner } from "@/lib/cad-owner-search";
 import type { CadRecord } from "@/lib/cad-lookup";
-import { OwnerMatchModal } from "@/components/OwnerMatchModal";
-import { HeroBackground } from "@/components/HeroBackground";
+import { AddOwnershipsModal } from "@/components/AddOwnershipsModal";
 
 export const Route = createFileRoute("/sign-in")({
   head: () => ({
     meta: [
-      { title: "Sign In — CorvusRF.ai" },
-      { name: "description", content: "Sign in to your CorvusRF.ai property tax dashboard." },
-      { property: "og:title", content: "Sign In — CorvusRF.ai" },
+      { title: "Sign In — CorvusPT.ai" },
+      { name: "description", content: "Sign in to your CorvusPT.ai property tax dashboard." },
+      { property: "og:title", content: "Sign In — CorvusPT.ai" },
       { property: "og:description", content: "Access your property tax dashboard." },
     ],
+  }),
+  // Lets any page that sends a signed-out visitor here (the dashboard guard,
+  // pricing's "sign in to subscribe" prompt, etc.) say where to return to
+  // afterward — without this, every sign-in landed on "/" regardless of what
+  // the visitor was actually trying to do.
+  validateSearch: (search: Record<string, unknown>): { redirect?: string } => ({
+    redirect: typeof search.redirect === "string" ? search.redirect : undefined,
   }),
   component: SignIn,
 });
 
 function SignIn() {
   const nav = useNavigate();
+  const { redirect } = Route.useSearch();
+  const returnTo =
+    redirect && redirect.startsWith("/") && !redirect.startsWith("//") ? redirect : "/";
   const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
@@ -28,6 +37,7 @@ function SignIn() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [wantsBeta, setWantsBeta] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [checkEmail, setCheckEmail] = useState(false);
@@ -47,6 +57,7 @@ function SignIn() {
     setLastName("");
     setPhone("");
     setCompanyName("");
+    setWantsBeta(false);
   }
 
   async function onSubmit(e: React.FormEvent) {
@@ -57,7 +68,9 @@ function SignIn() {
       setError("Please enter your first and last name.");
       return;
     }
-    if (mode === "signup" && !/^[0-9+()\- ]{7,20}$/.test(phone.trim())) {
+    // Optional — only validated when the user actually entered something,
+    // rather than requiring a value at all.
+    if (mode === "signup" && phone.trim() && !/^[0-9+()\- ]{7,20}$/.test(phone.trim())) {
       setError("Please enter a valid phone number.");
       return;
     }
@@ -84,8 +97,11 @@ function SignIn() {
             data: {
               first_name: firstName.trim(),
               last_name: lastName.trim(),
-              phone: phone.trim(),
+              phone: phone.trim() || null,
               company_name: companyName.trim() || null,
+              // Read server-side by handle_new_user() (supabase/schema.sql) to set
+              // plan='beta' at row-creation — never written by the client directly.
+              wants_beta: String(wantsBeta),
             },
           },
         });
@@ -102,21 +118,21 @@ function SignIn() {
           const userId = data.user.id;
           const ownerName = companyName.trim() || `${firstName.trim()} ${lastName.trim()}`;
           try {
-            const matches = await searchPropertiesByOwner(ownerName);
+            const { matches } = await searchPropertiesByOwner(ownerName);
             if (matches.length > 0) {
               setOwnerMatches({ userId, companyName: ownerName, matches });
             } else {
-              nav({ to: "/" });
+              nav({ to: returnTo });
             }
           } catch (err) {
             console.error(err);
-            nav({ to: "/" });
+            nav({ to: returnTo });
           }
         }
       } else {
         const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
         if (signInError) throw signInError;
-        nav({ to: "/" });
+        nav({ to: returnTo });
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
@@ -125,162 +141,231 @@ function SignIn() {
     }
   }
 
+  // Google handles both sign-up and sign-in in one flow — Supabase creates the
+  // auth.users row (and, via handle_new_user() in schema.sql, a profiles row)
+  // the first time a given Google account completes this, and just signs them
+  // in on every return visit. No mode distinction needed, unlike the email
+  // form above. This is a full-page redirect (to Google, then back), not an
+  // async call — redirectTo carries the SAME `returnTo` the email form uses,
+  // so the user lands directly back on whatever page sent them to sign in,
+  // without an extra hop through /sign-in first.
+  async function handleGoogleSignIn() {
+    setError(null);
+    if (!isSupabaseConfigured) {
+      setError("Accounts aren't set up in this deployment yet. Please check back soon.");
+      return;
+    }
+    const redirectTo = `${window.location.origin}${import.meta.env.BASE_URL}${returnTo.slice(1)}`;
+    const { error: oauthError } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: { redirectTo },
+    });
+    if (oauthError) setError(oauthError.message);
+  }
+
   if (checkEmail) {
     return (
-      <div className="relative overflow-hidden min-h-[70vh]">
-        <HeroBackground blurred />
-        <div className="container-page py-16 max-w-md">
-          <span className="badge-soft">Almost there</span>
-          <h1 className="mt-3 font-serif text-3xl font-semibold">Check your email.</h1>
-          <p className="mt-2 text-muted-foreground">
-            We sent a confirmation link to <strong>{email}</strong>. Click it to activate your
-            account, then sign in.
-          </p>
-          <button onClick={() => switchMode("signin")} className="btn-primary btn-primary-hover mt-6">
-            Back to sign in
-          </button>
-        </div>
+      <div className="container-page py-16 max-w-2xl">
+        <span className="badge-soft">Almost there</span>
+        <h1 className="mt-3 font-serif text-3xl font-semibold">Check your email.</h1>
+        <p className="mt-2 text-muted-foreground">
+          We sent a confirmation link to <strong>{email}</strong>. Click it to activate your
+          account, then sign in.
+        </p>
+        <button onClick={() => switchMode("signin")} className="btn-primary btn-primary-hover mt-6">
+          Back to sign in
+        </button>
       </div>
     );
   }
 
   return (
-    <div className="relative overflow-hidden min-h-[70vh]">
-      <HeroBackground blurred />
-      <div className="container-page py-16 max-w-md">
-      <span className="badge-soft">{mode === "signin" ? "Sign In" : "Create Account"}</span>
-      <h1 className="mt-3 font-serif text-3xl font-semibold">
-        {mode === "signin" ? "Welcome back." : "Create your CorvusRF account."}
-      </h1>
-      <p className="mt-2 text-muted-foreground">
-        {mode === "signin"
-          ? "Your properties, protests, deadlines, and savings — all in one place."
-          : "Save your property, analysis, documents, and preview history."}
-      </p>
-      <form onSubmit={onSubmit} className="mt-8 card-elev p-6 grid gap-4">
-        {mode === "signup" && (
-          <div className="grid gap-4 sm:grid-cols-2">
-            <label className="grid gap-1 text-sm min-w-0">
-              <span className="font-medium">First Name</span>
-              <input
-                required
-                type="text"
-                autoComplete="given-name"
-                value={firstName}
-                onChange={(e) => setFirstName(e.target.value)}
-                className="w-full min-w-0 rounded-md border border-input bg-background px-3 py-2"
+    <div>
+      <div className="container-page pt-16 max-w-2xl">
+        <span className="badge-soft">{mode === "signin" ? "Sign In" : "Create Account"}</span>
+        <h1 className="mt-3 font-serif text-3xl font-semibold">
+          {mode === "signin" ? "Welcome back." : "Create your CorvusPT account."}
+        </h1>
+        <p className="mt-2 text-muted-foreground">
+          {mode === "signin"
+            ? "Your properties, protests, deadlines, and savings — all in one place."
+            : "Save your property, analysis, documents, and preview history."}
+        </p>
+      </div>
+
+      <div className="container-page pb-16 max-w-2xl">
+        <form onSubmit={onSubmit} className="mt-8 card-elev p-6 grid gap-4">
+          <button type="button" onClick={handleGoogleSignIn} className="btn-outline w-full">
+            <svg viewBox="0 0 48 48" className="h-4 w-4 shrink-0" aria-hidden="true">
+              <path
+                fill="#FFC107"
+                d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.3 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34.5 6.1 29.5 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.7-.4-3.5z"
               />
-            </label>
-            <label className="grid gap-1 text-sm min-w-0">
-              <span className="font-medium">Last Name</span>
-              <input
-                required
-                type="text"
-                autoComplete="family-name"
-                value={lastName}
-                onChange={(e) => setLastName(e.target.value)}
-                className="w-full min-w-0 rounded-md border border-input bg-background px-3 py-2"
+              <path
+                fill="#FF3D00"
+                d="M6.3 14.7l6.6 4.8C14.6 15.9 18.9 13 24 13c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34.5 6.1 29.5 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"
               />
-            </label>
+              <path
+                fill="#4CAF50"
+                d="M24 44c5.4 0 10.3-2.1 14-5.5l-6.5-5.5c-2 1.5-4.6 2.5-7.5 2.5-5.3 0-9.7-3.3-11.3-8l-6.6 5.1C9.6 39.6 16.2 44 24 44z"
+              />
+              <path
+                fill="#1976D2"
+                d="M43.6 20.5H42V20H24v8h11.3c-.8 2.3-2.3 4.2-4.3 5.6l6.5 5.5C39.9 37 44 31 44 24c0-1.3-.1-2.7-.4-3.5z"
+              />
+            </svg>
+            Continue with Google
+          </button>
+          <div className="flex items-center gap-3 text-xs text-muted-foreground">
+            <div className="h-px flex-1 bg-border" />
+            or continue with email
+            <div className="h-px flex-1 bg-border" />
           </div>
-        )}
-        {mode === "signup" && (
+          {mode === "signup" && (
+            <div className="grid gap-4 sm:grid-cols-2">
+              <label className="grid gap-1 text-sm min-w-0">
+                <span className="font-medium">First Name</span>
+                <input
+                  required
+                  type="text"
+                  autoComplete="given-name"
+                  value={firstName}
+                  onChange={(e) => setFirstName(e.target.value)}
+                  className="w-full min-w-0 rounded-md border border-input bg-background px-3 py-2"
+                />
+              </label>
+              <label className="grid gap-1 text-sm min-w-0">
+                <span className="font-medium">Last Name</span>
+                <input
+                  required
+                  type="text"
+                  autoComplete="family-name"
+                  value={lastName}
+                  onChange={(e) => setLastName(e.target.value)}
+                  className="w-full min-w-0 rounded-md border border-input bg-background px-3 py-2"
+                />
+              </label>
+            </div>
+          )}
+          {mode === "signup" && (
+            <label className="grid gap-1 text-sm">
+              <span className="font-medium">Phone Number (optional)</span>
+              <input
+                type="tel"
+                autoComplete="tel"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                className="rounded-md border border-input bg-background px-3 py-2"
+              />
+            </label>
+          )}
+          {mode === "signup" && (
+            <label className="grid gap-1 text-sm">
+              <span className="font-medium">Business / LLC Name (optional)</span>
+              <input
+                type="text"
+                autoComplete="organization"
+                placeholder="e.g. Acme Commercial Holdings LLC"
+                value={companyName}
+                onChange={(e) => setCompanyName(e.target.value)}
+                className="rounded-md border border-input bg-background px-3 py-2"
+              />
+              <span className="text-xs text-muted-foreground">
+                We'll check county records for properties already on file under this name.
+              </span>
+            </label>
+          )}
           <label className="grid gap-1 text-sm">
-            <span className="font-medium">Phone Number</span>
+            <span className="font-medium">Email</span>
             <input
               required
-              type="tel"
-              autoComplete="tel"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
+              type="email"
+              autoComplete="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
               className="rounded-md border border-input bg-background px-3 py-2"
             />
           </label>
-        )}
-        {mode === "signup" && (
           <label className="grid gap-1 text-sm">
-            <span className="font-medium">Business / LLC Name (optional)</span>
-            <input
-              type="text"
-              autoComplete="organization"
-              placeholder="e.g. Acme Commercial Holdings LLC"
-              value={companyName}
-              onChange={(e) => setCompanyName(e.target.value)}
-              className="rounded-md border border-input bg-background px-3 py-2"
-            />
-            <span className="text-xs text-muted-foreground">
-              We'll check county records for properties already on file under this name.
-            </span>
-          </label>
-        )}
-        <label className="grid gap-1 text-sm">
-          <span className="font-medium">Email</span>
-          <input
-            required
-            type="email"
-            autoComplete="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            className="rounded-md border border-input bg-background px-3 py-2"
-          />
-        </label>
-        <label className="grid gap-1 text-sm">
-          <span className="font-medium">Password</span>
-          <input
-            required
-            type="password"
-            minLength={6}
-            autoComplete={mode === "signin" ? "current-password" : "new-password"}
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className="rounded-md border border-input bg-background px-3 py-2"
-          />
-        </label>
-        {mode === "signin" && (
-          <Link
-            to="/forgot-password"
-            className="-mt-2 justify-self-end text-sm text-muted-foreground hover:text-foreground"
-          >
-            Forgot password?
-          </Link>
-        )}
-        {mode === "signup" && (
-          <label className="grid gap-1 text-sm">
-            <span className="font-medium">Confirm Password</span>
+            <span className="font-medium">Password</span>
             <input
               required
               type="password"
               minLength={6}
-              autoComplete="new-password"
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
+              autoComplete={mode === "signin" ? "current-password" : "new-password"}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
               className="rounded-md border border-input bg-background px-3 py-2"
             />
           </label>
+          {mode === "signin" && (
+            <Link
+              to="/forgot-password"
+              className="-mt-2 justify-self-end text-sm text-muted-foreground hover:text-foreground"
+            >
+              Forgot password?
+            </Link>
+          )}
+          {mode === "signup" && (
+            <label className="grid gap-1 text-sm">
+              <span className="font-medium">Confirm Password</span>
+              <input
+                required
+                type="password"
+                minLength={6}
+                autoComplete="new-password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                className="rounded-md border border-input bg-background px-3 py-2"
+              />
+            </label>
+          )}
+          {mode === "signup" && (
+            <div className="flex items-start gap-2 text-sm rounded-lg border border-accent/30 bg-accent/5 p-3">
+              <input
+                id="wants-beta"
+                type="checkbox"
+                checked={wantsBeta}
+                onChange={(e) => setWantsBeta(e.target.checked)}
+                className="mt-0.5"
+              />
+              <label htmlFor="wants-beta">
+                <span className="font-medium">🎉 Sign up as a beta user</span>
+                <span className="block text-muted-foreground text-xs mt-0.5">
+                  Free full access to every AI module while we're in beta — no card, no charge.
+                </span>
+              </label>
+            </div>
+          )}
+          {error && <p className="text-sm text-destructive">{error}</p>}
+          <button disabled={loading} className="btn-primary btn-primary-hover disabled:opacity-60">
+            {loading ? "Please wait…" : mode === "signin" ? "Sign In" : "Create Account"}
+          </button>
+          <button
+            type="button"
+            onClick={() => switchMode(mode === "signin" ? "signup" : "signin")}
+            className="text-sm text-muted-foreground hover:text-foreground"
+          >
+            {mode === "signin"
+              ? "Need an account? Create one."
+              : "Already have an account? Sign in."}
+          </button>
+        </form>
+        {ownerMatches && (
+          <AddOwnershipsModal
+            userId={ownerMatches.userId}
+            initialMatch={{
+              name: ownerMatches.companyName,
+              role: "owner",
+              records: ownerMatches.matches,
+            }}
+            onImported={() => {}}
+            onClose={() => {
+              setOwnerMatches(null);
+              nav({ to: returnTo });
+            }}
+          />
         )}
-        {error && <p className="text-sm text-destructive">{error}</p>}
-        <button disabled={loading} className="btn-primary btn-primary-hover disabled:opacity-60">
-          {loading ? "Please wait…" : mode === "signin" ? "Sign In" : "Create Account"}
-        </button>
-        <button
-          type="button"
-          onClick={() => switchMode(mode === "signin" ? "signup" : "signin")}
-          className="text-sm text-muted-foreground hover:text-foreground"
-        >
-          {mode === "signin" ? "Need an account? Create one." : "Already have an account? Sign in."}
-        </button>
-      </form>
-      {ownerMatches && (
-        <OwnerMatchModal
-          userId={ownerMatches.userId}
-          companyName={ownerMatches.companyName}
-          matches={ownerMatches.matches}
-          onDone={() => {
-            setOwnerMatches(null);
-            nav({ to: "/" });
-          }}
-        />
-      )}
       </div>
     </div>
   );

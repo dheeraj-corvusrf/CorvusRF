@@ -1,4 +1,4 @@
-import { getComps } from "./cad-comps";
+import { getComps, type CompProperty } from "./cad-comps";
 import {
   getEffectiveTaxRate,
   classifyPropertyCategory,
@@ -10,8 +10,20 @@ import {
 } from "./texas-tax-rates";
 
 export type SavingsEstimate =
-  | { basis: "comps"; amount: number; compsCount: number; compsMedian: number; effectiveTaxRatePct: number }
-  | { basis: "formula"; amount: number; reductionPct: number; effectiveTaxRatePct: number; rationale: string }
+  | {
+      basis: "comps";
+      amount: number;
+      compsCount: number;
+      compsMedian: number;
+      effectiveTaxRatePct: number;
+    }
+  | {
+      basis: "formula";
+      amount: number;
+      reductionPct: number;
+      effectiveTaxRatePct: number;
+      rationale: string;
+    }
   | null;
 
 export type SavingsEstimateInput = {
@@ -23,7 +35,11 @@ export type SavingsEstimateInput = {
   improvementValue?: number | null;
   totalValue?: number | null;
   taxYear?: number | null;
-  valueHistory?: Array<{ year: number; appraisedValue?: number | null; marketValue?: number | null }> | null;
+  valueHistory?: Array<{
+    year: number;
+    appraisedValue?: number | null;
+    marketValue?: number | null;
+  }> | null;
 };
 
 // Two-tier cascade — both fully deterministic, no AI call anywhere. Same
@@ -67,19 +83,16 @@ export async function estimateSavings(property: SavingsEstimateInput): Promise<S
 
   if (property.cad && property.accountNumber) {
     try {
-      const compsResult = await getComps({ cad: property.cad, accountNumber: property.accountNumber });
+      const compsResult = await getComps({
+        cad: property.cad,
+        accountNumber: property.accountNumber,
+      });
       const subject = compsResult.subject;
       // Without the subject's own coordinates there's no way to judge "nearby" —
       // fall through to the formula tier rather than trusting an undated,
       // unlocated median.
       if (subject) {
-        const qualifying = compsResult.comps
-          .filter((c): c is typeof c & { marketValue: number } => c.marketValue != null)
-          .filter((c) => c.marketValue >= totalValue * 0.5 && c.marketValue <= totalValue * 2)
-          .map((c) => ({ ...c, distanceMiles: distanceMiles(subject.latitude, subject.longitude, c.latitude, c.longitude) }))
-          .filter((c) => c.distanceMiles <= 1)
-          .sort((a, b) => a.distanceMiles - b.distanceMiles)
-          .slice(0, 5);
+        const qualifying = getQualifyingComps(subject, compsResult.comps, totalValue).slice(0, 5);
         if (qualifying.length >= 3) {
           const values = qualifying.map((c) => c.marketValue).sort((a, b) => a - b);
           const median = values[Math.floor(values.length / 2)];
@@ -127,6 +140,28 @@ function distanceMiles(lat1: number, lon1: number, lat2: number, lon2: number): 
     Math.sin(dLat / 2) ** 2 +
     Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) ** 2;
   return 2 * EARTH_RADIUS_MILES * Math.asin(Math.sqrt(a));
+}
+
+// Shared by estimateSavings above and estimateSuccessProbability
+// (success-probability.ts) — both need the exact same real, filtered set of
+// comparable properties (value magnitude 0.5x-2x the subject, within 1 real
+// mile), since they represent the same underlying equal-and-uniform
+// evidence for a given property; only what each does with that evidence
+// differs.
+export function getQualifyingComps(
+  subject: { latitude: number; longitude: number },
+  comps: CompProperty[],
+  totalValue: number,
+): Array<CompProperty & { marketValue: number; distanceMiles: number }> {
+  return comps
+    .filter((c): c is CompProperty & { marketValue: number } => c.marketValue != null)
+    .filter((c) => c.marketValue >= totalValue * 0.5 && c.marketValue <= totalValue * 2)
+    .map((c) => ({
+      ...c,
+      distanceMiles: distanceMiles(subject.latitude, subject.longitude, c.latitude, c.longitude),
+    }))
+    .filter((c) => c.distanceMiles <= 1)
+    .sort((a, b) => a.distanceMiles - b.distanceMiles);
 }
 
 function countyName(cad?: string | null): string {
