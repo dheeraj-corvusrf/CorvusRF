@@ -305,12 +305,12 @@ function Overview() {
   const firstName = user?.user_metadata?.first_name as string | undefined;
 
   return (
-    <div className="grid grid-cols-1 min-w-0 gap-6">
+    <div className="dashboard-contrast grid grid-cols-1 min-w-0 gap-6">
       <div>
         <span className="badge-soft">
           <span className="h-1.5 w-1.5 rounded-full bg-accent" /> AI is watching your properties
         </span>
-        <h1 className="mt-3 font-serif text-3xl font-semibold">
+        <h1 className="mt-3 font-serif text-3xl font-bold">
           Welcome back{firstName ? `, ${firstName}` : ""}.
         </h1>
         <p className="text-muted-foreground">
@@ -354,7 +354,7 @@ function Overview() {
 
       {/* Entry points */}
       <div>
-        <h2 className="font-serif text-lg font-semibold">Quick Actions</h2>
+        <h2 className="font-serif text-xl font-bold">Quick Actions</h2>
         <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <Link
             to="/intake"
@@ -366,7 +366,7 @@ function Overview() {
             >
               <Plus className="h-4 w-4" />
             </span>
-            <div className="mt-3 flex items-center gap-1 font-medium">
+            <div className="mt-3 flex items-center gap-1 text-base font-semibold">
               Add Property <ArrowUpRight className="h-3.5 w-3.5" />
             </div>
             <p className="mt-1 text-xs text-muted-foreground">
@@ -384,7 +384,7 @@ function Overview() {
             >
               <Briefcase className="h-4 w-4" />
             </span>
-            <div className="mt-3 flex items-center gap-1 font-medium">
+            <div className="mt-3 flex items-center gap-1 text-base font-semibold">
               Add BPP Account <ArrowUpRight className="h-3.5 w-3.5" />
             </div>
             <p className="mt-1 text-xs text-muted-foreground">
@@ -406,7 +406,7 @@ function Overview() {
             >
               <Upload className="h-4 w-4" />
             </span>
-            <div className="mt-3 font-medium">
+            <div className="mt-3 text-base font-semibold">
               {isDraggingNotice
                 ? "Drop to upload"
                 : uploading
@@ -438,7 +438,7 @@ function Overview() {
             >
               <Sparkles className="h-4 w-4" />
             </span>
-            <div className="mt-3 font-medium">Ask AI</div>
+            <div className="mt-3 text-base font-semibold">Ask AI</div>
             <input
               value={askQuery}
               onChange={(e) => setAskQuery(e.target.value)}
@@ -452,7 +452,7 @@ function Overview() {
 
       {/* Stats */}
       <div>
-        <h2 className="font-serif text-lg font-semibold">Your Portfolio at a Glance</h2>
+        <h2 className="font-serif text-xl font-bold">Your Portfolio at a Glance</h2>
         <div className="mt-3 grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-5">
           <StatCard
             label="Properties"
@@ -498,18 +498,18 @@ function Overview() {
       </div>
 
       <div>
-        <h2 className="font-serif text-lg font-semibold">Insights &amp; Activity</h2>
+        <h2 className="font-serif text-xl font-bold">Insights &amp; Activity</h2>
         <div className="mt-3 grid grid-cols-1 gap-6">
           {properties.length > 0 && (
             <div className="card-elev p-5 min-w-0">
-              <h3 className="font-semibold">Portfolio Value</h3>
+              <h3 className="text-base font-bold">Portfolio Value</h3>
               <PortfolioValueChart properties={properties} onOpenReport={openAiReport} />
             </div>
           )}
 
           {properties.length > 0 && (
             <div className="card-elev p-5 min-w-0">
-              <h3 className="font-semibold">Top Protest Opportunities</h3>
+              <h3 className="text-base font-bold">Top Protest Opportunities</h3>
               <TopOpportunities
                 properties={properties}
                 healthScores={healthScores}
@@ -520,7 +520,7 @@ function Overview() {
 
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <div className="card-elev p-5 min-w-0">
-              <h3 className="font-semibold">Cases & AI Recommendations</h3>
+              <h3 className="text-base font-bold">Cases & AI Recommendations</h3>
               {protests.length > 0 ? (
                 <ProtestStatusChart protests={protests} addressFor={addressFor} />
               ) : (
@@ -532,7 +532,7 @@ function Overview() {
 
             <div className="card-elev p-5 min-w-0">
               <div className="flex items-center justify-between">
-                <h3 className="font-semibold">Deadlines</h3>
+                <h3 className="text-base font-bold">Deadlines</h3>
                 <Link to="/dashboard/deadlines" className="text-xs text-accent hover:underline">
                   View all
                 </Link>
@@ -562,7 +562,7 @@ function Overview() {
           </div>
 
           <div className="card-elev p-5 min-w-0">
-            <h3 className="font-semibold">Recent Activity</h3>
+            <h3 className="text-base font-bold">Recent Activity</h3>
             {activity.length > 0 ? (
               <div className="mt-3 grid min-w-0 gap-2">
                 {activity.map((a, i) => (
@@ -625,8 +625,8 @@ function StatCard({
       <span className={`grid h-8 w-8 place-items-center rounded-lg ${color.bg} ${color.text}`}>
         <Icon className="h-4 w-4" />
       </span>
-      <div className="mt-2 text-xs text-muted-foreground">{label}</div>
-      <div className="mt-1 font-serif text-2xl font-semibold">
+      <div className="mt-2 text-sm font-medium text-muted-foreground">{label}</div>
+      <div className="mt-1 font-serif text-3xl font-bold">
         {value === null ? "…" : <AnimatedNumber value={value} format={format} />}
       </div>
     </>

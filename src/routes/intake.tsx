@@ -321,6 +321,14 @@ function Intake() {
               value={address}
               onChange={setAddress}
               onResolving={setResolvingAddress}
+              // Picking a suggestion directly validates — no separate click on
+              // "Validate address" needed. Takes the address as a parameter
+              // (not read from `address` state) since onPlaceSelected already
+              // hands over the final, fully-resolved value.
+              onPlaceSelected={(addr) => {
+                updateIntake({ address: addr, propertyKind });
+                runValidation(addr);
+              }}
               placeholder="e.g. 500 Main St, Houston, TX 77002"
               className="rounded-md border border-input bg-background px-4 py-3"
             />

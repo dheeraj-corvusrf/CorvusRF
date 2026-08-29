@@ -61,12 +61,22 @@ function Home() {
   // much here: this is the address that gets carried forward into /intake.
   const [resolvingAddress, setResolvingAddress] = useState(false);
 
+  // Shared by the form's own submit and by picking an address suggestion
+  // directly (see onPlaceSelected below) — takes the address as a parameter
+  // rather than reading `address` state, since onPlaceSelected already hands
+  // over the final resolved value and going through state first would mean
+  // waiting an extra render for it to land.
+  function goToIntake(addr: string) {
+    if (!addr.trim()) return;
+    resetIntake();
+    updateIntake({ address: addr.trim(), propertyKind });
+    navigate({ to: "/intake" });
+  }
+
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!address.trim() || resolvingAddress) return;
-    resetIntake();
-    updateIntake({ address: address.trim(), propertyKind });
-    navigate({ to: "/intake" });
+    if (resolvingAddress) return;
+    goToIntake(address);
   };
 
   async function onFile(f: File) {
@@ -169,6 +179,7 @@ function Home() {
                   value={address}
                   onChange={setAddress}
                   onResolving={setResolvingAddress}
+                  onPlaceSelected={goToIntake}
                   placeholder={`Enter a ${propertyKind} property address in Texas`}
                   className="flex-1 bg-transparent text-foreground placeholder:text-muted-foreground px-4 py-3 outline-none rounded-lg"
                   ariaLabel={`${propertyKind === "commercial" ? "Commercial" : "Residential"} property address`}

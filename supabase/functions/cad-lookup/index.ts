@@ -337,7 +337,7 @@ async function queryCollin(address: string, mode: QueryMode = "exact"): Promise<
   const url =
     "https://services2.arcgis.com/uXyoacYrZTPTKD3R/ArcGIS/rest/services/CCAD_Parcel_Feature_Set/FeatureServer/4/query" +
     `?where=${encodeURIComponent(where)}` +
-    "&outFields=ownerName,situsConcat,currValLand,currValImprv,currValAppraised,PROP_ID,propType,propSubType,propCategoryCode,propYear" +
+    "&outFields=ownerName,situsConcat,currValLand,currValImprv,currValAppraised,currValYear,prevValLand,prevValImprv,prevValAppraised,prevValYear,PROP_ID,propType,propSubType,propCategoryCode,propYear" +
     `&resultRecordCount=${mode === "nearby" ? NEARBY_LIMIT : MULTI_CANDIDATE_LIMIT}&f=json`;
 
   const res = await fetch(url);
@@ -360,10 +360,26 @@ async function queryCollin(address: string, mode: QueryMode = "exact"): Promise<
       (attrs.propCategoryCode as string)?.trim() ||
       (attrs.propType as string)?.trim() ||
       null,
-    landValue: (attrs.currValLand as number) ?? null,
-    improvementValue: (attrs.currValImprv as number) ?? null,
-    totalValue: (attrs.currValAppraised as number) ?? null,
-    taxYear: (attrs.propYear as number) ?? null,
+    // Collin's currVal* fields go null county-wide while a new tax year's
+    // reappraisal is still "InProgress" — confirmed 2026-08-28 sampling 30
+    // real commercial parcels: all 30 had currValYear/currValAppraised null,
+    // every one of them mid-reappraisal for 2027, with a real, fully
+    // populated PREVIOUS year (2026) value set sitting right next to it
+    // unused. Without this fallback every single Collin property in this app
+    // shows blank land/improvement/total and a $0 estimated savings — not a
+    // rare edge case, the current default state for the entire county. Falls
+    // back to prevVal* (Collin's last finalized, real, published assessment)
+    // rather than showing nothing; taxYear falls back alongside it so the
+    // displayed year always matches whichever set of numbers is actually
+    // shown, never claims the still-null new year while showing old figures.
+    landValue: (attrs.currValLand as number) ?? (attrs.prevValLand as number) ?? null,
+    improvementValue: (attrs.currValImprv as number) ?? (attrs.prevValImprv as number) ?? null,
+    totalValue: (attrs.currValAppraised as number) ?? (attrs.prevValAppraised as number) ?? null,
+    taxYear:
+      (attrs.currValYear as number) ??
+      (attrs.prevValYear as number) ??
+      (attrs.propYear as number) ??
+      null,
   }));
 }
 
