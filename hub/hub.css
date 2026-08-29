@@ -405,6 +405,37 @@ body.doors-page footer {
   }
 }
 
+/* Five doors squeezed into one narrow flex row (the desktop "hallway" look)
+   made each door too narrow to read comfortably on a phone — confirmed live
+   at 375px, roughly 75px per door. 2 columns x 3 rows instead, still locked
+   to one screen (body.doors-page's own overflow:hidden/100dvh is unchanged
+   here — a deliberate choice over letting the page scroll, so each door
+   ends up wider but a bit shorter per row, not full desktop-height rows).
+   Five doors don't split evenly into pairs — the last one spans both
+   columns but is width-capped and centered (not stretched to double width),
+   so it still reads as "one door alone on its own row", not a wider one. */
+@media (max-width: 640px) {
+  .doors {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: repeat(3, 1fr);
+    gap: 0.625rem;
+  }
+  .door:last-child {
+    grid-column: 1 / -1;
+    /* width: 100% (not auto) is load-bearing here, not decorative — a grid
+       item with margin:auto and no explicit width shrinks to its own
+       content size first (CSS box alignment: auto margins absorb free
+       space INSTEAD OF the default stretch, so the box never grows to
+       max-width at all) — confirmed live, this door rendered at 16px wide
+       instead of matching its siblings until width:100% gave it a definite
+       size for max-width to actually clamp. */
+    width: 100%;
+    max-width: calc(50% - 0.3125rem);
+    margin: 0 auto;
+  }
+}
+
 /* Twin wall sconces flanking the panel — dormant while doors use the
    plain flat-paint style; kept defined so it's a one-line revert. */
 .door-torch {
@@ -557,6 +588,20 @@ body .door.is-open .door-label {
     padding: 0.75rem 0.375rem;
   }
 }
+/* The vertical-text rule right above was tuned for the OLD single-row
+   layout, where 5 doors across ~375px left each one only ~70-90px wide —
+   too narrow for horizontal text at any legible size (see that rule's own
+   comment). The 2-column grid a few rules up gives each door ~183px
+   instead, comfortably enough for the same horizontal nameplate desktop
+   already uses — reverts back to it here, later in the cascade so it wins
+   over the vertical rule above at the same breakpoint. */
+@media (max-width: 640px) {
+  .door-label {
+    writing-mode: horizontal-tb;
+    transform: translate(-50%, -50%);
+    padding: 0.5rem 1.125rem;
+  }
+}
 /* Matches the app header/footer wordmark, where "PT" is picked out in
    green — a brighter shade here specifically so it still pops against
    the door's own vivid blue gradient, not just the neutral header bg. */
@@ -654,10 +699,14 @@ body .door.is-open .door-subtitle {
 }
 
 @media (max-width: 640px) {
-  /* door-subtitle is horizontal, nowrap text (unlike the vertical label)
-     and has no room to fit at ~70px door width, so it drops here. */
+  /* Used to just drop this entirely — at the OLD ~70px single-row door
+     width there was truly no room for horizontal, nowrap text. The
+     2-column grid's ~183px doors have room, at a reduced size scoped to
+     just this breakpoint (desktop's own 1.0625rem is untouched). */
   .door-subtitle {
-    display: none;
+    font-size: 0.8125rem;
+    padding: 0.4375rem 0.625rem;
+    gap: 0.125rem;
   }
 }
 

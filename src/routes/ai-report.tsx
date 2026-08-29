@@ -615,7 +615,7 @@ function Report() {
           <p className="text-sm text-primary-foreground/80">
             {analyzing ? "AI is analyzing your property..." : "AI analysis completed."}
           </p>
-          <p className="font-serif text-xl">
+          <p className="font-serif text-lg sm:text-xl">
             {analyzing
               ? "Preparing your property valuation review..."
               : `Estimated tax savings this year: ${currency(estimated.savings)}`}
@@ -888,7 +888,14 @@ function ModuleCard({
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">
             <NumberBadge n={m.n} color={m.color} size="lg" />
-            <h3 className="min-w-0 truncate font-serif text-sm font-bold uppercase tracking-wide">
+            {/* Wraps instead of truncating — confirmed live on a narrow
+                mobile card that even the already-shortened names ("Zoning &
+                Classification", "Executive Protest Report") still don't fit
+                one line alongside the status chip/refresh button, and
+                ellipsis-cutting a module's own name reads far worse than two
+                short lines. Every real shortName is only 2-4 words, so this
+                only ever wraps on the rare tight case, not routinely. */}
+            <h3 className="min-w-0 font-serif text-sm font-bold uppercase tracking-wide">
               {m.shortName}
             </h3>
           </div>

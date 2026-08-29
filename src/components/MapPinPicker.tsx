@@ -219,7 +219,12 @@ export function MapPinPicker({
 
   return (
     <Modal onClose={onClose} wide>
-      <div className="flex items-center justify-between gap-2">
+      {/* flex-wrap — confirmed live on a narrow mobile viewport that without
+          it, the fixed-width button and the title (wrapping to 3 lines in
+          whatever narrow column was left beside it) fought for the same row
+          and visually collided/overlapped. Wrapping drops the button to its
+          own line below the title instead once there's not enough width. */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
           <MapPin className="h-5 w-5 shrink-0 text-accent" />
           <h3 className="font-serif text-xl font-semibold">Pin your property on the map</h3>

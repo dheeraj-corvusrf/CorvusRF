@@ -100,7 +100,7 @@ function Properties() {
     <div>
       <div className="flex flex-wrap items-end justify-between gap-4">
         <h1 className="font-serif text-2xl font-semibold">My Properties</h1>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <button type="button" onClick={() => setImportOpen(true)} className="btn-outline">
             Import CSV
           </button>
