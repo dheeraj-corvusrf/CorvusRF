@@ -21,16 +21,19 @@ import { useAuth } from "@/lib/auth";
 import { addProperty } from "@/lib/properties";
 import { uploadDocument } from "@/lib/documents";
 import { addTaxBill, recordRefund } from "@/lib/tax-bills";
+import { Modal } from "@/components/Modal";
+import { cadLookup } from "@/lib/cad-lookup";
+import { classifyPropertyCategory } from "@/lib/texas-tax-rates";
 
 export const Route = createFileRoute("/document-review")({
   head: () => ({
     meta: [
-      { title: "Document Review — CorvusRF.ai" },
+      { title: "Document Review — CorvusPT.ai" },
       {
         name: "description",
         content: "AI read your Texas property tax document. Review and confirm.",
       },
-      { property: "og:title", content: "Document Review — CorvusRF.ai" },
+      { property: "og:title", content: "Document Review — CorvusPT.ai" },
       {
         property: "og:description",
         content: "Confirm classification, extraction, and next-best workflow.",
@@ -51,6 +54,18 @@ function DocumentReview() {
   const [askOpen, setAskOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [hearingOpen, setHearingOpen] = useState(false);
+  // Same reasoning as /intake's own CAD-based block: the AI extraction has no
+  // residential/commercial field of its own, so the extracted address is
+  // checked against the real CAD record (classifyPropertyCategory() again —
+  // the same Texas state-code classifier, not a second, possibly-inconsistent
+  // one) once the document's extracted address is known. "pending" until that
+  // lookup resolves; a failed/unmatched lookup fails open (not blocked) —
+  // we only block on an address CAD *positively* confirms as residential.
+  const [propertyCheck, setPropertyCheck] = useState<"pending" | "ok" | "residential">("pending");
+  const [residentialInfo, setResidentialInfo] = useState<{
+    address: string;
+    propertyType: string | null;
+  } | null>(null);
 
   useEffect(() => {
     const s = readIntake();
@@ -68,10 +83,90 @@ function DocumentReview() {
     [extraction],
   );
 
+  // effectiveExtraction() (above) builds a brand-new object on every call —
+  // it's not memoized, and it's called fresh on every render — so depending
+  // on `extraction` itself here would re-fire this effect every render this
+  // effect's own setPropertyCheck() calls cause, an infinite loop of CAD
+  // lookups. Depend on the actual address string instead, which only
+  // changes when the extraction's address field itself changes.
+  const checkAddress = extraction?.propertyAddress ?? extraction?.situsAddress ?? null;
+
+  useEffect(() => {
+    if (!checkAddress) {
+      setPropertyCheck("ok");
+      return;
+    }
+    let cancelled = false;
+    setPropertyCheck("pending");
+    cadLookup(checkAddress)
+      .then((res) => {
+        if (cancelled) return;
+        // A "multiple" result (2+ real CAD accounts at this exact address —
+        // see cad-lookup.ts) doesn't need the full disambiguation UX here;
+        // this is only a lightweight residential-property guard on an
+        // uploaded document's extracted address, not the primary intake
+        // flow, so it's simplest and safe to just treat it the same as "ok"
+        // and let the user proceed (the real intake path still catches a
+        // residential match on whichever account they end up choosing).
+        if (
+          res.matched === true &&
+          classifyPropertyCategory(res.record.propertyType) === "residential"
+        ) {
+          appendAudit({
+            actor: "ai",
+            action: "block_residential_property",
+            reason: res.record.propertyType ?? undefined,
+          });
+          setResidentialInfo({
+            address: res.record.propertyAddress,
+            propertyType: res.record.propertyType,
+          });
+          setPropertyCheck("residential");
+        } else {
+          setPropertyCheck("ok");
+        }
+      })
+      .catch((err) => {
+        console.error(err);
+        if (!cancelled) setPropertyCheck("ok");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [checkAddress]);
+
   if (!extraction) {
     return (
       <div className="container-page py-12">
         <p className="text-muted-foreground">Loading document…</p>
+      </div>
+    );
+  }
+
+  if (propertyCheck === "pending") {
+    return (
+      <div className="container-page py-12">
+        <p className="text-muted-foreground">Checking property type…</p>
+      </div>
+    );
+  }
+
+  if (propertyCheck === "residential") {
+    return (
+      <div className="container-page py-12 max-w-3xl">
+        <div className="card-elev p-6">
+          <h1 className="font-serif text-2xl font-semibold">This is a residential property.</h1>
+          <p className="mt-1 text-muted-foreground">
+            The county's own records classify {residentialInfo?.address ?? "this address"} as
+            residential{residentialInfo?.propertyType ? ` (${residentialInfo.propertyType})` : ""}.
+            CorvusPT currently serves commercial properties only.
+          </p>
+          <div className="mt-4 flex gap-2">
+            <Link to="/intake" className="btn-outline">
+              Upload a Different Document
+            </Link>
+          </div>
+        </div>
       </div>
     );
   }
@@ -137,6 +232,7 @@ function DocumentReview() {
           protestDeadline: eff.protestDeadline ?? undefined,
           paymentDueDate: eff.paymentDueDate ?? undefined,
           taxAmountDue: eff.taxAmountDue ?? undefined,
+          valueHistory: next.valueHistory,
         });
         toast.success("Property added to your dashboard.");
 
@@ -238,7 +334,7 @@ function DocumentReview() {
         <FlagBanner
           tone="warn"
           title="Some details need review."
-          body="CorvusRF staff will verify this document before filing or deadline action. You can still edit values below."
+          body="CorvusPT staff will verify this document before filing or deadline action. You can still edit values below."
         />
       )}
       {mismatch && (
@@ -532,7 +628,7 @@ function DocumentReview() {
           </div>
           {(lowConfidence || mismatch) && (
             <p className="mt-4 text-sm text-muted-foreground">
-              Because this document was flagged, CorvusRF staff will review the routing before any
+              Because this document was flagged, CorvusPT staff will review the routing before any
               filing action.
             </p>
           )}
@@ -595,7 +691,12 @@ function formatHearingDate(iso: string | null): string | null {
   if (!iso) return null;
   const d = new Date(`${iso}T00:00:00`);
   if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+  return d.toLocaleDateString("en-US", {
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
 }
 
 function HearingDetails({
@@ -630,15 +731,12 @@ function HearingDetails({
           </div>
           {!dateLabel && (
             <p className="mt-1 text-sm text-muted-foreground">
-              This notice didn't include a hearing date. See "What's Next?" below for what to do
-              in the meantime.
+              This notice didn't include a hearing date. See "What's Next?" below for what to do in
+              the meantime.
             </p>
           )}
         </div>
-        <button
-          onClick={onClose}
-          className="text-sm text-muted-foreground hover:text-foreground"
-        >
+        <button onClick={onClose} className="text-sm text-muted-foreground hover:text-foreground">
           Close
         </button>
       </div>
@@ -740,7 +838,9 @@ function FieldRow<K extends keyof Extraction>({
             </button>
           </dd>
         ) : (
-          <dd className={v == null || v === "" ? "text-muted-foreground italic text-sm" : "text-sm"}>
+          <dd
+            className={v == null || v === "" ? "text-muted-foreground italic text-sm" : "text-sm"}
+          >
             {shown}
           </dd>
         )}
@@ -780,53 +880,41 @@ function AskModal({ onClose, ask }: { onClose: () => void; ask: (q: string) => P
   const [err, setErr] = useState<string | null>(null);
 
   return (
-    <div
-      className="fixed inset-0 z-50 grid place-items-center p-4 bg-primary/60 backdrop-blur-sm"
-      onClick={onClose}
-    >
-      <div className="card-elev p-6 w-full max-w-lg" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between">
-          <h3 className="font-serif text-xl font-semibold">Ask AI about this document</h3>
-          <button onClick={onClose} className="text-sm text-muted-foreground hover:text-foreground">
-            Close
-          </button>
-        </div>
-        <form
-          onSubmit={async (e) => {
-            e.preventDefault();
-            if (!q.trim()) return;
-            setLoading(true);
-            setErr(null);
-            setA(null);
-            try {
-              const res = await ask(q.trim());
-              setA(res);
-            } catch (e2) {
-              console.error(e2);
-              setErr(
-                e2 instanceof Error ? e2.message : "Could not get an answer. Please try again.",
-              );
-            } finally {
-              setLoading(false);
-            }
-          }}
-          className="mt-4 grid gap-2"
-        >
-          <textarea
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="e.g. What is my protest deadline? Is the notice value higher than last year?"
-            className="rounded-md border border-input bg-background px-3 py-2 min-h-[80px] text-sm"
-          />
-          <button className="btn-primary btn-primary-hover" disabled={loading}>
-            {loading ? "Thinking…" : "Ask AI"}
-          </button>
-        </form>
-        {err && <p className="mt-3 text-sm text-destructive">{err}</p>}
-        {a && (
-          <div className="mt-4 rounded-md bg-secondary/60 p-3 text-sm whitespace-pre-wrap">{a}</div>
-        )}
-      </div>
-    </div>
+    <Modal onClose={onClose}>
+      <h3 className="font-serif text-xl font-semibold">Ask AI about this document</h3>
+      <form
+        onSubmit={async (e) => {
+          e.preventDefault();
+          if (!q.trim()) return;
+          setLoading(true);
+          setErr(null);
+          setA(null);
+          try {
+            const res = await ask(q.trim());
+            setA(res);
+          } catch (e2) {
+            console.error(e2);
+            setErr(e2 instanceof Error ? e2.message : "Could not get an answer. Please try again.");
+          } finally {
+            setLoading(false);
+          }
+        }}
+        className="mt-4 grid gap-2"
+      >
+        <textarea
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="e.g. What is my protest deadline? Is the notice value higher than last year?"
+          className="rounded-md border border-input bg-background px-3 py-2 min-h-[80px] text-sm"
+        />
+        <button className="btn-primary btn-primary-hover" disabled={loading}>
+          {loading ? "Thinking…" : "Ask AI"}
+        </button>
+      </form>
+      {err && <p className="mt-3 text-sm text-destructive">{err}</p>}
+      {a && (
+        <div className="mt-4 rounded-md bg-secondary/60 p-3 text-sm whitespace-pre-wrap">{a}</div>
+      )}
+    </Modal>
   );
 }

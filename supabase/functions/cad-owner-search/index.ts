@@ -254,7 +254,9 @@ async function searchGrayson(owner: string): Promise<CadRecord[]> {
     `&resultRecordCount=${PER_COUNTY_LIMIT}&f=json`;
   const features = await fetchFeatures(url);
   return features.map(({ attributes: a }) => {
-    const streetParts = [a.SitusNumber, a.SitusStreet, a.SitusStreetSufix].filter(Boolean).join(" ");
+    const streetParts = [a.SitusNumber, a.SitusStreet, a.SitusStreetSufix]
+      .filter(Boolean)
+      .join(" ");
     return {
       ownerName: (a.OwnerName as string) ?? null,
       propertyAddress: streetParts ? `${streetParts}, ${a.SitusCity ?? ""}` : "",
@@ -354,6 +356,126 @@ const SEARCHERS = [
   searchDallas,
 ];
 
+async function searchAllCounties(term: string): Promise<CadRecord[]> {
+  const results = await Promise.allSettled(SEARCHERS.map((fn) => fn(term)));
+  const matches: CadRecord[] = [];
+  for (const r of results) {
+    if (r.status === "fulfilled") matches.push(...r.value);
+  }
+  return matches;
+}
+
+// A misspelled owner name (a real typo, not a rare edge case — LLC names are
+// long and hand-typed) returns zero matches from every county's own `LIKE
+// '%name%'` substring query above, since a typo breaks a literal substring
+// match just as completely as a totally wrong name would. There's no
+// server-side fuzzy/trigram search available on any of these free county
+// ArcGIS endpoints to fall back on. Rather than a dead-end "no matches"
+// message, or — worse — an LLM guessing at what the "correct" spelling might
+// be (this app's whole discipline elsewhere is never fabricating a legal/
+// financial fact — see cad-lookup's own real-data-only comments), this reruns
+// the search using just the single longest real word from what was typed
+// (LLC/INC/CO-style suffixes stripped first — those are the least
+// distinctive part of almost every business name) as a broader net, then
+// ranks whatever REAL owner names that turns up by actual string similarity
+// to what the user typed. A typo in one word still leaves the other words
+// intact to search on and rank against, which is the common real case (a
+// dropped/swapped letter in one word of a multi-word name).
+const NAME_STOPWORDS = new Set([
+  "llc",
+  "inc",
+  "incorporated",
+  "co",
+  "company",
+  "corp",
+  "corporation",
+  "lp",
+  "llp",
+  "ltd",
+  "the",
+  "of",
+  "and",
+  "&",
+]);
+
+function longestSignificantWord(name: string): string | null {
+  const words = name
+    .split(/\s+/)
+    .map((w) => w.replace(/[^a-z0-9]/gi, ""))
+    .filter((w) => w.length >= 3 && !NAME_STOPWORDS.has(w.toLowerCase()));
+  if (words.length === 0) return null;
+  return words.reduce((longest, w) => (w.length > longest.length ? w : longest), words[0]);
+}
+
+// Plain Levenshtein edit distance (insertions/deletions/substitutions) —
+// no dependency needed for something this small. Compared on normalized
+// (uppercased, whitespace-collapsed) strings so case/spacing differences
+// never count as part of the "typo distance".
+function levenshteinDistance(a: string, b: string): number {
+  const m = a.length;
+  const n = b.length;
+  if (m === 0) return n;
+  if (n === 0) return m;
+  let prevRow = Array.from({ length: n + 1 }, (_, j) => j);
+  for (let i = 1; i <= m; i++) {
+    const currRow = [i];
+    for (let j = 1; j <= n; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      currRow[j] = Math.min(
+        currRow[j - 1] + 1, // insertion
+        prevRow[j] + 1, // deletion
+        prevRow[j - 1] + cost, // substitution
+      );
+    }
+    prevRow = currRow;
+  }
+  return prevRow[n];
+}
+
+function normalizeForCompare(s: string): string {
+  return s.trim().toUpperCase().replace(/\s+/g, " ");
+}
+
+// 0 (nothing alike) to 1 (identical) — edit distance normalized against the
+// longer of the two strings, so a short exact substring match doesn't
+// automatically score near-1 against a much longer real name it's only a
+// small fragment of.
+function nameSimilarity(typed: string, candidate: string): number {
+  const a = normalizeForCompare(typed);
+  const b = normalizeForCompare(candidate);
+  const maxLen = Math.max(a.length, b.length);
+  if (maxLen === 0) return 1;
+  return 1 - levenshteinDistance(a, b) / maxLen;
+}
+
+const MAX_SUGGESTIONS = 5;
+// Below this, a "suggestion" is more likely to mislead than help (e.g.
+// suggesting an unrelated name that just happens to share the one word
+// searched on) — only surfaced when the overall typed name is genuinely
+// close to a real one on file, not just sharing a single common word.
+const MIN_SUGGESTION_SIMILARITY = 0.45;
+
+async function findSuggestions(typedName: string): Promise<string[]> {
+  const anchor = longestSignificantWord(typedName);
+  if (!anchor) return [];
+  const broaderMatches = await searchAllCounties(anchor);
+
+  const scoredByName = new Map<string, number>();
+  for (const record of broaderMatches) {
+    const name = record.ownerName?.trim();
+    if (!name) continue;
+    const score = nameSimilarity(typedName, name);
+    const existing = scoredByName.get(name);
+    if (existing === undefined || score > existing) scoredByName.set(name, score);
+  }
+
+  return [...scoredByName.entries()]
+    .filter(([, score]) => score >= MIN_SUGGESTION_SIMILARITY)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, MAX_SUGGESTIONS)
+    .map(([name]) => name);
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
@@ -366,13 +488,17 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    const results = await Promise.allSettled(SEARCHERS.map((fn) => fn(ownerName.trim())));
-    const matches: CadRecord[] = [];
-    for (const r of results) {
-      if (r.status === "fulfilled") matches.push(...r.value);
-    }
+    const trimmed = ownerName.trim();
+    const matches = await searchAllCounties(trimmed);
 
-    return new Response(JSON.stringify({ matches }), { status: 200, headers: corsHeaders });
+    // Only worth the extra round-trip when the direct search actually came
+    // up empty — a real match never needs a "did you mean" alongside it.
+    const suggestions = matches.length === 0 ? await findSuggestions(trimmed) : [];
+
+    return new Response(JSON.stringify({ matches, suggestions }), {
+      status: 200,
+      headers: corsHeaders,
+    });
   } catch (err) {
     return new Response(
       JSON.stringify({ error: err instanceof Error ? err.message : "unknown error" }),

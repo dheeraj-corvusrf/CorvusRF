@@ -10,12 +10,13 @@ import { getEffectiveTaxRate } from "./texas-tax-rates";
 // produces something real instead of just a status row. See the
 // protest_evidence_items table and the new protests.strategy_* columns in
 // supabase/schema.sql.
+export type EvidenceDocument = { id: string; fileName: string };
+
 export type EvidenceItemRecord = {
   id: string;
   protestId: string;
   label: string;
-  documentId: string | null;
-  documentFileName: string | null;
+  documents: EvidenceDocument[];
   createdAt: string;
 };
 
@@ -38,7 +39,6 @@ type EvidenceItemRow = {
   id: string;
   protest_id: string;
   label: string;
-  document_id: string | null;
   created_at: string;
 };
 
@@ -60,24 +60,44 @@ function toModuleInput(property: PropertyRecord): ModuleAnalysisInput {
 // (skipped if items already exist) so calling this again as a manual retry doesn't
 // pile up duplicate checklist items or wipe out evidence the user already uploaded
 // against existing items.
+//
+// Confirmed live on a real stuck case: case_prep_generated_at used to get
+// stamped unconditionally at the end regardless of whether EITHER half above
+// actually produced anything, and every failure inside them was only ever
+// console.error'd, never re-thrown — so a real failure (both halves came back
+// empty: strategy_recommendation null, zero evidence rows, yet
+// case_prep_generated_at set to a real timestamp) looked identical to
+// success everywhere the caller could see: no toast, and CasePlanSection's
+// own hasAnyPlan check (which reads the actual content, not this timestamp)
+// just silently kept showing "No case plan yet" — with the "Generate Case
+// Plan" button doing the same silent nothing on every subsequent click,
+// forever, since there was no signal telling the user (or this function
+// itself) that anything had gone wrong.
 export async function generateCasePrep(
   protestId: string,
   userId: string,
   property: PropertyRecord,
 ): Promise<void> {
   const input = toModuleInput(property);
+  let strategySucceeded = false;
+  let evidenceSucceeded = false;
 
   try {
     const strategy = await getModuleAnalysis("strategy", input);
+    // Module 2 now returns a ranked list of strategies rather than one single
+    // recommendation — the saved case still only has room for one, so this
+    // persists the top-ranked strategy (see StrategyEntry in ai-report-modules.ts).
+    const top = strategy.strategies[0] ?? null;
     const { error } = await supabase
       .from("protests")
       .update({
-        strategy_recommendation: strategy.recommendation,
-        strategy_confidence_pct: strategy.confidencePct,
-        strategy_rationale: strategy.rationale,
+        strategy_recommendation: top?.name ?? null,
+        strategy_confidence_pct: top?.confidencePct ?? null,
+        strategy_rationale: top?.whySelected ?? null,
       })
       .eq("id", protestId);
     if (error) throw error;
+    strategySucceeded = true;
   } catch (err) {
     console.error("Case strategy generation failed:", err);
   }
@@ -87,17 +107,37 @@ export async function generateCasePrep(
       .from("protest_evidence_items")
       .select("id", { count: "exact", head: true })
       .eq("protest_id", protestId);
-    if (!count) {
+    if (count) {
+      // Already has evidence items from a prior successful run — nothing
+      // new to generate, but not a failure of THIS run either.
+      evidenceSucceeded = true;
+    } else {
       const evidence = await getModuleAnalysis("evidence", input);
-      if (evidence.checklist.length > 0) {
-        const { error } = await supabase
-          .from("protest_evidence_items")
-          .insert(evidence.checklist.map((label) => ({ protest_id: protestId, user_id: userId, label })));
+      if (evidence.items.length > 0) {
+        const { error } = await supabase.from("protest_evidence_items").insert(
+          evidence.items.map(({ item }) => ({
+            protest_id: protestId,
+            user_id: userId,
+            label: item,
+          })),
+        );
         if (error) throw error;
       }
+      evidenceSucceeded = true;
     }
   } catch (err) {
     console.error("Case evidence checklist generation failed:", err);
+  }
+
+  if (!strategySucceeded && !evidenceSucceeded) {
+    // Neither half produced anything real — leave case_prep_generated_at
+    // untouched (so hasAnyPlan and "has this ever been attempted" both stay
+    // accurate) and throw for real, so the caller's existing catch+toast
+    // (see CasePlanSection.handleGenerate in CaseDetailModal.tsx) actually
+    // fires instead of this looking like a normal, silent success.
+    throw new Error(
+      "Could not generate the case plan right now — this is usually temporary. Please try again in a moment.",
+    );
   }
 
   await supabase
@@ -109,25 +149,34 @@ export async function generateCasePrep(
 export async function getCase(protestId: string): Promise<ProtestCase> {
   const { data: protestRow, error: protestErr } = await supabase
     .from("protests")
-    .select("strategy_recommendation, strategy_confidence_pct, strategy_rationale, case_prep_generated_at")
+    .select(
+      "strategy_recommendation, strategy_confidence_pct, strategy_rationale, case_prep_generated_at",
+    )
     .eq("id", protestId)
     .single();
   if (protestErr) throw protestErr;
 
   const { data: itemRows, error: itemsErr } = await supabase
     .from("protest_evidence_items")
-    .select("id, protest_id, label, document_id, created_at")
+    .select("id, protest_id, label, created_at")
     .eq("protest_id", protestId)
     .order("created_at", { ascending: true });
   if (itemsErr) throw itemsErr;
 
   const rows = (itemRows as EvidenceItemRow[]) ?? [];
-  const documentIds = rows.map((r) => r.document_id).filter((id): id is string => !!id);
-  const fileNameById = new Map<string, string>();
-  if (documentIds.length > 0) {
-    const { data: docs } = await supabase.from("documents").select("id, file_name").in("id", documentIds);
-    for (const d of (docs as Array<{ id: string; file_name: string }>) ?? []) {
-      fileNameById.set(d.id, d.file_name);
+  const itemIds = rows.map((r) => r.id);
+  const documentsByItemId = new Map<string, EvidenceDocument[]>();
+  if (itemIds.length > 0) {
+    const { data: docs } = await supabase
+      .from("documents")
+      .select("id, file_name, evidence_item_id")
+      .in("evidence_item_id", itemIds)
+      .order("uploaded_at", { ascending: true });
+    for (const d of (docs as Array<{ id: string; file_name: string; evidence_item_id: string }>) ??
+      []) {
+      const list = documentsByItemId.get(d.evidence_item_id) ?? [];
+      list.push({ id: d.id, fileName: d.file_name });
+      documentsByItemId.set(d.evidence_item_id, list);
     }
   }
 
@@ -141,18 +190,19 @@ export async function getCase(protestId: string): Promise<ProtestCase> {
       id: r.id,
       protestId: r.protest_id,
       label: r.label,
-      documentId: r.document_id,
-      documentFileName: r.document_id ? (fileNameById.get(r.document_id) ?? null) : null,
+      documents: documentsByItemId.get(r.id) ?? [],
       createdAt: r.created_at,
     })),
   };
 }
 
+// A checklist item can hold several documents — call once per uploaded file
+// (see CaseDetailModal's handleUpload, which loops a multi-file <input>).
 export async function linkEvidenceDocument(itemId: string, documentId: string): Promise<void> {
   const { error } = await supabase
-    .from("protest_evidence_items")
-    .update({ document_id: documentId })
-    .eq("id", itemId);
+    .from("documents")
+    .update({ evidence_item_id: itemId })
+    .eq("id", documentId);
   if (error) throw error;
 }
 
@@ -162,6 +212,20 @@ export async function linkEvidenceDocument(itemId: string, documentId: string): 
 // live county API, so someone has to enter what actually happened, same
 // precedent as tax_bills.
 // ---------------------------------------------------------------------------
+
+// Called when the owner signs the Notice of Protest in-app (see
+// CaseDetailModal's Sign & Submit). Only advances a case that's still at its
+// starting status — if staff or the owner already moved it further along
+// (offer received, hearing scheduled, etc.) by other means, this leaves that
+// alone rather than regressing it back to "filed".
+export async function markFiled(protestId: string): Promise<void> {
+  const { error } = await supabase
+    .from("protests")
+    .update({ status: "filed" })
+    .eq("id", protestId)
+    .eq("status", "requested");
+  if (error) throw error;
+}
 
 export async function recordSettlementOffer(
   protestId: string,
@@ -212,10 +276,14 @@ export function getHearingPrep(caseData: ProtestCase, propertyAddress: string): 
   }
 
   if (caseData.evidenceItems.length > 0) {
-    const ready = caseData.evidenceItems.filter((i) => i.documentId);
-    const missing = caseData.evidenceItems.filter((i) => !i.documentId);
+    const ready = caseData.evidenceItems.filter((i) => i.documents.length > 0);
+    const missing = caseData.evidenceItems.filter((i) => i.documents.length === 0);
     lines.push("Evidence ready to present:");
-    lines.push(...(ready.length > 0 ? ready.map((i) => `  - ${i.label} (${i.documentFileName})`) : ["  (none uploaded yet)"]));
+    lines.push(
+      ...(ready.length > 0
+        ? ready.map((i) => `  - ${i.label} (${i.documents.map((d) => d.fileName).join(", ")})`)
+        : ["  (none uploaded yet)"]),
+    );
     if (missing.length > 0) {
       lines.push("");
       lines.push("Not yet gathered:");
@@ -246,7 +314,10 @@ export async function recordArbDecision(
   if (error) throw error;
 }
 
-export async function recordEscalation(protestId: string, path: "appeal" | "arbitration"): Promise<void> {
+export async function recordEscalation(
+  protestId: string,
+  path: "appeal" | "arbitration",
+): Promise<void> {
   const { error } = await supabase
     .from("protests")
     .update({ escalation_path: path, status: path === "appeal" ? "appealing" : "arbitrating" })
@@ -276,5 +347,8 @@ export function getCaseResults(
   if (protest.originalValue == null || protest.finalValue == null) return null;
   const valueReduction = Math.max(0, protest.originalValue - protest.finalValue);
   const rate = getEffectiveTaxRate(property.cad);
-  return { valueReduction: Math.round(valueReduction), actualSavings: Math.round(valueReduction * rate) };
+  return {
+    valueReduction: Math.round(valueReduction),
+    actualSavings: Math.round(valueReduction * rate),
+  };
 }

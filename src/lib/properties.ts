@@ -1,5 +1,6 @@
 import { supabase } from "./supabase";
 import { computeAndStoreHealthScore } from "./property-scores";
+import type { CadValueHistoryEntry } from "./cad-lookup";
 
 export type PropertyRecord = {
   id: string;
@@ -22,6 +23,7 @@ export type PropertyRecord = {
   // them anymore (see src/lib/savings-estimate.ts).
   savingsBasis: "comps" | "formula" | "ai" | "baseline" | null;
   createdAt: string;
+  valueHistory: CadValueHistoryEntry[] | null;
 };
 
 type PropertyRow = {
@@ -42,6 +44,7 @@ type PropertyRow = {
   estimated_savings: number | null;
   savings_basis: "comps" | "formula" | "ai" | "baseline" | null;
   created_at: string;
+  value_history: string[] | null;
 };
 
 function fromRow(row: PropertyRow): PropertyRecord {
@@ -63,11 +66,12 @@ function fromRow(row: PropertyRow): PropertyRecord {
     estimatedSavings: row.estimated_savings,
     savingsBasis: row.savings_basis,
     createdAt: row.created_at,
+    valueHistory: row.value_history ? row.value_history.map((s) => JSON.parse(s) as CadValueHistoryEntry) : null,
   };
 }
 
 const SELECT_COLUMNS =
-  "id, address, cad, account_number, owner_name, property_type, land_value, improvement_value, total_value, tax_year, protest_deadline, payment_due_date, tax_amount_due, paid_at, estimated_savings, savings_basis, created_at";
+  "id, address, cad, account_number, owner_name, property_type, land_value, improvement_value, total_value, tax_year, protest_deadline, payment_due_date, tax_amount_due, paid_at, estimated_savings, savings_basis, created_at, value_history";
 
 export async function listProperties(userId: string): Promise<PropertyRecord[]> {
   const { data, error } = await supabase
@@ -118,6 +122,7 @@ export async function addProperty(
     taxAmountDue?: number;
     estimatedSavings?: number;
     savingsBasis?: "comps" | "formula";
+    valueHistory?: CadValueHistoryEntry[] | null;
   },
 ): Promise<PropertyRecord> {
   const existing = await findExistingProperty(userId, property);
@@ -141,6 +146,10 @@ export async function addProperty(
       tax_amount_due: property.taxAmountDue ?? null,
       estimated_savings: property.estimatedSavings ?? null,
       savings_basis: property.savingsBasis ?? null,
+      value_history:
+        property.valueHistory && property.valueHistory.length > 0
+          ? property.valueHistory.map((v) => JSON.stringify(v))
+          : null,
     })
     .select()
     .single();
@@ -194,7 +203,7 @@ export async function updatePropertyBillSnapshot(
   return fromRow(data as PropertyRow);
 }
 
-// CorvusRF has no live payment integration — there's no bank/county feed to confirm a
+// CorvusPT has no live payment integration — there's no bank/county feed to confirm a
 // bill was actually paid, so this records the user's own "I paid this" action rather
 // than a verified payment event.
 export async function markPropertyPaid(id: string): Promise<PropertyRecord> {

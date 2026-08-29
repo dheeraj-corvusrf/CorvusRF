@@ -1,5 +1,10 @@
 import { supabase } from "./supabase";
 
+// document_type is free-text (no schema enum), so this is just a convention shared
+// between the upload call and the filter query that reads it back — see
+// src/routes/ai-report.tsx's Improvement Condition module.
+export const EVIDENCE_DOCUMENT_TYPE = "Improvement Evidence";
+
 export type DocumentRecord = {
   id: string;
   propertyId: string;

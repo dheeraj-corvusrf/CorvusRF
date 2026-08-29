@@ -31,6 +31,7 @@ export type ProtestRecord = {
   finalValue: number | null;
   escalationPath: EscalationPath | null;
   closedAt: string | null;
+  taxYear: number | null;
 };
 
 type ProtestRow = {
@@ -49,10 +50,11 @@ type ProtestRow = {
   final_value: number | null;
   escalation_path: EscalationPath | null;
   closed_at: string | null;
+  tax_year: number | null;
 };
 
 const SELECT_COLUMNS =
-  "id, property_id, status, notes, requested_at, updated_at, original_value, settlement_offer_value, settlement_offer_received_at, hearing_date, arb_decision, arb_decision_date, final_value, escalation_path, closed_at";
+  "id, property_id, status, notes, requested_at, updated_at, original_value, settlement_offer_value, settlement_offer_received_at, hearing_date, arb_decision, arb_decision_date, final_value, escalation_path, closed_at, tax_year";
 
 function fromRow(row: ProtestRow): ProtestRecord {
   return {
@@ -71,10 +73,11 @@ function fromRow(row: ProtestRow): ProtestRecord {
     finalValue: row.final_value,
     escalationPath: row.escalation_path,
     closedAt: row.closed_at,
+    taxYear: row.tax_year,
   };
 }
 
-// Filing and hearing representation happen off-platform by CorvusRF staff (per the
+// Filing and hearing representation happen off-platform by CorvusPT staff (per the
 // /property-protest page's own description) — this creates the real request record
 // staff act on; there is no automated filing today, so status only ever advances via
 // the admin panel or the case-progress actions in protest-case.ts. `details` is used
@@ -83,11 +86,16 @@ function fromRow(row: ProtestRow): ProtestRecord {
 export async function requestProtest(
   userId: string,
   propertyId: string,
-  details?: { address?: string; userEmail?: string; originalValue?: number | null },
+  details?: { address?: string; userEmail?: string; originalValue?: number | null; taxYear?: number | null },
 ): Promise<ProtestRecord> {
   const { data, error } = await supabase
     .from("protests")
-    .insert({ property_id: propertyId, user_id: userId, original_value: details?.originalValue ?? null })
+    .insert({
+      property_id: propertyId,
+      user_id: userId,
+      original_value: details?.originalValue ?? null,
+      tax_year: details?.taxYear ?? null,
+    })
     .select(SELECT_COLUMNS)
     .single();
   if (error) throw error;
@@ -97,8 +105,8 @@ export async function requestProtest(
   // happened to check the admin panel's "Protest Requests" list themselves.
   const address = details?.address ?? `property ${propertyId}`;
   submitWeb3Form({
-    subject: "New protest filing request — CorvusRF.ai",
-    from_name: "CorvusRF.ai",
+    subject: "New protest filing request — CorvusPT.ai",
+    from_name: "CorvusPT.ai",
     property_address: address,
     property_id: propertyId,
     user_email: details?.userEmail ?? "(unknown)",

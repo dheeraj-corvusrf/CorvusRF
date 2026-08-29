@@ -1,9 +1,8 @@
 // Deploy via CLI: `supabase functions deploy ai-health-score`.
-// Requires the GEMINI_API_KEY secret (shared with classify-document/ask-about-document/route-intent).
+// Requires the GEMINI_API_KEY secret (shared with the other AI functions).
 //
 // No Supabase auth check — same known-risk pattern already accepted for the other
-// guest-accessible AI functions (classify-document, ask-about-document, route-intent):
-// a rate-limited free API, no per-user state at stake.
+// guest-accessible AI functions (classify-document, ask-about-document, route-intent).
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -18,22 +17,78 @@ type HealthScoreInput = {
   improvementValue?: number;
   totalValue?: number;
   taxYear?: number;
+  // Real signals computed client-side and passed through verbatim into the
+  // prompt record — same fields, same source, as the "strategy" module in
+  // ai-report-modules/index.ts (buildCompsSummary/getAssessmentRatioInfo/
+  // buildValueTrend in ai-report.tsx). None of this is fabricated here.
+  compsSummary?: { median: number; min: number; max: number; count: number } | null;
+  assessmentRatio?: { medianPct: number; cod: number; codOverCeiling: number } | null;
+  valueTrend?: { jumpTriggered: boolean; jumpPct: number | null } | null;
+  evidenceFileNames?: string[];
 };
 
-const SYSTEM = `You are CorvusRF's AI property tax analyst for Texas commercial properties.
-Given the property's official CAD (county appraisal district) record below, produce a
-"protest opportunity" health score from 0 to 100 (higher = stronger opportunity to
-protest and potentially reduce the assessed value), a one-sentence summary, and 2-4
-short supporting factors.
+const PREAMBLE = `You are CorvusPT's AI property tax analyst for Texas commercial properties.
+Given only the official CAD (county appraisal district) record below, produce a "protest
+opportunity" health score for this property.
 
-Base your reasoning only on what a CAD record alone can reasonably suggest — the ratio
-of land value to improvement value, whether the total value looks high for the stated
-property type, and general Texas commercial appraisal practice. Do NOT invent specific
-comparable sales, specific square footage, or other facts not given below — if you
-don't have enough information for a factor, say so instead of fabricating a number.
+Reason only from what's given plus general knowledge of Texas commercial property appraisal
+practice. Do NOT invent specific comparable sale prices, specific building square footage,
+specific site defects, or facts not given below — if you don't have enough information for a
+factor, say so (set dataSufficient to false and explain what's missing) rather than fabricating
+a number.`;
 
-Return ONLY a JSON object: {"score": <0-100 integer>, "summary": "<one sentence>",
-"factors": ["<short factor label, 3-6 words, NOT a full sentence>", ...]}`;
+const str = (v: unknown, len: number): string => (typeof v === "string" ? v.slice(0, len) : "");
+
+const score100 = (v: unknown, fallback = 50): number =>
+  Math.max(0, Math.min(100, Math.round(Number(v)) || fallback));
+
+const strList = (v: unknown, max: number, len: number): string[] =>
+  Array.isArray(v)
+    ? v
+        .filter((x): x is string => typeof x === "string" && x.trim().length > 0)
+        .map((x) => x.slice(0, len))
+        .slice(0, max)
+    : [];
+
+// Only the factor labels a CAD record (plus the real signals above) can
+// actually speak to — the AI picks whichever subset genuinely applies here
+// rather than always returning all 5, so a property with no real comps data
+// doesn't get a fabricated "Comparable Properties" score.
+const BREAKDOWN_LABELS = [
+  "CAD Valuation",
+  "Comparable Properties",
+  "Market Data",
+  "Property Condition",
+  "Historical Valuation",
+];
+
+type BreakdownEntry = { label: string; score: number };
+
+const scoreBreakdown = (v: unknown): BreakdownEntry[] =>
+  Array.isArray(v)
+    ? v
+        .filter((x): x is Record<string, unknown> => typeof x === "object" && x !== null)
+        .map((x) => ({ label: str(x.label, 40), score: score100(x.score) }))
+        .filter((x) => x.label.length > 0 && BREAKDOWN_LABELS.includes(x.label))
+        .slice(0, 5)
+    : [];
+
+const SCHEMA = `{"score": <integer 0-100, higher = stronger protest opportunity>,
+"executiveConclusion": "<2-3 sentences: does this property appear to have a meaningful
+protest opportunity, and why>",
+"scoreBreakdown": [{"label": "<one of: ${BREAKDOWN_LABELS.join(" | ")}>", "score": <integer
+0-100>}, ...] (only include labels the given data can actually speak to),
+"factorsIncreasing": ["<short finding that supports a protest>", ...] (up to 5),
+"factorsReducing": ["<short finding that weakens the case>", ...] (up to 5, empty array if
+none apply),
+"confidencePct": <integer 0-100, how confident this analysis is given the data actually
+available>,
+"confidenceReasoning": "<1-2 sentences citing what data was/wasn't available>",
+"methodology": "<2-3 plain-language sentences on how the score was reached — the major
+factors and comparisons used, not model internals>",
+"nextStep": "<1 sentence: what the user should do next>",
+"dataSufficient": <true|false — false if there's genuinely too little data for a responsible
+score>}`;
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -50,7 +105,7 @@ Deno.serve(async (req: Request) => {
     const apiKey = Deno.env.get("GEMINI_API_KEY");
     if (!apiKey) throw new Error("Missing GEMINI_API_KEY");
 
-    const record = [
+    const lines: Array<string | false | undefined> = [
       input.address && `Address: ${input.address}`,
       input.cad && `Appraisal district: ${input.cad}`,
       input.propertyType && `Property type: ${input.propertyType}`,
@@ -59,12 +114,44 @@ Deno.serve(async (req: Request) => {
       input.improvementValue != null &&
         `Improvement value: $${input.improvementValue.toLocaleString()}`,
       `Total assessed value: $${input.totalValue.toLocaleString()}`,
-    ]
-      .filter(Boolean)
-      .join("\n");
+    ];
+    if (input.compsSummary) {
+      const c = input.compsSummary;
+      lines.push(
+        `Real comparable properties found nearby: ${c.count} (market value range ` +
+          `$${c.min.toLocaleString()}-$${c.max.toLocaleString()}, median $${c.median.toLocaleString()})`,
+      );
+    }
+    if (input.assessmentRatio) {
+      const r = input.assessmentRatio;
+      lines.push(
+        `County Comptroller ratio study for this property type: median assessment ratio ` +
+          `${r.medianPct}%, coefficient of dispersion ${r.cod.toFixed(1)}` +
+          (r.codOverCeiling > 0
+            ? ` (${r.codOverCeiling.toFixed(1)} points above the IAAO standard)`
+            : " (within the IAAO standard)"),
+      );
+    }
+    if (input.valueTrend?.jumpTriggered) {
+      lines.push(
+        `This property's assessed value jumped ${
+          input.valueTrend.jumpPct != null
+            ? `${Math.round(input.valueTrend.jumpPct * 100)}%`
+            : "significantly"
+        } beyond its own historical trend this year.`,
+      );
+    }
+    if (input.evidenceFileNames && input.evidenceFileNames.length > 0) {
+      lines.push(
+        `Evidence documents already uploaded by the owner: ${input.evidenceFileNames.join(", ")}`,
+      );
+    }
+    const record = lines.filter((l): l is string => typeof l === "string").join("\n");
+
+    const system = `${PREAMBLE}\n\nReturn ONLY a JSON object with exactly this shape:\n${SCHEMA}`;
 
     const body = {
-      systemInstruction: { parts: [{ text: SYSTEM }] },
+      systemInstruction: { parts: [{ text: system }] },
       contents: [{ role: "user", parts: [{ text: record }] }],
       generationConfig: { responseMimeType: "application/json" },
     };
@@ -93,7 +180,7 @@ Deno.serve(async (req: Request) => {
       candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
     };
     const raw = json.candidates?.[0]?.content?.parts?.[0]?.text ?? "{}";
-    let parsed: { score?: number; summary?: string; factors?: string[] };
+    let parsed: Record<string, unknown>;
     try {
       parsed = JSON.parse(raw);
     } catch {
@@ -101,14 +188,20 @@ Deno.serve(async (req: Request) => {
       parsed = m ? JSON.parse(m[0]) : {};
     }
 
-    const score = Math.max(0, Math.min(100, Math.round(Number(parsed.score) || 0)));
-    const summary = parsed.summary ?? "AI could not generate a summary for this property.";
-    const factors = Array.isArray(parsed.factors) ? parsed.factors.slice(0, 4) : [];
+    const result = {
+      score: score100(parsed.score, 0),
+      executiveConclusion: str(parsed.executiveConclusion, 500),
+      scoreBreakdown: scoreBreakdown(parsed.scoreBreakdown),
+      factorsIncreasing: strList(parsed.factorsIncreasing, 5, 160),
+      factorsReducing: strList(parsed.factorsReducing, 5, 160),
+      confidencePct: score100(parsed.confidencePct),
+      confidenceReasoning: str(parsed.confidenceReasoning, 300),
+      methodology: str(parsed.methodology, 500),
+      nextStep: str(parsed.nextStep, 200),
+      dataSufficient: parsed.dataSufficient !== false,
+    };
 
-    return new Response(JSON.stringify({ score, summary, factors }), {
-      status: 200,
-      headers: corsHeaders,
-    });
+    return new Response(JSON.stringify(result), { status: 200, headers: corsHeaders });
   } catch (err) {
     return new Response(
       JSON.stringify({ error: err instanceof Error ? err.message : "unknown error" }),

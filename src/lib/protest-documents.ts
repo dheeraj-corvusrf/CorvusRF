@@ -1,6 +1,8 @@
-import { PDFDocument } from "pdf-lib";
+import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import type { PropertyRecord } from "./properties";
 import type { AuthorizationRecord } from "./protest-authorizations";
+import type { CadRecord } from "./cad-lookup";
+import type { SignatureValue } from "@/components/SignaturePad";
 import { AGREEMENT } from "@/components/ProtestAuthorizationFlow";
 
 // Drives every field on the two REAL, official Texas Comptroller PDF forms
@@ -12,14 +14,170 @@ import { AGREEMENT } from "@/components/ProtestAuthorizationFlow";
 // needs a real signature at filing time, not a copy of an e-signature given
 // for a different document).
 
+export type FieldValues = Record<string, string | boolean>;
+
+// Clicking a suggestion fills the field with `value`; the user can still
+// freely edit or clear it afterward — never a hard constraint on the input,
+// just a shortcut to a real, computed answer (today's date, a phone number
+// already on file elsewhere in this same form) instead of a blank box that
+// invites something the field can't actually use, like a duration typed into
+// a date field. `values` is the form's current state, so a suggestion can
+// reference another field the user (or an earlier autofill) already filled.
+export type FieldSuggestion = { label: string; value: string };
+
 export type FieldDef =
-  | { type: "text"; name: string; label: string }
+  | {
+      type: "text";
+      name: string;
+      label: string;
+      suggestions?: (values: FieldValues) => FieldSuggestion[];
+      // MM/DD/YYYY, enforced on blur (and again right before signing — see
+      // signPdf's caller) via resolveDateInput() below, not by restricting
+      // keystrokes — typing "30 years" is exactly what this exists to catch
+      // and convert, so the field can't simply reject non-digit input.
+      dateFormat?: boolean;
+    }
   | { type: "checkbox"; name: string; label: string }
   | { type: "radio"; name: string; label: string; options: string[] };
 
 export type FieldSection = { title: string; fields: FieldDef[] };
 
-export type FieldValues = Record<string, string | boolean>;
+// MM/DD/YYYY — matches how these forms' own PDF text fields render a typed
+// date, and how the app already formats the real signed-at date in signPdf().
+function formatDateSuggestion(d: Date): string {
+  return d.toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" });
+}
+
+function todaySuggestion(): FieldSuggestion[] {
+  return [{ label: "Today", value: formatDateSuggestion(new Date()) }];
+}
+
+// Real, computed dates (today + N years) — not guesses about what this
+// specific case's authority-end date should be, just the common real
+// durations an owner is actually choosing between. "No end date" is a
+// legitimate real answer too (this form's own instructions treat a blank
+// date here as "until revoked"), so it clears the field rather than filling
+// placeholder text into a date box — the exact problem this was added for.
+function agentAuthorityEndSuggestions(): FieldSuggestion[] {
+  const today = new Date();
+  const plusYears = (years: number) => {
+    const d = new Date(today);
+    d.setFullYear(d.getFullYear() + years);
+    return formatDateSuggestion(d);
+  };
+  return [
+    { label: "No end date", value: "" },
+    { label: "1 year from today", value: plusYears(1) },
+    { label: "3 years from today", value: plusYears(3) },
+    { label: "5 years from today", value: plusYears(5) },
+  ];
+}
+
+// The mobile-reminder field is genuinely separate from Section 1's own phone
+// field (different purpose — text reminders, not general contact), but in
+// practice it's very often the same number, which this form has often
+// already filled in by the time the user reaches Section 6 — reused as a
+// real suggestion rather than making the user retype it.
+function phoneOnFileSuggestion(values: FieldValues): FieldSuggestion[] {
+  const phone = values["Phone Number area code and number"];
+  return typeof phone === "string" && phone ? [{ label: `Use ${phone}`, value: phone }] : [];
+}
+
+function formatMMDDYYYY(month: number, day: number, year: number): string {
+  return `${String(month).padStart(2, "0")}/${String(day).padStart(2, "0")}/${year}`;
+}
+
+const MONTH_NAMES = [
+  "january", "february", "march", "april", "may", "june",
+  "july", "august", "september", "october", "november", "december",
+];
+
+// "August 24" / "24 August" / "24th Aug, 2026" — with or without a year. Not
+// used via the plain `new Date(string)` constructor: confirmed it silently
+// defaults a year-less date like "August 24" to 2001 (not the current year),
+// so this parses the month/day/year components explicitly instead.
+function tryParseMonthDay(trimmed: string): { month: number; day: number; year: number | null } | null {
+  const lower = trimmed.toLowerCase();
+  let m = lower.match(/^([a-z]+)\.?\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s+(\d{4}))?$/);
+  if (m) {
+    const monthIdx = MONTH_NAMES.findIndex((n) => n.startsWith(m![1]));
+    if (monthIdx >= 0) return { month: monthIdx + 1, day: parseInt(m[2], 10), year: m[3] ? parseInt(m[3], 10) : null };
+  }
+  m = lower.match(/^(\d{1,2})(?:st|nd|rd|th)?\s+([a-z]+)\.?(?:,?\s+(\d{4}))?$/);
+  if (m) {
+    const monthIdx = MONTH_NAMES.findIndex((n) => n.startsWith(m![2]));
+    if (monthIdx >= 0) return { month: monthIdx + 1, day: parseInt(m[1], 10), year: m[3] ? parseInt(m[3], 10) : null };
+  }
+  return null;
+}
+
+// Normalizes whatever was typed into a date field to real MM/DD/YYYY — called
+// on blur (PdfFormEditor's TextRow) and once more, over every date-marked
+// field, right before a document is actually signed (CaseDetailModal's
+// handleConfirmSign), so a value that slipped through un-normalized (e.g. the
+// user never blurred the field) still gets corrected at the moment that
+// matters most. Three real, computable cases, tried in order:
+//  1. A duration ("30 years", "6 months", "2 weeks") — computed from TODAY,
+//     the actual bug this was built for (typing a duration into a date box).
+//  2. An explicit date in a common format (MM/DD/YYYY, M-D-YY, ISO
+//     YYYY-MM-DD) — reformatted, not reinterpreted.
+//  3. A month-and-day written out ("August 24"), year assumed to be the
+//     current year if omitted.
+// Anything else is left exactly as typed — this never invents a date it
+// can't actually compute from what's there.
+export function resolveDateInput(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) return trimmed;
+
+  const durationMatch = trimmed.match(/^(\d+)\s*(day|week|month|year)s?\b/i);
+  if (durationMatch) {
+    const amount = parseInt(durationMatch[1], 10);
+    const unit = durationMatch[2].toLowerCase();
+    const d = new Date();
+    if (unit === "day") d.setDate(d.getDate() + amount);
+    else if (unit === "week") d.setDate(d.getDate() + amount * 7);
+    else if (unit === "month") d.setMonth(d.getMonth() + amount);
+    else if (unit === "year") d.setFullYear(d.getFullYear() + amount);
+    return formatDateSuggestion(d);
+  }
+
+  let m = trimmed.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2}|\d{4})$/);
+  if (m) {
+    const month = parseInt(m[1], 10);
+    const day = parseInt(m[2], 10);
+    let year = parseInt(m[3], 10);
+    if (m[3].length === 2) year += year < 50 ? 2000 : 1900;
+    if (month >= 1 && month <= 12 && day >= 1 && day <= 31) return formatMMDDYYYY(month, day, year);
+  }
+
+  m = trimmed.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (m) {
+    const year = parseInt(m[1], 10);
+    const month = parseInt(m[2], 10);
+    const day = parseInt(m[3], 10);
+    if (month >= 1 && month <= 12 && day >= 1 && day <= 31) return formatMMDDYYYY(month, day, year);
+  }
+
+  const md = tryParseMonthDay(trimmed);
+  if (md) return formatMMDDYYYY(md.month, md.day, md.year ?? new Date().getFullYear());
+
+  return trimmed;
+}
+
+// Runs resolveDateInput() over every date-marked field in `values` — the
+// "one final pass at signing time" half of the fix, in case the user never
+// blurred a field after typing into it.
+export function resolveDateFields(schema: FieldSection[], values: FieldValues): FieldValues {
+  const next = { ...values };
+  for (const section of schema) {
+    for (const field of section.fields) {
+      if (field.type === "text" && field.dateFormat && typeof next[field.name] === "string") {
+        next[field.name] = resolveDateInput(next[field.name] as string);
+      }
+    }
+  }
+  return next;
+}
 
 export const NOTICE_OF_PROTEST_SCHEMA: FieldSection[] = [
   {
@@ -159,7 +317,12 @@ export const NOTICE_OF_PROTEST_SCHEMA: FieldSection[] = [
         label: "Electronic reminder of the hearing date/time?",
         options: ["Yes, by text", "Yes, by email", "No"],
       },
-      { type: "text", name: "Mobile Number", label: "Mobile phone number (if reminder by text)" },
+      {
+        type: "text",
+        name: "Mobile Number",
+        label: "Mobile phone number (if reminder by text)",
+        suggestions: phoneOnFileSuggestion,
+      },
       { type: "text", name: "Email Address", label: "Email address (if reminder by email)" },
     ],
   },
@@ -193,7 +356,7 @@ export const NOTICE_OF_PROTEST_SCHEMA: FieldSection[] = [
         options: ["Property Owner", "Property Owner's agent", "Other (please specify)"],
       },
       { type: "text", name: "Print Name of Property Owner or Authorized Representative", label: "Print Name of Property Owner or Authorized Representative" },
-      { type: "text", name: "Date of Signature", label: "Date" },
+      { type: "text", name: "Date of Signature", label: "Date", suggestions: todaySuggestion, dateFormat: true },
     ],
   },
 ];
@@ -203,7 +366,12 @@ export const APPOINTMENT_OF_AGENT_SCHEMA: FieldSection[] = [
     title: "Appraisal District",
     fields: [
       { type: "text", name: "Appraisal District Name", label: "Appraisal District Name" },
-      { type: "text", name: "Date Received appraisal district use only", label: "Date Received (appraisal district use only)" },
+      {
+        type: "text",
+        name: "Date Received appraisal district use only",
+        label: "Date Received (appraisal district use only)",
+        dateFormat: true,
+      },
     ],
   },
   {
@@ -267,12 +435,20 @@ export const APPOINTMENT_OF_AGENT_SCHEMA: FieldSection[] = [
   },
   {
     title: "STEP 5: Date the Agent's Authority Ends",
-    fields: [{ type: "text", name: "Date Agents Authority Ends", label: "Date Agent's Authority Ends" }],
+    fields: [
+      {
+        type: "text",
+        name: "Date Agents Authority Ends",
+        label: "Date Agent's Authority Ends",
+        suggestions: agentAuthorityEndSuggestions,
+        dateFormat: true,
+      },
+    ],
   },
   {
     title: "STEP 6: Identification, Signature, and Date",
     fields: [
-      { type: "text", name: "Date", label: "Date" },
+      { type: "text", name: "Date", label: "Date", suggestions: todaySuggestion, dateFormat: true },
       { type: "text", name: "Name of Property Owner", label: "Printed Name of Property Owner, Property Manager or Other Authorized Person" },
       { type: "text", name: "Title", label: "Title" },
       { type: "checkbox", name: "the property owner", label: "The individual signing this form is the property owner" },
@@ -296,21 +472,56 @@ export const APPOINTMENT_OF_AGENT_SCHEMA: FieldSection[] = [
 // "Reason for protest 1" ("Incorrect appraised (market) value and/or value is
 // unequal compared with other properties") — the form has no separate box per
 // strategy. Left unchecked with no guess if no strategy has been generated yet.
+// $57M/$62.9M "or greater" fields each expose only ONE real option on the
+// actual PDF (see NOTICE_OF_PROTEST_SCHEMA above) — "No" for the lower
+// threshold, "Yes" for the higher one. A value strictly between the two has
+// no matching checkbox on the real form, so it's left unanswered rather than
+// guessed.
+const SPECIAL_PANEL_LOWER_THRESHOLD = 57_000_000;
+const SPECIAL_PANEL_UPPER_THRESHOLD = 62_900_000;
+
 export function getNoticeOfProtestDefaults(
   property: PropertyRecord,
   taxYear: number | null,
   strategyRecommendation: string | null,
   authorization?: AuthorizationRecord | null,
 ): FieldValues {
-  return {
+  const values: FieldValues = {
     "Appraisal Districts Name": property.cad ?? "",
     "Appraisal District Account Number": property.accountNumber ?? "",
     "Tax Year": taxYear != null ? String(taxYear) : "",
     "Name of Property Owner or Lessee": property.ownerName ?? "",
+    // This app has never collected a mailing address separate from the
+    // property's physical address — the property address is the best real
+    // data available, and stays fully editable if the owner's actual mailing
+    // address differs.
+    "Mailing Address City State ZIP Code": property.address ?? "",
     "Physical Address": property.address ?? "",
     "Phone Number area code and number": authorization?.phone ?? "",
     "Reason for protest 1": !!strategyRecommendation,
+    "Appraisal districts value assigned to property":
+      property.totalValue != null ? property.totalValue.toLocaleString("en-US") : "",
+    // The person operating this in-app signing flow is always the account's
+    // own signed-in user — i.e. the property owner — regardless of whether
+    // CorvusPT is separately authorized as agent for case management.
+    "Certification and Signature": "Property Owner",
+    "Print Name of Property Owner or Authorized Representative":
+      authorization?.isEntity && authorization.entityName
+        ? authorization.entityName
+        : authorization
+          ? `${authorization.firstName} ${authorization.lastName}`
+          : (property.ownerName ?? ""),
   };
+
+  if (property.totalValue != null) {
+    if (property.totalValue < SPECIAL_PANEL_LOWER_THRESHOLD) {
+      values["Property is appraised at $57 million or greater"] = "No";
+    } else if (property.totalValue >= SPECIAL_PANEL_UPPER_THRESHOLD) {
+      values["Property is appraised at $62.9 million or greater"] = "Yes";
+    }
+  }
+
+  return values;
 }
 
 function splitAgentAddress(): { street: string; cityStateZip: string } {
@@ -337,7 +548,7 @@ export function getAppointmentOfAgentDefaults(
     "the property(ies) listed below:": true,
     "Appraisal District Account Number_2": property.accountNumber ?? "",
     "Physical or Situs Address of Property_2": property.address ?? "",
-    Name_2: "CorvusRF.ai",
+    Name_2: "CorvusPT.ai",
     "Telephone Number include area code_2": AGREEMENT.phone,
     Address_2: street,
     "City State Zip Code_2": cityStateZip,
@@ -350,6 +561,27 @@ export function getAppointmentOfAgentDefaults(
     Title: authorization.isEntity ? (authorization.entityRelationship ?? "") : "",
     "the property owner": !authorization.isEntity,
   };
+}
+
+// Form 50-162's Step 2 has room for 4 properties total — the case's own
+// property already fills the first slot (see "..._2" fields above); this
+// fills the next 3 ("Property 2/3/4" per the form's own labels, "..._3"/"_4"/
+// "_5" per its real field names) from other REAL CAD records found under the
+// same ownership in the same appraisal district (an agent authorization is
+// filed per-district, so a sibling property in a different county has no
+// business on this specific form). Caller is responsible for finding those
+// records (searchPropertiesByOwner) and filtering to the right county/
+// excluding the case's own property — this just does the field mapping.
+export function getAdditionalOwnerPropertyFields(matches: CadRecord[]): FieldValues {
+  const values: FieldValues = {};
+  const suffixes = ["_3", "_4", "_5"];
+  matches.slice(0, suffixes.length).forEach((m, i) => {
+    const suffix = suffixes[i];
+    values[`Appraisal District Account Number${suffix}`] = m.accountNumber ?? "";
+    values[`Physical or Situs Address of Property${suffix}`] = m.propertyAddress ?? "";
+    values[`Legal Description${suffix}`] = m.legalDescription ?? "";
+  });
+  return values;
 }
 
 async function loadTemplate(path: string): Promise<PDFDocument> {
@@ -387,12 +619,7 @@ function selectRadio(doc: PDFDocument, field: string, option: string) {
 // Generic — every field on either form is one of text/checkbox/radio, so one
 // fill loop over the schema (rather than a bespoke function per form) covers
 // both, driven entirely by the (possibly user-edited) values passed in.
-export async function buildPdf(
-  templatePath: string,
-  schema: FieldSection[],
-  values: FieldValues,
-): Promise<Uint8Array> {
-  const doc = await loadTemplate(templatePath);
+function fillFields(doc: PDFDocument, schema: FieldSection[], values: FieldValues) {
   for (const section of schema) {
     for (const field of section.fields) {
       const value = values[field.name];
@@ -405,6 +632,78 @@ export async function buildPdf(
       }
     }
   }
+}
+
+export async function buildPdf(
+  templatePath: string,
+  schema: FieldSection[],
+  values: FieldValues,
+): Promise<Uint8Array> {
+  const doc = await loadTemplate(templatePath);
+  fillFields(doc, schema, values);
+  return doc.save();
+}
+
+// Neither form's signature line is a normal fillable text field (see the file
+// header comment) — Form 50-132's is a true /Sig field, Form 50-162's has no
+// AcroForm field at all over the signature line, just "Signature1" as a bare
+// /Sig placeholder. Both are drawn onto directly, positioned at the real
+// widget rectangle each field reports (read via pdf-lib against the actual
+// PDFs — see the comment on SIGNATURE_FIELD_RECT — not guessed). The Date
+// field next to each signature IS a normal text field, so it goes through
+// the regular fillFields() pass like everything else.
+const SIGNATURE_FIELD_RECT: Record<string, { page: number; x: number; y: number; width: number; height: number }> = {
+  "forms/50-132.pdf": { page: 1, x: 63.8907, y: 117.289, width: 299.7253, height: 12.96 },
+  "forms/50-162.pdf": { page: 1, x: 68.1542, y: 242.502, width: 295.5988, height: 32.001 },
+};
+const DATE_FIELD_NAME: Record<string, string> = {
+  "forms/50-132.pdf": "Date of Signature",
+  "forms/50-162.pdf": "Date",
+};
+
+export async function signPdf(
+  templatePath: string,
+  schema: FieldSection[],
+  values: FieldValues,
+  signature: SignatureValue,
+  signedAt: Date,
+): Promise<Uint8Array> {
+  const doc = await loadTemplate(templatePath);
+  const dateField = DATE_FIELD_NAME[templatePath];
+  const formattedDate = signedAt.toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  fillFields(doc, schema, dateField ? { ...values, [dateField]: formattedDate } : values);
+
+  const rect = SIGNATURE_FIELD_RECT[templatePath];
+  if (rect) {
+    const page = doc.getPages()[rect.page];
+    if (signature.type === "draw") {
+      const png = await doc.embedPng(signature.data);
+      const scale = Math.min(rect.width / png.width, rect.height / png.height, 1);
+      const w = png.width * scale;
+      const h = png.height * scale;
+      page.drawImage(png, {
+        x: rect.x + (rect.width - w) / 2,
+        y: rect.y + (rect.height - h) / 2,
+        width: w,
+        height: h,
+      });
+    } else {
+      const font = await doc.embedFont(StandardFonts.HelveticaOblique);
+      const fontSize = Math.min(16, rect.height * 0.85);
+      page.drawText(signature.data, {
+        x: rect.x + 4,
+        y: rect.y + (rect.height - fontSize) / 2,
+        size: fontSize,
+        font,
+        color: rgb(0.04, 0.17, 0.32),
+      });
+    }
+  }
+
   return doc.save();
 }
 

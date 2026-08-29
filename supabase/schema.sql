@@ -33,23 +33,40 @@ create policy "Users can update their own profile"
   on public.profiles for update
   using (auth.uid() = id);
 
+-- RLS policies gate which ROWS are visible/writable, not which COLUMNS — the policy
+-- above alone would let any signed-in user set their OWN plan/is_admin/subscription_*
+-- columns directly (e.g. `supabase.from("profiles").update({ plan: "owner_managed" })`
+-- or `{ is_admin: true }`), bypassing Stripe and admin gating entirely. Column-level
+-- grants close that regardless of RLS: only the fields a normal profile-edit form
+-- actually needs (see src/lib/profile.ts's updateMyProfile) stay client-writable.
+-- Everything else — plan, is_admin, subscription/billing fields — becomes writable
+-- only by the service-role client, which is exactly what the Stripe webhook and the
+-- admin-update-plan/admin-update-admin-status edge functions already use.
+revoke update on public.profiles from authenticated;
+grant update (first_name, last_name, phone, company_name) on public.profiles to authenticated;
+
 -- Auto-create a profile row whenever someone signs up via Supabase Auth. first_name,
 -- last_name and phone are passed in from the sign-up form via supabase.auth.signUp's
--- options.data, which lands in raw_user_meta_data.
+-- options.data, which lands in raw_user_meta_data. 'wants_beta' (also passed through
+-- options.data, from the sign-up form's beta checkbox) sets plan='beta' right here,
+-- in this security-definer trigger — not via a client-side update, which the column
+-- grants above no longer allow. Runs at row-creation regardless of whether email
+-- confirmation is required, so both signup paths grant beta access correctly.
 create or replace function public.handle_new_user()
 returns trigger
 language plpgsql
 security definer set search_path = public
 as $$
 begin
-  insert into public.profiles (id, email, first_name, last_name, phone, company_name)
+  insert into public.profiles (id, email, first_name, last_name, phone, company_name, plan)
   values (
     new.id,
     new.email,
     new.raw_user_meta_data ->> 'first_name',
     new.raw_user_meta_data ->> 'last_name',
     new.raw_user_meta_data ->> 'phone',
-    new.raw_user_meta_data ->> 'company_name'
+    new.raw_user_meta_data ->> 'company_name',
+    case when new.raw_user_meta_data ->> 'wants_beta' = 'true' then 'beta' else 'free_ai_review' end
   );
   return new;
 end;
@@ -115,9 +132,11 @@ alter table public.profiles add column if not exists plan text not null default 
 -- 'ai_report' and 'managed_protest' are the original flat-rate/contingency tiers,
 -- kept in the allow-list for any pre-existing rows; 'owner_managed' and
 -- 'corvusrf_managed' are the real per-property monthly tiers new checkouts write.
+-- 'beta' is a free, full-access grant set only by handle_new_user() below when
+-- someone signs up with the beta checkbox checked — never through Stripe.
 alter table public.profiles drop constraint if exists profiles_plan_check;
 alter table public.profiles add constraint profiles_plan_check
-  check (plan in ('free_ai_review', 'ai_report', 'managed_protest', 'owner_managed', 'corvusrf_managed'));
+  check (plan in ('free_ai_review', 'ai_report', 'managed_protest', 'owner_managed', 'corvusrf_managed', 'beta'));
 
 -- How many properties the active subscription covers (Stripe line-item quantity) —
 -- pricing is per-property, so this drives what "N properties on your plan" means.
@@ -163,6 +182,39 @@ create policy "Admins can delete any property"
   on public.properties for delete
   using (public.is_admin());
 
+-- Records who on staff did what in the admin panel (plan changes, admin-access
+-- grants, user creation/deletion, protest status/notes edits) and when — none of
+-- that was logged anywhere before. actor_id/target_user_id are nullable (set null
+-- on delete) so a row stays readable after the account it refers to is gone;
+-- actor_email/target_email are denormalized snapshots for the same reason. No
+-- jsonb (this schema has none) — detail is a short free-form description, matching
+-- how much structure every other "what happened" field here carries.
+create table if not exists public.admin_audit_log (
+  id uuid primary key default gen_random_uuid(),
+  actor_id uuid references auth.users (id) on delete set null,
+  actor_email text not null,
+  action text not null,
+  target_user_id uuid references auth.users (id) on delete set null,
+  target_email text,
+  detail text,
+  created_at timestamptz not null default now()
+);
+
+alter table public.admin_audit_log enable row level security;
+
+drop policy if exists "Admins can view the audit log" on public.admin_audit_log;
+create policy "Admins can view the audit log"
+  on public.admin_audit_log for select
+  using (public.is_admin());
+
+-- actor_id = auth.uid() (on top of is_admin()) so an admin can only ever log
+-- themselves as the actor, never write an entry attributing an action to a
+-- different admin.
+drop policy if exists "Admins can log their own actions" on public.admin_audit_log;
+create policy "Admins can log their own actions"
+  on public.admin_audit_log for insert
+  with check (public.is_admin() and actor_id = auth.uid());
+
 -- Stripe billing: the webhook (supabase/functions/stripe-webhook) writes plan and
 -- these two ids; the admin panel's manual plan dropdown still works unchanged since
 -- it edits the same `plan` column.
@@ -207,6 +259,16 @@ alter table public.properties add column if not exists estimated_savings numeric
 alter table public.properties add column if not exists savings_basis text;
 alter table public.properties drop constraint if exists properties_savings_basis_check;
 alter table public.properties add constraint properties_savings_basis_check check (savings_basis in ('comps', 'formula', 'ai', 'baseline'));
+
+-- Real CAD-sourced year-over-year value history (land/improvement/market/appraised
+-- per year — see src/lib/cad-lookup.ts's CadValueHistoryEntry), one JSON-stringified
+-- entry per array element (this schema has no jsonb columns; text[] matches the
+-- existing property_ai_scores.factors precedent for "a handful of structured values
+-- on one row"). Previously only ever lived in session storage during intake and was
+-- lost the moment the user left that screen — persisted so it survives to be shown
+-- again later, and so estimateSavings()'s value-trend adjustment (texas-tax-rates.ts)
+-- still has data to work with on a return visit, not just the first one.
+alter table public.properties add column if not exists value_history text[];
 
 -- Business Personal Property tax accounts — a distinct entity from real property
 -- (public.properties): a business can render BPP for a location without owning the
@@ -309,6 +371,23 @@ alter table public.protests add column if not exists final_value numeric;
 alter table public.protests add column if not exists escalation_path text;
 alter table public.protests add column if not exists closed_at timestamptz;
 
+-- Which tax year this filing covers — lets a property have one protest row per
+-- year instead of one ever, so a resolved prior-year case doesn't block filing
+-- again for a new year (see src/routes/dashboard/_layout.properties.tsx's
+-- "Re-file for {year}" flow). Nullable/unbackfilled on purpose: every lookup of
+-- "the" protest for a property already resolves to the most recent row (ordered
+-- by requested_at desc), so older rows without a year don't need one.
+alter table public.protests add column if not exists tax_year integer;
+
+-- No delete UI exists for protests today — this exists so the authenticated E2E
+-- suite (e2e/authenticated/protest-authorization.spec.ts, run in CI on every push
+-- to dev) can clean up the real protest row it creates each run, instead of
+-- leaving CI-seeded rows piling up in the real admin queue staff work from.
+drop policy if exists "Users can delete their own protests" on public.protests;
+create policy "Users can delete their own protests"
+  on public.protests for delete
+  using (auth.uid() = user_id);
+
 alter table public.protests drop constraint if exists protests_arb_decision_check;
 alter table public.protests add constraint protests_arb_decision_check
   check (arb_decision is null or arb_decision in ('approved', 'partial', 'denied'));
@@ -332,6 +411,10 @@ create table if not exists public.protest_evidence_items (
   protest_id uuid not null references public.protests (id) on delete cascade,
   user_id uuid not null references auth.users (id) on delete cascade,
   label text not null,
+  -- Legacy — a checklist item now links to zero or more documents via
+  -- documents.evidence_item_id instead (see below), which supports more than one
+  -- file per item. Left in place (with a one-time backfill) so already-uploaded
+  -- evidence isn't lost, but no longer written to by new uploads.
   document_id uuid references public.documents (id) on delete set null,
   created_at timestamptz not null default now()
 );
@@ -403,6 +486,18 @@ create policy "Users can delete their own documents"
   on public.documents for delete
   using (auth.uid() = user_id);
 
+-- Needed so linkEvidenceDocument() (src/lib/protest-case.ts) can set
+-- evidence_item_id after upload — RLS only gates which rows are visible, not which
+-- columns are writable, so the column grant below (same pattern as profiles' own
+-- lockdown above) keeps this to exactly the one field a user should ever change on
+-- an existing document row.
+drop policy if exists "Users can update their own documents" on public.documents;
+create policy "Users can update their own documents"
+  on public.documents for update
+  using (auth.uid() = user_id);
+revoke update on public.documents from authenticated;
+grant update (evidence_item_id) on public.documents to authenticated;
+
 drop policy if exists "Admins can view all documents" on public.documents;
 create policy "Admins can view all documents"
   on public.documents for select
@@ -415,6 +510,32 @@ drop policy if exists "Admins can insert documents" on public.documents;
 create policy "Admins can insert documents"
   on public.documents for insert
   with check (public.is_admin());
+
+-- Lets staff link evidence on a customer's behalf from the admin panel's copy of
+-- CasePlanSection — the "Users can update ..." policy above only matches a
+-- document's own owner, not staff acting on someone else's row. Covered by the
+-- same evidence_item_id-only column grant above (grants are per-role, not
+-- per-policy).
+drop policy if exists "Admins can update all documents" on public.documents;
+create policy "Admins can update all documents"
+  on public.documents for update
+  using (public.is_admin());
+
+-- Links a document to the specific evidence-checklist item it satisfies. Nullable
+-- and one-directional (document -> item) rather than the old single document_id
+-- column on protest_evidence_items, so one checklist item — e.g. "Property Income
+-- and Expense Statements (3 Years)" — can hold several uploaded files instead of
+-- just one. See CaseDetailModal.tsx's evidence checklist.
+alter table public.documents add column if not exists evidence_item_id uuid
+  references public.protest_evidence_items (id) on delete set null;
+
+-- Backfill: earlier uploads used protest_evidence_items.document_id (now legacy —
+-- superseded by evidence_item_id above) to link a single file. Idempotent, so it's
+-- safe to re-run: only touches documents not already linked.
+update public.documents d
+set evidence_item_id = pei.id
+from public.protest_evidence_items pei
+where pei.document_id = d.id and d.evidence_item_id is null;
 
 -- Private bucket: objects are stored at "{user_id}/{property_id}/{filename}" so the
 -- storage.objects policies below can scope access by the first path segment alone.
@@ -450,6 +571,64 @@ create policy "Users can delete their own documents"
   using (
     bucket_id = 'documents' and (storage.foldername(name))[1] = auth.uid()::text
   );
+
+-- One row per (protest, form) — holds both in-progress edits (Save Progress,
+-- no signature) and the final signed record (Sign & Submit) for the two real
+-- Comptroller forms (Notice of Protest / Appointment of Agent, see
+-- protest-documents.ts). field_values is the whole (dynamic, ~30-40-key)
+-- FieldValues map, JSON-stringified into a plain text column rather than a
+-- jsonb column — this schema has none (see value_history's text[] precedent
+-- above) — since the field set is open-ended and doesn't fit fixed columns.
+create table if not exists public.protest_form_submissions (
+  id uuid primary key default gen_random_uuid(),
+  protest_id uuid not null references public.protests (id) on delete cascade,
+  user_id uuid not null references auth.users (id) on delete cascade,
+  form_type text not null check (form_type in ('notice_of_protest', 'appointment_of_agent')),
+  field_values text not null,
+  signature_type text,
+  signature_data text,
+  signed_at timestamptz,
+  document_id uuid references public.documents (id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (protest_id, form_type)
+);
+
+alter table public.protest_form_submissions enable row level security;
+
+drop policy if exists "Users can view their own form submissions" on public.protest_form_submissions;
+create policy "Users can view their own form submissions"
+  on public.protest_form_submissions for select
+  using (auth.uid() = user_id);
+
+drop policy if exists "Users can insert their own form submissions" on public.protest_form_submissions;
+create policy "Users can insert their own form submissions"
+  on public.protest_form_submissions for insert
+  with check (auth.uid() = user_id);
+
+drop policy if exists "Users can update their own form submissions" on public.protest_form_submissions;
+create policy "Users can update their own form submissions"
+  on public.protest_form_submissions for update
+  using (auth.uid() = user_id);
+
+drop policy if exists "Admins can view all form submissions" on public.protest_form_submissions;
+create policy "Admins can view all form submissions"
+  on public.protest_form_submissions for select
+  using (public.is_admin());
+
+-- Lets staff use Save Progress (and Download's silent save) on a customer's
+-- behalf from the admin panel — signing itself stays customer-only, enforced
+-- client-side (AdminCaseProgressModal passes allowSigning={false}), not by
+-- these policies; rows still carry the customer's own user_id either way.
+drop policy if exists "Admins can insert form submissions" on public.protest_form_submissions;
+create policy "Admins can insert form submissions"
+  on public.protest_form_submissions for insert
+  with check (public.is_admin());
+
+drop policy if exists "Admins can update all form submissions" on public.protest_form_submissions;
+create policy "Admins can update all form submissions"
+  on public.protest_form_submissions for update
+  using (public.is_admin());
 
 -- AI-computed "protest opportunity" score, generated once in the background right
 -- after a property is added (see src/lib/property-scores.ts) so the dashboard can
@@ -578,6 +757,98 @@ create policy "Users can delete their own tax bills"
 drop policy if exists "Admins can view all tax bills" on public.tax_bills;
 create policy "Admins can view all tax bills"
   on public.tax_bills for select
+  using (public.is_admin());
+
+-- Property-value-tiered pricing: each paid tier now has 3 price points
+-- (per src/lib/billing.ts's PropertyValueBracket) instead of one flat rate,
+-- so a subscription's property count is tracked per bracket rather than as
+-- a single number. subscription_quantity (above) is kept as the sum of the
+-- three, unchanged, so existing "N properties" displays don't need to know
+-- about brackets at all — only the checkout/pricing UI does.
+alter table public.profiles add column if not exists qty_under_2m integer not null default 0;
+alter table public.profiles add column if not exists qty_2m_10m integer not null default 0;
+-- Despite the name, this is now the capped $10M-$25M bracket, not open-ended —
+-- anything above $25M moved to billing.ts's CUSTOM_TIER, which has no quantity
+-- or checkout at all (contact-us only), so it needs no column here.
+alter table public.profiles add column if not exists qty_over_10m integer not null default 0;
+
+-- "Add Ownerships" — an LLC/ownership name the user has searched and added
+-- properties from (see src/components/AddOwnershipsModal.tsx and
+-- cad-owner-search, which already searches by owner name across every county
+-- that publishes one). Written once when properties are actually saved from a
+-- search, not on every search itself — same "insert once, never edit in
+-- place" shape as properties, so no update policy either.
+create table if not exists public.ownerships (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users (id) on delete cascade,
+  name text not null,
+  role text not null check (role in ('owner', 'agent', 'property_manager')),
+  created_at timestamptz not null default now()
+);
+
+alter table public.ownerships enable row level security;
+
+drop policy if exists "Users can view their own ownerships" on public.ownerships;
+create policy "Users can view their own ownerships"
+  on public.ownerships for select
+  using (auth.uid() = user_id);
+
+drop policy if exists "Users can insert their own ownerships" on public.ownerships;
+create policy "Users can insert their own ownerships"
+  on public.ownerships for insert
+  with check (auth.uid() = user_id);
+
+drop policy if exists "Users can delete their own ownerships" on public.ownerships;
+create policy "Users can delete their own ownerships"
+  on public.ownerships for delete
+  using (auth.uid() = user_id);
+
+-- Invite-Only Beta lead-capture form on the standalone hub site (hub/index.html,
+-- a separate static page with no login of its own — see AddOwnershipsModal's
+-- sibling concept, but this one has no authenticated user at all). Written by
+-- the submit-beta-lead edge function using the service-role key, never
+-- directly by a client, since there's no session to satisfy a normal
+-- user_id-scoped insert policy — hence no insert policy on this table at all,
+-- only the admin-only select below. area_of_interest is the already-joined,
+-- comma-separated display string built client-side (see the hub form's submit
+-- handler), not a normalized array — this is a lead record for staff to read,
+-- not a table other app code queries/filters by individual interest area.
+create table if not exists public.beta_leads (
+  id uuid primary key default gen_random_uuid(),
+  full_name text not null,
+  work_email text not null,
+  company text not null,
+  area_of_interest text not null,
+  use_case text,
+  source_door text,
+  created_at timestamptz not null default now()
+);
+
+-- Set by the admin panel's "Invite" button (a real account invite via the
+-- existing admin-create-user edge function/inviteUserByEmail flow, not a
+-- second email system) — lets staff see at a glance which leads have
+-- already been converted so they don't re-invite the same person.
+alter table public.beta_leads add column if not exists invited_at timestamptz;
+
+alter table public.beta_leads enable row level security;
+
+drop policy if exists "Admins can view all beta leads" on public.beta_leads;
+create policy "Admins can view all beta leads"
+  on public.beta_leads for select
+  using (public.is_admin());
+
+-- Same additive is_admin() pattern as public.properties above — lets the
+-- admin panel write invited_at directly (marking a lead invited) and
+-- delete processed/spam leads, both straight from the client, with no
+-- edge function needed since these don't touch auth.users.
+drop policy if exists "Admins can update beta leads" on public.beta_leads;
+create policy "Admins can update beta leads"
+  on public.beta_leads for update
+  using (public.is_admin());
+
+drop policy if exists "Admins can delete beta leads" on public.beta_leads;
+create policy "Admins can delete beta leads"
+  on public.beta_leads for delete
   using (public.is_admin());
 
 -- ── ONE-TIME MANUAL STEP — do NOT run this as part of the routine schema paste ──

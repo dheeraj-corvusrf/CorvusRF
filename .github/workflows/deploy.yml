@@ -4,6 +4,14 @@ on:
   push:
     branches: [dev]
   workflow_dispatch:
+    inputs:
+      site_base:
+        description: "Base path to build the CorvusPT app under (which URL this deploy targets)"
+        type: choice
+        default: "/corvuspt/"
+        options:
+          - "/corvuspt/" # corvusre.com/corvuspt/ (custom domain, under the CorvusRE hub)
+          - "/CorvusRF/" # dheeraj-corvusrf.github.io/CorvusRF/ (old project site, pre-hub)
 
 permissions:
   contents: read
@@ -29,8 +37,46 @@ jobs:
 
       - run: npm ci
 
+      # Unit + integration (Vitest) — pure money-math and mocked-Supabase
+      # wrapper functions, no real network/browser needed. A failure here
+      # blocks the deploy, same as a failed build would.
+      - run: npm run test
+
+      # E2E (Playwright, guest subset) — flows that need no sign-in and write
+      # no persistent Supabase rows, so they're safe to run against the real
+      # Supabase project on every push.
+      - run: npx playwright install --with-deps chromium
+
+      - run: npm run test:e2e
+        env:
+          VITE_SUPABASE_URL: https://iotzuhuajbsxxuccuihn.supabase.co
+          VITE_SUPABASE_ANON_KEY: sb_publishable_RpyqtM6EeGiT7qc3FyN5Iw_vm0aiuM3
+          VITE_WEB3FORMS_ACCESS_KEY: 5a66f800-1264-49a2-9696-2839afd02485
+
+      # E2E (Playwright, authenticated subset) — protest authorization and the
+      # Stripe checkout redirect. Runs against a dedicated, permanent test
+      # account (crf-ci-e2e-test@example.com, not a real customer) whose
+      # credentials live in the E2E_TEST_EMAIL/E2E_TEST_PASSWORD repo secrets.
+      # protest-authorization.spec.ts deletes the protest row it creates every
+      # run (see e2e/authenticated/helpers.ts's cleanupLatestProtest), so the
+      # real admin queue staff work from never accumulates CI-seeded rows.
+      # checkout-redirect.spec.ts only creates a Stripe Checkout *session*
+      # against test-mode price IDs — it stops before any payment completes.
+      - run: npm run test:e2e:auth
+        env:
+          VITE_SUPABASE_URL: https://iotzuhuajbsxxuccuihn.supabase.co
+          VITE_SUPABASE_ANON_KEY: sb_publishable_RpyqtM6EeGiT7qc3FyN5Iw_vm0aiuM3
+          VITE_WEB3FORMS_ACCESS_KEY: 5a66f800-1264-49a2-9696-2839afd02485
+          E2E_TEST_EMAIL: ${{ secrets.E2E_TEST_EMAIL }}
+          E2E_TEST_PASSWORD: ${{ secrets.E2E_TEST_PASSWORD }}
+
       - run: npm run build
         env:
+          # Defaults to "/corvuspt/" (corvusre.com/corvuspt/, under the CorvusRE
+          # hub) on a normal push; a manual workflow_dispatch run can pick
+          # "/CorvusRF/" instead to rebuild for the old, hub-less project-site
+          # URL — see vite.config.ts.
+          SITE_BASE: ${{ github.event.inputs.site_base || '/corvuspt/' }}
           # Supabase's anon/publishable key is meant to be public (it ends up in the
           # client bundle regardless) — real access control comes from the Row Level
           # Security policies in supabase/schema.sql, not from keeping this secret.
@@ -38,8 +84,40 @@ jobs:
           VITE_SUPABASE_ANON_KEY: sb_publishable_RpyqtM6EeGiT7qc3FyN5Iw_vm0aiuM3
           # Web3Forms access keys are meant to be public/client-side by design.
           VITE_WEB3FORMS_ACCESS_KEY: 5a66f800-1264-49a2-9696-2839afd02485
+          # Same story as the two keys above — this runs client-side and is
+          # protected by the key's own Website (referrer) restrictions in
+          # Google Cloud Console, not by being kept secret. Without this line,
+          # every deployed build has VITE_GOOGLE_MAPS_API_KEY unset, so
+          # AddressAutocomplete silently and permanently uses only the free
+          # Nominatim fallback in production, regardless of any referrer
+          # restriction fix on Google's side.
+          VITE_GOOGLE_MAPS_API_KEY: AIzaSyCxz6Q6Wit9Sq_qR6cciWs1K8zPjdM0sAI
+
+      # The CorvusRE hub (hub/) is a handful of plain static pages with no app
+      # logic — see hub/hub.css's own comment for why that's a deliberate
+      # simplification rather than a second framework build. It lives at the
+      # site root; the CorvusPT app (just built, at whatever path SITE_BASE
+      # pointed it to) gets copied in alongside it, so one artifact serves
+      # both. Skipped for the legacy "/CorvusRF/" project-site target, which
+      # predates the hub and has never had one.
+      - name: Assemble hub + app into one site
+        if: ${{ github.event.inputs.site_base != '/CorvusRF/' }}
+        run: |
+          mkdir -p site
+          cp -r hub/. site/
+          base="${{ github.event.inputs.site_base || '/corvuspt/' }}"
+          subdir="${base#/}"
+          subdir="${subdir%/}"
+          mkdir -p "site/$subdir"
+          cp -r dist/client/. "site/$subdir/"
 
       - uses: actions/upload-pages-artifact@v3
+        if: ${{ github.event.inputs.site_base != '/CorvusRF/' }}
+        with:
+          path: site
+
+      - uses: actions/upload-pages-artifact@v3
+        if: ${{ github.event.inputs.site_base == '/CorvusRF/' }}
         with:
           path: dist/client
 
