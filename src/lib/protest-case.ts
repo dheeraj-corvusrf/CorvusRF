@@ -60,12 +60,27 @@ function toModuleInput(property: PropertyRecord): ModuleAnalysisInput {
 // (skipped if items already exist) so calling this again as a manual retry doesn't
 // pile up duplicate checklist items or wipe out evidence the user already uploaded
 // against existing items.
+//
+// Confirmed live on a real stuck case: case_prep_generated_at used to get
+// stamped unconditionally at the end regardless of whether EITHER half above
+// actually produced anything, and every failure inside them was only ever
+// console.error'd, never re-thrown — so a real failure (both halves came back
+// empty: strategy_recommendation null, zero evidence rows, yet
+// case_prep_generated_at set to a real timestamp) looked identical to
+// success everywhere the caller could see: no toast, and CasePlanSection's
+// own hasAnyPlan check (which reads the actual content, not this timestamp)
+// just silently kept showing "No case plan yet" — with the "Generate Case
+// Plan" button doing the same silent nothing on every subsequent click,
+// forever, since there was no signal telling the user (or this function
+// itself) that anything had gone wrong.
 export async function generateCasePrep(
   protestId: string,
   userId: string,
   property: PropertyRecord,
 ): Promise<void> {
   const input = toModuleInput(property);
+  let strategySucceeded = false;
+  let evidenceSucceeded = false;
 
   try {
     const strategy = await getModuleAnalysis("strategy", input);
@@ -82,6 +97,7 @@ export async function generateCasePrep(
       })
       .eq("id", protestId);
     if (error) throw error;
+    strategySucceeded = true;
   } catch (err) {
     console.error("Case strategy generation failed:", err);
   }
@@ -91,7 +107,11 @@ export async function generateCasePrep(
       .from("protest_evidence_items")
       .select("id", { count: "exact", head: true })
       .eq("protest_id", protestId);
-    if (!count) {
+    if (count) {
+      // Already has evidence items from a prior successful run — nothing
+      // new to generate, but not a failure of THIS run either.
+      evidenceSucceeded = true;
+    } else {
       const evidence = await getModuleAnalysis("evidence", input);
       if (evidence.items.length > 0) {
         const { error } = await supabase.from("protest_evidence_items").insert(
@@ -103,9 +123,21 @@ export async function generateCasePrep(
         );
         if (error) throw error;
       }
+      evidenceSucceeded = true;
     }
   } catch (err) {
     console.error("Case evidence checklist generation failed:", err);
+  }
+
+  if (!strategySucceeded && !evidenceSucceeded) {
+    // Neither half produced anything real — leave case_prep_generated_at
+    // untouched (so hasAnyPlan and "has this ever been attempted" both stay
+    // accurate) and throw for real, so the caller's existing catch+toast
+    // (see CasePlanSection.handleGenerate in CaseDetailModal.tsx) actually
+    // fires instead of this looking like a normal, silent success.
+    throw new Error(
+      "Could not generate the case plan right now — this is usually temporary. Please try again in a moment.",
+    );
   }
 
   await supabase

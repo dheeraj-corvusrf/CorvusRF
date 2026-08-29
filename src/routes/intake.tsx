@@ -1,10 +1,12 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { ArrowLeft, Check } from "lucide-react";
+import { ArrowLeft, Check, MapPin, ExternalLink } from "lucide-react";
 import { AnimatedSteps } from "@/components/AnimatedSteps";
 import { CircularSearchLoader } from "@/components/CircularSearchLoader";
 import { ValueHistorySection } from "@/components/ValueHistorySection";
+import { MapPinPicker } from "@/components/MapPinPicker";
+import { getCadRecordUrl, isDirectCadRecordUrl } from "@/lib/cad-record-url";
 import {
   readIntake,
   updateIntake,
@@ -47,6 +49,7 @@ type Step =
   | "savings"
   | "confirm"
   | "notfound"
+  | "multiple"
   | "classifying"
   | "residential-blocked";
 
@@ -66,12 +69,19 @@ function Intake() {
   // the same false "couldn't locate this property" as the abbreviation bug
   // itself, just reachable through timing instead of every time.
   const [resolvingAddress, setResolvingAddress] = useState(false);
+  const [pickingOnMap, setPickingOnMap] = useState(false);
   const [propertyKind, setPropertyKind] = useState<PropertyKind>("commercial");
   const [noticeName, setNoticeName] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [alreadySaved, setAlreadySaved] = useState<PropertyRecord | null>(null);
   const [nearby, setNearby] = useState<CadRecord[]>([]);
+  // Populated when cad-lookup finds more than one real, distinct CAD account
+  // at the exact same address (see cad-lookup.ts's "multiple" result) —
+  // e.g. a day care and a strip center on adjacent lots sharing one civic
+  // address, each with a completely different legal owner. Never silently
+  // guessed; the user picks which one via the "multiple" step below.
+  const [multipleOptions, setMultipleOptions] = useState<CadRecord[]>([]);
   // Bumped on every new lookup and by cancelValidation() — an in-flight
   // request checks this before ever touching state, so hitting Cancel (or
   // starting a second search) can't have a stale response silently repaint
@@ -196,9 +206,15 @@ function Intake() {
     setError(null);
     setAlreadySaved(null);
     setNearby([]);
+    setMultipleOptions([]);
     try {
       const res = await cadLookup(addr);
       if (requestIdRef.current !== requestId) return;
+      if (res.matched === "multiple") {
+        setMultipleOptions(res.options);
+        setStep("multiple");
+        return;
+      }
       if (!res.matched) {
         setNearby(res.nearby);
         setStep("notfound");
@@ -215,7 +231,12 @@ function Intake() {
     }
   }
 
-  async function selectNearby(record: CadRecord) {
+  // Shared by picking one of the "nearby" suggestions and one of the
+  // "multiple accounts at this address" options — both already have a full
+  // real CadRecord in hand, so this just applies it directly with no second
+  // network round-trip. `fallbackStep` is where a failure sends the user
+  // back to (each list only exists within its own step).
+  async function selectCadCandidate(record: CadRecord, fallbackStep: "notfound" | "multiple") {
     const requestId = ++requestIdRef.current;
     setStep("validating");
     setError(null);
@@ -228,7 +249,7 @@ function Intake() {
       const message =
         err instanceof Error ? err.message : "Could not use this property. Please try again.";
       toast.error(message);
-      setStep("notfound");
+      setStep(fallbackStep);
     }
   }
 
@@ -341,6 +362,17 @@ function Intake() {
             </button>
           </form>
 
+          <div className="mt-3 text-center">
+            <button
+              type="button"
+              onClick={() => setPickingOnMap(true)}
+              className="inline-flex items-center gap-1.5 text-sm text-accent hover:underline"
+            >
+              <MapPin className="h-3.5 w-3.5" />
+              Don't know the exact address? Pin it on the map instead.
+            </button>
+          </div>
+
           <div
             className={`mt-6 rounded-lg border border-dashed p-5 text-center transition-colors ${
               isDragging ? "border-accent bg-accent/5" : "border-border"
@@ -443,7 +475,7 @@ function Intake() {
                     <button
                       key={i}
                       type="button"
-                      onClick={() => !isResidential && selectNearby(r)}
+                      onClick={() => !isResidential && selectCadCandidate(r, "notfound")}
                       disabled={isResidential}
                       title={
                         isResidential
@@ -483,6 +515,98 @@ function Intake() {
               </div>
             </div>
           )}
+        </section>
+      )}
+
+      {step === "multiple" && (
+        <section className="mt-8 card-elev p-6">
+          <h2 className="font-serif text-xl font-semibold">
+            We found more than one property at this address.
+          </h2>
+          <p className="mt-1 text-muted-foreground">
+            This address covers multiple separate CAD accounts, each with its own owner. Pick the
+            one you want to protest.
+          </p>
+          <div className="mt-4">
+            <button onClick={() => setStep("address")} className="btn-outline">
+              Edit Address
+            </button>
+          </div>
+
+          <div className="mt-6 grid gap-3 border-t border-border pt-5">
+            {multipleOptions.map((r, i) => {
+              // Same commercial-only gate as the "nearby" list — the county
+              // record is authoritative, so a residential account is shown
+              // (for transparency: the user should still see it exists) but
+              // disabled rather than left clickable into a dead end.
+              const category = classifyPropertyCategory(r.propertyType);
+              const isResidential = category === "residential";
+              const recordUrl = getCadRecordUrl(r);
+              return (
+                <div
+                  key={i}
+                  className={`rounded-lg border border-border p-4 ${isResidential ? "opacity-50 grayscale" : ""}`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      {/* Owner name first and bold — it's the actual
+                          disambiguator a user needs (e.g. "PINNACLE
+                          MONTESSORI..." vs. "AVIGHNA HOLDINGS...", two real
+                          different owners at one shared civic address). */}
+                      <div className="text-sm font-semibold">{r.ownerName ?? "Owner unknown"}</div>
+                      <div className="mt-0.5 truncate text-xs text-muted-foreground">
+                        {r.propertyAddress}
+                      </div>
+                      <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                        {r.accountNumber && <span>Account #{r.accountNumber}</span>}
+                        {r.propertyType && <span className="capitalize">{r.propertyType}</span>}
+                        {r.totalValue != null && <span>Assessed {currency(r.totalValue)}</span>}
+                      </div>
+                    </div>
+                    <span
+                      className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium capitalize ${
+                        isResidential
+                          ? "bg-secondary text-muted-foreground"
+                          : category === "commercial"
+                            ? "badge-soft"
+                            : "bg-secondary text-muted-foreground"
+                      }`}
+                    >
+                      {category === "unknown" ? "Type unknown" : category}
+                    </span>
+                  </div>
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => !isResidential && selectCadCandidate(r, "multiple")}
+                      disabled={isResidential}
+                      title={
+                        isResidential
+                          ? "Residential — CorvusPT currently serves commercial properties only"
+                          : undefined
+                      }
+                      className="btn-primary btn-primary-hover text-sm py-1.5 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      Select This Property
+                    </button>
+                    {recordUrl && (
+                      <a
+                        href={recordUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="btn-outline inline-flex items-center gap-1.5 text-sm py-1.5"
+                      >
+                        <ExternalLink className="h-3.5 w-3.5" />
+                        {isDirectCadRecordUrl(r.cad)
+                          ? "View Official CAD Record"
+                          : `Search on ${r.cad}`}
+                      </a>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </section>
       )}
 
@@ -729,6 +853,18 @@ function Intake() {
           </div>
         </section>
       )}
+
+      {pickingOnMap && (
+        <MapPinPicker
+          onClose={() => setPickingOnMap(false)}
+          onConfirm={(resolvedAddress) => {
+            setPickingOnMap(false);
+            setAddress(resolvedAddress);
+            updateIntake({ address: resolvedAddress, propertyKind });
+            runValidation(resolvedAddress);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -736,7 +872,7 @@ function Intake() {
 function Stepper({ step }: { step: Step }) {
   const items = [
     ["Address", ["address"]],
-    ["Validate", ["validating", "notfound", "residential-blocked"]],
+    ["Validate", ["validating", "notfound", "multiple", "residential-blocked"]],
     ["Savings", ["savings"]],
     ["Confirm", ["confirm"]],
   ] as const;
