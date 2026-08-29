@@ -118,7 +118,7 @@ function SignIn() {
           const userId = data.user.id;
           const ownerName = companyName.trim() || `${firstName.trim()} ${lastName.trim()}`;
           try {
-            const matches = await searchPropertiesByOwner(ownerName);
+            const { matches } = await searchPropertiesByOwner(ownerName);
             if (matches.length > 0) {
               setOwnerMatches({ userId, companyName: ownerName, matches });
             } else {

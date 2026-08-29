@@ -62,9 +62,10 @@ function DocumentReview() {
   // lookup resolves; a failed/unmatched lookup fails open (not blocked) —
   // we only block on an address CAD *positively* confirms as residential.
   const [propertyCheck, setPropertyCheck] = useState<"pending" | "ok" | "residential">("pending");
-  const [residentialInfo, setResidentialInfo] = useState<{ address: string; propertyType: string | null } | null>(
-    null,
-  );
+  const [residentialInfo, setResidentialInfo] = useState<{
+    address: string;
+    propertyType: string | null;
+  } | null>(null);
 
   useEffect(() => {
     const s = readIntake();
@@ -100,13 +101,26 @@ function DocumentReview() {
     cadLookup(checkAddress)
       .then((res) => {
         if (cancelled) return;
-        if (res.matched && classifyPropertyCategory(res.record.propertyType) === "residential") {
+        // A "multiple" result (2+ real CAD accounts at this exact address —
+        // see cad-lookup.ts) doesn't need the full disambiguation UX here;
+        // this is only a lightweight residential-property guard on an
+        // uploaded document's extracted address, not the primary intake
+        // flow, so it's simplest and safe to just treat it the same as "ok"
+        // and let the user proceed (the real intake path still catches a
+        // residential match on whichever account they end up choosing).
+        if (
+          res.matched === true &&
+          classifyPropertyCategory(res.record.propertyType) === "residential"
+        ) {
           appendAudit({
             actor: "ai",
             action: "block_residential_property",
             reason: res.record.propertyType ?? undefined,
           });
-          setResidentialInfo({ address: res.record.propertyAddress, propertyType: res.record.propertyType });
+          setResidentialInfo({
+            address: res.record.propertyAddress,
+            propertyType: res.record.propertyType,
+          });
           setPropertyCheck("residential");
         } else {
           setPropertyCheck("ok");
@@ -677,7 +691,12 @@ function formatHearingDate(iso: string | null): string | null {
   if (!iso) return null;
   const d = new Date(`${iso}T00:00:00`);
   if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+  return d.toLocaleDateString("en-US", {
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
 }
 
 function HearingDetails({
@@ -712,15 +731,12 @@ function HearingDetails({
           </div>
           {!dateLabel && (
             <p className="mt-1 text-sm text-muted-foreground">
-              This notice didn't include a hearing date. See "What's Next?" below for what to do
-              in the meantime.
+              This notice didn't include a hearing date. See "What's Next?" below for what to do in
+              the meantime.
             </p>
           )}
         </div>
-        <button
-          onClick={onClose}
-          className="text-sm text-muted-foreground hover:text-foreground"
-        >
+        <button onClick={onClose} className="text-sm text-muted-foreground hover:text-foreground">
           Close
         </button>
       </div>
@@ -822,7 +838,9 @@ function FieldRow<K extends keyof Extraction>({
             </button>
           </dd>
         ) : (
-          <dd className={v == null || v === "" ? "text-muted-foreground italic text-sm" : "text-sm"}>
+          <dd
+            className={v == null || v === "" ? "text-muted-foreground italic text-sm" : "text-sm"}
+          >
             {shown}
           </dd>
         )}
@@ -863,42 +881,40 @@ function AskModal({ onClose, ask }: { onClose: () => void; ask: (q: string) => P
 
   return (
     <Modal onClose={onClose}>
-        <h3 className="font-serif text-xl font-semibold">Ask AI about this document</h3>
-        <form
-          onSubmit={async (e) => {
-            e.preventDefault();
-            if (!q.trim()) return;
-            setLoading(true);
-            setErr(null);
-            setA(null);
-            try {
-              const res = await ask(q.trim());
-              setA(res);
-            } catch (e2) {
-              console.error(e2);
-              setErr(
-                e2 instanceof Error ? e2.message : "Could not get an answer. Please try again.",
-              );
-            } finally {
-              setLoading(false);
-            }
-          }}
-          className="mt-4 grid gap-2"
-        >
-          <textarea
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="e.g. What is my protest deadline? Is the notice value higher than last year?"
-            className="rounded-md border border-input bg-background px-3 py-2 min-h-[80px] text-sm"
-          />
-          <button className="btn-primary btn-primary-hover" disabled={loading}>
-            {loading ? "Thinking…" : "Ask AI"}
-          </button>
-        </form>
-        {err && <p className="mt-3 text-sm text-destructive">{err}</p>}
-        {a && (
-          <div className="mt-4 rounded-md bg-secondary/60 p-3 text-sm whitespace-pre-wrap">{a}</div>
-        )}
+      <h3 className="font-serif text-xl font-semibold">Ask AI about this document</h3>
+      <form
+        onSubmit={async (e) => {
+          e.preventDefault();
+          if (!q.trim()) return;
+          setLoading(true);
+          setErr(null);
+          setA(null);
+          try {
+            const res = await ask(q.trim());
+            setA(res);
+          } catch (e2) {
+            console.error(e2);
+            setErr(e2 instanceof Error ? e2.message : "Could not get an answer. Please try again.");
+          } finally {
+            setLoading(false);
+          }
+        }}
+        className="mt-4 grid gap-2"
+      >
+        <textarea
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="e.g. What is my protest deadline? Is the notice value higher than last year?"
+          className="rounded-md border border-input bg-background px-3 py-2 min-h-[80px] text-sm"
+        />
+        <button className="btn-primary btn-primary-hover" disabled={loading}>
+          {loading ? "Thinking…" : "Ask AI"}
+        </button>
+      </form>
+      {err && <p className="mt-3 text-sm text-destructive">{err}</p>}
+      {a && (
+        <div className="mt-4 rounded-md bg-secondary/60 p-3 text-sm whitespace-pre-wrap">{a}</div>
+      )}
     </Modal>
   );
 }

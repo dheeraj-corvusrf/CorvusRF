@@ -58,6 +58,9 @@ export function AddOwnershipsModal({
   const [estimatesLoading, setEstimatesLoading] = useState(false);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [progress, setProgress] = useState(0);
+  const [suggestionsByEntry, setSuggestionsByEntry] = useState<
+    { entryName: string; suggestions: string[] }[]
+  >([]);
 
   function updateEntry(i: number, patch: Partial<Entry>) {
     setEntries((prev) => prev.map((e, idx) => (idx === i ? { ...e, ...patch } : e)));
@@ -154,19 +157,27 @@ export function AddOwnershipsModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function onSearch() {
-    const valid = entries.filter((e) => e.name.trim().length >= 3);
+  // Takes entries explicitly (rather than always reading the `entries` state
+  // directly) so selectSuggestion() below can trigger an immediate re-search
+  // with a corrected name without waiting a render for setEntries() to land
+  // first — calling onSearch() right after setEntries() would still read the
+  // stale array in the same tick.
+  async function onSearch(searchEntries: Entry[] = entries) {
+    const valid = searchEntries.filter((e) => e.name.trim().length >= 3);
     if (valid.length === 0) return;
     setSearching(true);
+    setSuggestionsByEntry([]);
     try {
       const perEntry = await Promise.all(
-        valid.map(async (e) => ({
-          entry: e,
-          matches: await searchPropertiesByOwner(e.name.trim()).catch((err) => {
+        valid.map(async (e) => {
+          try {
+            const { matches, suggestions } = await searchPropertiesByOwner(e.name.trim());
+            return { entry: e, matches, suggestions };
+          } catch (err) {
             console.error(`Ownership search failed for "${e.name}":`, err);
-            return [] as CadRecord[];
-          }),
-        })),
+            return { entry: e, matches: [] as CadRecord[], suggestions: [] as string[] };
+          }
+        }),
       );
 
       const byKey = new Map<string, ResultRow>();
@@ -186,10 +197,33 @@ export function AddOwnershipsModal({
           }
         }
       }
+
+      // Only worth surfacing for an entry that came up completely empty —
+      // an entry that matched fine has nothing to "did you mean" about, even
+      // if a sibling entry in the same search did.
+      setSuggestionsByEntry(
+        perEntry
+          .filter(({ matches, suggestions }) => matches.length === 0 && suggestions.length > 0)
+          .map(({ entry, suggestions }) => ({ entryName: entry.name.trim(), suggestions })),
+      );
+
       await presentResults([...byKey.values()]);
     } finally {
       setSearching(false);
     }
+  }
+
+  // A misspelled name returns zero matches from every county (a typo breaks
+  // a literal substring match same as a wholly wrong name would — see
+  // cad-owner-search's own findSuggestions()) with no indication why. Rather
+  // than a dead end, clicking a real "did you mean" suggestion corrects that
+  // entry's name and re-searches immediately.
+  function selectSuggestion(entryName: string, suggestion: string) {
+    const nextEntries = entries.map((e) =>
+      e.name.trim() === entryName ? { ...e, name: suggestion } : e,
+    );
+    setEntries(nextEntries);
+    onSearch(nextEntries);
   }
 
   function toggle(i: number) {
@@ -311,7 +345,7 @@ export function AddOwnershipsModal({
             </button>
             <button
               type="button"
-              onClick={onSearch}
+              onClick={() => onSearch()}
               disabled={searching || entries.every((e) => e.name.trim().length < 3)}
               className="btn-accent disabled:opacity-60"
             >
@@ -331,10 +365,32 @@ export function AddOwnershipsModal({
           </p>
 
           {results.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              No matches found in any county that publishes owner-name records for the name(s) you
-              entered.
-            </p>
+            <div className="grid gap-3">
+              <p className="text-sm text-muted-foreground">
+                No matches found in any county that publishes owner-name records for the name(s) you
+                entered.
+              </p>
+              {suggestionsByEntry.map(({ entryName, suggestions }) => (
+                <div key={entryName} className="rounded-md border border-border p-3">
+                  <p className="text-sm">
+                    Did you mean one of these instead of{" "}
+                    <span className="font-medium">&quot;{entryName}&quot;</span>?
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {suggestions.map((s) => (
+                      <button
+                        key={s}
+                        type="button"
+                        onClick={() => selectSuggestion(entryName, s)}
+                        className="btn-outline text-sm py-1.5"
+                      >
+                        {s}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
           ) : (
             <div className="max-h-96 overflow-auto rounded-md border border-border">
               <table className="w-full text-sm">

@@ -287,6 +287,50 @@ header .container-page {
   &:hover { background-color: var(--color-secondary); }
 }
 
+/* Scoped contrast boost for the dashboard overview — user feedback was that
+   the page "all seems to blend" together. --border at its default lightness
+   (0.90 light / 10% white dark) is nearly invisible against --card, which is
+   pure white in light mode and only a touch darker than --background in dark
+   mode — every card, stat tile, and section edge on a data-dense page like
+   this reads as one undifferentiated field instead of separate, scannable
+   panels. Wrap the page root in this class rather than changing --border/
+   --muted-foreground globally: every other page (pricing, admin, marketing)
+   already reads fine at the default tokens and wasn't part of this
+   complaint, so this only strengthens the CSS custom properties within this
+   one page's own subtree (they cascade normally — --color-border's own
+   `var(--border)` reference re-resolves against whatever --border is
+   overridden to here, no per-card edits needed) rather than risking a
+   site-wide visual regression. */
+.dashboard-contrast {
+  --border: oklch(0.80 0.02 255);
+  --muted-foreground: oklch(0.40 0.02 255);
+  --shadow-card: 0 1px 2px oklch(0 0 0 / 0.05), 0 10px 26px -10px oklch(0.18 0.06 250 / 0.18);
+  /* AppShell's own content wrapper (src/components/AppShell.tsx) is fully
+     transparent — this is genuinely the first background painted below the
+     page's own near-white base, so pure-white cards (--card is oklch(1 0 0)
+     in light mode) had nothing to visually separate from. A soft, slightly
+     darker canvas fill behind the whole page gives every card real
+     separation without a border/shadow of its own (which would read as a
+     second, redundant box one level out) — just a quiet "zone" the actual
+     content sits on, same idea as Notion/Linear-style dashboards. */
+  background: oklch(0.965 0.008 255);
+  border-radius: 1.25rem;
+  padding: 1.5rem;
+}
+@media (prefers-color-scheme: dark) {
+  .dashboard-contrast {
+    --border: oklch(1 0 0 / 0.18);
+    /* Dark mode's default --muted-foreground (0.75 lightness) already reads
+       clearly against the dark card/background tokens — only light mode's
+       (0.48, too close to mid-gray-on-white) needed strengthening. */
+    /* Dark mode's --card (0.20) is already LIGHTER than --background (0.15)
+       — the inverse of light mode — so cards already separate from the page
+       there; this only needs to be a touch darker than --background itself,
+       not a whole extra tone away like the light-mode fill above. */
+    background: oklch(0.13 0.03 250);
+  }
+}
+
 @utility badge-soft {
   display: inline-flex; align-items: center; gap: .35rem;
   padding: 0.25rem 0.6rem;

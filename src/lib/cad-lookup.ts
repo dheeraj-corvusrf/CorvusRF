@@ -45,7 +45,22 @@ export type CadRecord = {
 // failed and there was a real city to filter by. Empty when there's nothing
 // real to suggest (e.g. the address is in one of the many Texas counties
 // this app has no data source for at all).
-export type CadLookupResult = { matched: false; nearby: CadRecord[] } | { matched: true; record: CadRecord };
+//
+// matched: "multiple" — the exact house-number+street match itself resolved
+// to more than one REAL, distinct CAD account (different accountNumber),
+// not a "no exact match, try something nearby" situation. Confirmed real
+// live: a single strip-center-style civic address ("11400 Culebra, San
+// Antonio") covers two separate legal parcels on the same county block —
+// one a day care (PINNACLE MONTESSORI OF ALAMO RANCH LLC), one a strip
+// center (AVIGHNA HOLDINGS LLC) — with completely different owners. Picking
+// either one silently (the old behavior) shows the wrong legal owner for
+// whichever the tiebreak didn't happen to land on, with no way for the user
+// to even notice, let alone correct it — a real trust problem for a report
+// this app's own Protest Authorization flow treats as authoritative.
+export type CadLookupResult =
+  | { matched: false; nearby: CadRecord[] }
+  | { matched: true; record: CadRecord }
+  | { matched: "multiple"; options: CadRecord[] };
 
 export async function cadLookup(address: string): Promise<CadLookupResult> {
   return invokeEdgeFunction<CadLookupResult>("cad-lookup", { address });

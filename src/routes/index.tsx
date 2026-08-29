@@ -12,6 +12,7 @@ import {
   PiggyBank,
   ArrowRight,
   Plane,
+  MapPin,
 } from "lucide-react";
 import {
   updateIntake,
@@ -21,6 +22,7 @@ import {
 } from "@/lib/intake-store";
 import { AddressAutocomplete } from "@/components/AddressAutocomplete";
 import { SampleNoticeDialog } from "@/components/SampleNoticeDialog";
+import { MapPinPicker } from "@/components/MapPinPicker";
 import { HeroBackground } from "@/components/HeroBackground";
 import { MicButton } from "@/components/MicButton";
 import { AnimatedSteps } from "@/components/AnimatedSteps";
@@ -60,13 +62,24 @@ function Home() {
   // (real street name, not e.g. "Market Pl Blvd") has landed. Matters just as
   // much here: this is the address that gets carried forward into /intake.
   const [resolvingAddress, setResolvingAddress] = useState(false);
+  const [pickingOnMap, setPickingOnMap] = useState(false);
+
+  // Shared by the form's own submit and by picking an address suggestion
+  // directly (see onPlaceSelected below) — takes the address as a parameter
+  // rather than reading `address` state, since onPlaceSelected already hands
+  // over the final resolved value and going through state first would mean
+  // waiting an extra render for it to land.
+  function goToIntake(addr: string) {
+    if (!addr.trim()) return;
+    resetIntake();
+    updateIntake({ address: addr.trim(), propertyKind });
+    navigate({ to: "/intake" });
+  }
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!address.trim() || resolvingAddress) return;
-    resetIntake();
-    updateIntake({ address: address.trim(), propertyKind });
-    navigate({ to: "/intake" });
+    if (resolvingAddress) return;
+    goToIntake(address);
   };
 
   async function onFile(f: File) {
@@ -169,6 +182,7 @@ function Home() {
                   value={address}
                   onChange={setAddress}
                   onResolving={setResolvingAddress}
+                  onPlaceSelected={goToIntake}
                   placeholder={`Enter a ${propertyKind} property address in Texas`}
                   className="flex-1 bg-transparent text-foreground placeholder:text-muted-foreground px-4 py-3 outline-none rounded-lg"
                   ariaLabel={`${propertyKind === "commercial" ? "Commercial" : "Residential"} property address`}
@@ -209,6 +223,15 @@ function Home() {
                     ? "Reading document…"
                     : "Upload Appraisal Notice"}
               </label>
+              <button
+                type="button"
+                onClick={() => setPickingOnMap(true)}
+                className="btn-outline inline-flex items-center gap-2 bg-card shadow-elev"
+                style={{ backgroundColor: "var(--color-card)" }}
+              >
+                <MapPin className="h-4 w-4" />
+                Don't Know the Address? Pin It on the Map
+              </button>
             </div>
 
             {uploading ? (
@@ -299,6 +322,16 @@ function Home() {
           </div>
         </div>
       </section>
+
+      {pickingOnMap && (
+        <MapPinPicker
+          onClose={() => setPickingOnMap(false)}
+          onConfirm={(resolvedAddress) => {
+            setPickingOnMap(false);
+            goToIntake(resolvedAddress);
+          }}
+        />
+      )}
     </>
   );
 }

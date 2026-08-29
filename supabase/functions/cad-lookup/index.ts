@@ -337,7 +337,7 @@ async function queryCollin(address: string, mode: QueryMode = "exact"): Promise<
   const url =
     "https://services2.arcgis.com/uXyoacYrZTPTKD3R/ArcGIS/rest/services/CCAD_Parcel_Feature_Set/FeatureServer/4/query" +
     `?where=${encodeURIComponent(where)}` +
-    "&outFields=ownerName,situsConcat,currValLand,currValImprv,currValAppraised,PROP_ID,propType,propSubType,propCategoryCode,propYear" +
+    "&outFields=ownerName,situsConcat,currValLand,currValImprv,currValAppraised,currValYear,prevValLand,prevValImprv,prevValAppraised,prevValYear,PROP_ID,propType,propSubType,propCategoryCode,propYear" +
     `&resultRecordCount=${mode === "nearby" ? NEARBY_LIMIT : MULTI_CANDIDATE_LIMIT}&f=json`;
 
   const res = await fetch(url);
@@ -360,10 +360,26 @@ async function queryCollin(address: string, mode: QueryMode = "exact"): Promise<
       (attrs.propCategoryCode as string)?.trim() ||
       (attrs.propType as string)?.trim() ||
       null,
-    landValue: (attrs.currValLand as number) ?? null,
-    improvementValue: (attrs.currValImprv as number) ?? null,
-    totalValue: (attrs.currValAppraised as number) ?? null,
-    taxYear: (attrs.propYear as number) ?? null,
+    // Collin's currVal* fields go null county-wide while a new tax year's
+    // reappraisal is still "InProgress" — confirmed 2026-08-28 sampling 30
+    // real commercial parcels: all 30 had currValYear/currValAppraised null,
+    // every one of them mid-reappraisal for 2027, with a real, fully
+    // populated PREVIOUS year (2026) value set sitting right next to it
+    // unused. Without this fallback every single Collin property in this app
+    // shows blank land/improvement/total and a $0 estimated savings — not a
+    // rare edge case, the current default state for the entire county. Falls
+    // back to prevVal* (Collin's last finalized, real, published assessment)
+    // rather than showing nothing; taxYear falls back alongside it so the
+    // displayed year always matches whichever set of numbers is actually
+    // shown, never claims the still-null new year while showing old figures.
+    landValue: (attrs.currValLand as number) ?? (attrs.prevValLand as number) ?? null,
+    improvementValue: (attrs.currValImprv as number) ?? (attrs.prevValImprv as number) ?? null,
+    totalValue: (attrs.currValAppraised as number) ?? (attrs.prevValAppraised as number) ?? null,
+    taxYear:
+      (attrs.currValYear as number) ??
+      (attrs.prevValYear as number) ??
+      (attrs.propYear as number) ??
+      null,
   }));
 }
 
@@ -883,6 +899,75 @@ async function queryDallas(address: string, mode: QueryMode = "exact"): Promise<
       taxYear: attrs.APPRAISAL_YR != null ? Number(attrs.APPRAISAL_YR) : null,
     };
   });
+}
+
+// Kaufman (Phase 7, 2026-08-29) — found chasing a real report ("601 Ridgecrest
+// Rd, Forney" — Forney is in Kaufman County, which had no source here at all
+// until now). Kaufman has no public ArcGIS parcel layer at all (unlike every
+// county above); its only real public search surface is esearch.kaufman-cad.org,
+// which — like Fort Bend and Grayson (see BIS_CONFIG_BY_CAD/fetchBisResults
+// above) — runs the same "BIS Consultants" vendor platform, session-token-
+// authenticated the same way Grayson's deployment is. Reuses fetchBisResults()
+// directly as the PRIMARY source here (not just enrichment, unlike Fort
+// Bend/Grayson's use of it) — confirmed live by driving the real search UI
+// with a browser and inspecting the actual request it made, after several
+// blind guesses at the request shape all failed silently (200 OK, but every
+// field in the response echoed back null/zero — the server was accepting the
+// request but not recognizing any of the guessed parameter names/shapes).
+// The real keyword format turned out to be free-text field:value pairs
+// space-separated in one string ("StreetNumber:601 StreetName:Ridgecrest"),
+// not a JSON body field or URL query params the way every guess had assumed.
+//
+// Kaufman's response is unusually rich for a primary source — legal
+// description, subdivision, geoId, and percent ownership all come back on
+// the same call that finds the property at all, fields every ArcGIS-only
+// county above needs a SEPARATE enrichment call for (and several counties
+// can't get at all). No separate enrichBIS() call is added for Kaufman
+// (deliberately not added to BIS_CONFIG_BY_CAD) since there's nothing left
+// for a second call to add.
+async function queryKaufman(address: string, mode: QueryMode = "exact"): Promise<CadRecord[]> {
+  const parsed = parseAddressForQuery(address, mode);
+  if (!parsed) return [];
+  const core = coreStreetName(parsed.street);
+  // "nearby" mode omits StreetNumber entirely — same street, any house
+  // number — confirmed live this vendor's search engine still returns real
+  // results with just a StreetName field present.
+  const keywords =
+    mode === "nearby" ? `StreetName:${core}` : `StreetNumber:${parsed.house} StreetName:${core}`;
+
+  try {
+    const rows = await fetchBisResults("esearch.kaufman-cad.org", true, keywords);
+    return rows.slice(0, mode === "nearby" ? NEARBY_LIMIT : MULTI_CANDIDATE_LIMIT).map((r) => {
+      // "propertyTypeCode" alone is a single opaque letter ("R") — not
+      // useful for classifyPropertyCategory()'s commercial/residential
+      // keyword matching. "neighborhoodCode" is real free text this same
+      // response already carries ("RETAIL - A", confirmed live on a real
+      // commercial property) that DOES match its COMMERCIAL_TYPE_KEYWORDS
+      // list — preferred when present, falling back to the opaque code
+      // rather than nothing.
+      const neighborhoodCode = (r.neighborhoodCode as string)?.trim();
+      const propertyTypeCode = (r.propertyTypeCode as string)?.trim();
+      const percentOwnership =
+        typeof r.percentOwnership === "string" ? r.percentOwnership.replace("%", "") : null;
+      return {
+        ownerName: (r.ownerName as string)?.trim() || null,
+        propertyAddress: (r.address as string)?.trim() || address,
+        cad: "Kaufman Central Appraisal District",
+        accountNumber: r.propertyId != null ? String(r.propertyId) : null,
+        propertyType: neighborhoodCode || propertyTypeCode || null,
+        landValue: null,
+        improvementValue: null,
+        totalValue: typeof r.appraisedValue === "number" ? r.appraisedValue : null,
+        taxYear: typeof r.year === "number" ? r.year : null,
+        legalDescription: (r.legalDescription as string)?.trim() || null,
+        subdivision: (r.subdivision as string)?.trim() || null,
+        geoId: (r.geoId as string)?.trim() || null,
+        ownershipPct: percentOwnership ? parseFloat(percentOwnership) : null,
+      };
+    });
+  } catch {
+    return [];
+  }
 }
 
 // --- Enrichment (Phase 5, 2026-07-27) ---------------------------------------
@@ -1427,6 +1512,7 @@ Deno.serve(async (req: Request) => {
       queryTravis,
       queryBexar,
       queryDallas,
+      queryKaufman,
     ];
 
     // cityGuess only depends on the raw address text, not on anything the
@@ -1517,6 +1603,46 @@ Deno.serve(async (req: Request) => {
         ...record,
         propertyAddress: `${record.propertyAddress}, ${parsedForCity.cityStateZip}`,
       };
+    }
+
+    // A single civic address can genuinely cover more than one real, separately
+    // owned CAD account — confirmed live on a real report: "11400 Culebra, San
+    // Antonio" is BOTH a day care (PINNACLE MONTESSORI OF ALAMO RANCH LLC,
+    // account 1199177) AND a strip center (AVIGHNA HOLDINGS LLC, account
+    // 1256855) on adjacent lots of the same block. The tiebreak above silently
+    // picked whichever one happened to come first in the county's own row
+    // order — a real, previously undetectable wrong-owner report, since
+    // nothing on screen ever showed the second account existed at all.
+    // Grouped by record's own source only (not all `candidates` — a
+    // same-house-number-plus-generic-street coincidence in a DIFFERENT county
+    // is the cityGuess tiebreak's job above, not this one's): "exact" mode's
+    // WHERE clause already anchors house number + street core within one
+    // county's own query, so same-source candidates here are genuinely the
+    // same address, not a coincidence. Deduped by accountNumber first — a
+    // source occasionally returns the identical account twice, which isn't a
+    // second real property.
+    if (record) {
+      const sameSourceCandidates = candidates.filter((c) => c.cad === record!.cad);
+      const distinctAccounts = new Map<string, CadRecord>();
+      for (const c of sameSourceCandidates) {
+        const key = c.accountNumber ?? c.propertyAddress;
+        if (!distinctAccounts.has(key)) distinctAccounts.set(key, c);
+      }
+      if (distinctAccounts.size > 1) {
+        const options = await Promise.all(
+          [...distinctAccounts.values()].map(async (c) => {
+            const withCity =
+              parsedForCity && !c.propertyAddress.includes(",")
+                ? { ...c, propertyAddress: `${c.propertyAddress}, ${parsedForCity.cityStateZip}` }
+                : c;
+            return enrichRecord(withCity);
+          }),
+        );
+        return new Response(JSON.stringify({ matched: "multiple", options }), {
+          status: 200,
+          headers: corsHeaders,
+        });
+      }
     }
 
     if (!record) {

@@ -33,7 +33,12 @@ import {
   APPOINTMENT_OF_AGENT_SCHEMA,
   type FieldValues,
 } from "@/lib/protest-documents";
-import { getSubmission, saveDraft, signAndSubmit, type FormType } from "@/lib/protest-form-submissions";
+import {
+  getSubmission,
+  saveDraft,
+  signAndSubmit,
+  type FormType,
+} from "@/lib/protest-form-submissions";
 import { searchPropertiesByOwner } from "@/lib/cad-owner-search";
 import { PdfFormEditor } from "@/components/PdfFormEditor";
 import { Modal } from "@/components/Modal";
@@ -68,7 +73,9 @@ export function CaseDetailModal({
   return (
     <Modal onClose={onClose} wide>
       <h3 className="font-serif text-xl font-semibold">Case: {property.address}</h3>
-      <p className="text-xs text-muted-foreground">AI-generated from your property's official CAD record.</p>
+      <p className="text-xs text-muted-foreground">
+        AI-generated from your property's official CAD record.
+      </p>
 
       {loading ? (
         <div className="mt-4 grid gap-2">
@@ -172,7 +179,8 @@ export function CasePlanSection({
     }
   }
 
-  const hasAnyPlan = !!caseData && (!!caseData.strategyRecommendation || caseData.evidenceItems.length > 0);
+  const hasAnyPlan =
+    !!caseData && (!!caseData.strategyRecommendation || caseData.evidenceItems.length > 0);
   const uploadedCount = caseData?.evidenceItems.filter((i) => i.documents.length > 0).length ?? 0;
   const totalCount = caseData?.evidenceItems.length ?? 0;
 
@@ -325,7 +333,11 @@ export function DocumentsSection({
   }, [protest.id]);
 
   const formType: FormType | null =
-    editingForm === "protest" ? "notice_of_protest" : editingForm === "agent" ? "appointment_of_agent" : null;
+    editingForm === "protest"
+      ? "notice_of_protest"
+      : editingForm === "agent"
+        ? "appointment_of_agent"
+        : null;
   const templatePath = editingForm === "protest" ? "forms/50-132.pdf" : "forms/50-162.pdf";
   const schema = editingForm === "protest" ? NOTICE_OF_PROTEST_SCHEMA : APPOINTMENT_OF_AGENT_SCHEMA;
 
@@ -333,7 +345,9 @@ export function DocumentsSection({
   // swaps in a saved draft/signed submission if one exists — a prior Save
   // Progress or Sign & Submit always wins over freshly-computed defaults.
   function openProtestEditor() {
-    setValues(getNoticeOfProtestDefaults(property, property.taxYear, strategyRecommendation, authorization));
+    setValues(
+      getNoticeOfProtestDefaults(property, property.taxYear, strategyRecommendation, authorization),
+    );
     setEditingForm("protest");
     setSigningOpen(false);
     setSignature(null);
@@ -365,10 +379,11 @@ export function DocumentsSection({
   // are still empty, so it can never clobber a saved draft or an edit the
   // user already made.
   async function fillAdditionalOwnerProperties() {
-    const ownerName = property.ownerName || (authorization?.isEntity ? authorization.entityName : null);
+    const ownerName =
+      property.ownerName || (authorization?.isEntity ? authorization.entityName : null);
     if (!ownerName || !property.cad) return;
     try {
-      const matches = await searchPropertiesByOwner(ownerName);
+      const { matches } = await searchPropertiesByOwner(ownerName);
       const isCurrentProperty = (m: (typeof matches)[number]) =>
         property.accountNumber && m.accountNumber
           ? m.accountNumber === property.accountNumber
@@ -376,7 +391,8 @@ export function DocumentsSection({
       const additional = matches.filter((m) => m.cad === property.cad && !isCurrentProperty(m));
       if (additional.length === 0) return;
       setValues((prev) =>
-        prev["Appraisal District Account Number_3"] || prev["Physical or Situs Address of Property_3"]
+        prev["Appraisal District Account Number_3"] ||
+        prev["Physical or Situs Address of Property_3"]
           ? prev
           : { ...prev, ...getAdditionalOwnerPropertyFields(additional) },
       );
@@ -409,11 +425,14 @@ export function DocumentsSection({
       const filenameBase = property.accountNumber ?? property.id;
       downloadPdf(
         bytes,
-        editingForm === "protest" ? `Notice-of-Protest-${filenameBase}.pdf` : `Appointment-of-Agent-${filenameBase}.pdf`,
+        editingForm === "protest"
+          ? `Notice-of-Protest-${filenameBase}.pdf`
+          : `Appointment-of-Agent-${filenameBase}.pdf`,
       );
       // Downloading shouldn't be able to lose edits either — save silently
       // alongside it, without its own toast (Download already has one).
-      if (formType) await saveDraft(userId, protest.id, formType, values).catch((err) => console.error(err));
+      if (formType)
+        await saveDraft(userId, protest.id, formType, values).catch((err) => console.error(err));
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not generate this document.");
     } finally {
@@ -468,8 +487,8 @@ export function DocumentsSection({
     <div className="mt-5 border-t border-border pt-5">
       <h4 className="text-sm font-semibold">Documents</h4>
       <p className="text-xs text-muted-foreground">
-        Official Texas Comptroller forms, pre-filled from this case. Review or edit every field in-app, then
-        download.
+        Official Texas Comptroller forms, pre-filled from this case. Review or edit every field
+        in-app, then download.
       </p>
       <div className="mt-2 flex flex-wrap gap-2">
         <button onClick={openProtestEditor} className="btn-outline text-xs py-1.5">
@@ -479,7 +498,11 @@ export function DocumentsSection({
           onClick={openAgentEditor}
           disabled={authLoading || !authorization}
           className="btn-outline text-xs py-1.5 disabled:opacity-60"
-          title={!authLoading && !authorization ? "No signed authorization on file for this case yet" : undefined}
+          title={
+            !authLoading && !authorization
+              ? "No signed authorization on file for this case yet"
+              : undefined
+          }
         >
           Review Appointment of Agent (Form 50-162)
         </button>
@@ -487,7 +510,11 @@ export function DocumentsSection({
 
       {editingForm && (
         <PdfFormEditor
-          title={editingForm === "protest" ? "Notice of Protest (Form 50-132)" : "Appointment of Agent (Form 50-162)"}
+          title={
+            editingForm === "protest"
+              ? "Notice of Protest (Form 50-132)"
+              : "Appointment of Agent (Form 50-162)"
+          }
           sections={schema}
           values={values}
           onChange={handleFieldChange}
@@ -511,7 +538,9 @@ export function DocumentsSection({
           submitting={submitting}
           expectedSignerName={(() => {
             const key =
-              editingForm === "protest" ? "Print Name of Property Owner or Authorized Representative" : "Name of Property Owner";
+              editingForm === "protest"
+                ? "Print Name of Property Owner or Authorized Representative"
+                : "Name of Property Owner";
             const v = values[key];
             return typeof v === "string" && v ? v : undefined;
           })()}
@@ -644,7 +673,11 @@ export function CaseProgress({
     setBusy(true);
     try {
       await acceptSettlement(protest.id, protest.finalValue);
-      onUpdate({ escalationPath: "accept", closedAt: new Date().toISOString(), status: "resolved" });
+      onUpdate({
+        escalationPath: "accept",
+        closedAt: new Date().toISOString(),
+        status: "resolved",
+      });
       toast.success("Decision accepted — case closed.");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not close this case.");
@@ -682,10 +715,17 @@ export function CaseProgress({
             <Field label="Original Value" value={currency(protest.originalValue ?? undefined)} />
             <Field label="Final Value" value={currency(protest.finalValue ?? undefined)} />
             <Field label="Value Reduction" value={currency(results.valueReduction)} bold />
-            <Field label="Actual Tax Savings" value={currency(results.actualSavings)} bold success />
+            <Field
+              label="Actual Tax Savings"
+              value={currency(results.actualSavings)}
+              bold
+              success
+            />
           </div>
         ) : (
-          <p className="mt-2 text-sm text-muted-foreground">Case closed — no final value on file.</p>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Case closed — no final value on file.
+          </p>
         )
       ) : (
         <div className="mt-3 grid gap-4">
@@ -697,7 +737,11 @@ export function CaseProgress({
                 {protest.settlementOfferReceivedAt && ` (${protest.settlementOfferReceivedAt})`}
               </div>
               <div className="mt-2 flex gap-2">
-                <button onClick={handleAcceptOffer} disabled={busy} className="btn-accent text-xs py-1.5 disabled:opacity-60">
+                <button
+                  onClick={handleAcceptOffer}
+                  disabled={busy}
+                  className="btn-accent text-xs py-1.5 disabled:opacity-60"
+                >
                   Accept Offer
                 </button>
                 <span className="text-xs text-muted-foreground self-center">
@@ -711,7 +755,10 @@ export function CaseProgress({
             protest.status !== "arbitrating" && (
               <div>
                 {showOfferForm ? (
-                  <form onSubmit={submitOffer} className="grid gap-2 sm:grid-cols-[1fr_1fr_auto] items-end">
+                  <form
+                    onSubmit={submitOffer}
+                    className="grid gap-2 sm:grid-cols-[1fr_1fr_auto] items-end"
+                  >
                     <label className="grid gap-1 text-xs">
                       Offer amount
                       <input
@@ -732,12 +779,19 @@ export function CaseProgress({
                         className="rounded-md border border-input bg-background px-2 py-1.5 text-sm"
                       />
                     </label>
-                    <button type="submit" disabled={busy} className="btn-accent text-xs py-1.5 disabled:opacity-60">
+                    <button
+                      type="submit"
+                      disabled={busy}
+                      className="btn-accent text-xs py-1.5 disabled:opacity-60"
+                    >
                       Save
                     </button>
                   </form>
                 ) : (
-                  <button onClick={() => setShowOfferForm(true)} className="btn-outline text-xs py-1.5">
+                  <button
+                    onClick={() => setShowOfferForm(true)}
+                    className="btn-outline text-xs py-1.5"
+                  >
                     Record Settlement Offer
                   </button>
                 )}
@@ -831,12 +885,19 @@ export function CaseProgress({
                           className="rounded-md border border-input bg-background px-2 py-1.5 text-sm"
                         />
                       </label>
-                      <button type="submit" disabled={busy} className="btn-accent text-xs py-1.5 disabled:opacity-60">
+                      <button
+                        type="submit"
+                        disabled={busy}
+                        className="btn-accent text-xs py-1.5 disabled:opacity-60"
+                      >
                         Save
                       </button>
                     </form>
                   ) : (
-                    <button onClick={() => setShowHearingForm(true)} className="btn-outline text-xs py-1.5">
+                    <button
+                      onClick={() => setShowHearingForm(true)}
+                      className="btn-outline text-xs py-1.5"
+                    >
                       Schedule a Hearing
                     </button>
                   )}
@@ -849,11 +910,16 @@ export function CaseProgress({
           {protest.status === "decision_received" && (
             <div className="rounded-md border border-border p-3 text-sm">
               <div className="font-medium">
-                ARB decision: {protest.arbDecision} — final value {currency(protest.finalValue ?? undefined)}
+                ARB decision: {protest.arbDecision} — final value{" "}
+                {currency(protest.finalValue ?? undefined)}
               </div>
               <p className="mt-1 text-xs text-muted-foreground">What's next?</p>
               <div className="mt-2 flex flex-wrap gap-2">
-                <button onClick={handleAcceptDecision} disabled={busy} className="btn-accent text-xs py-1.5 disabled:opacity-60">
+                <button
+                  onClick={handleAcceptDecision}
+                  disabled={busy}
+                  className="btn-accent text-xs py-1.5 disabled:opacity-60"
+                >
                   Accept
                 </button>
                 <button
@@ -878,12 +944,14 @@ export function CaseProgress({
           {(protest.status === "appealing" || protest.status === "arbitrating") && (
             <div className="rounded-md border border-border p-3 text-sm">
               <div className="font-medium">
-                {protest.status === "appealing" ? "Judicial appeal in progress." : "Binding arbitration in progress."}
+                {protest.status === "appealing"
+                  ? "Judicial appeal in progress."
+                  : "Binding arbitration in progress."}
               </div>
               {protest.status === "arbitrating" ? (
                 <p className="mt-1.5 text-xs text-muted-foreground">
-                  Texas requires agents to file a Request for Binding Arbitration online, not on paper —
-                  file at{" "}
+                  Texas requires agents to file a Request for Binding Arbitration online, not on
+                  paper — file at{" "}
                   <a
                     href="https://www.texas.gov/propertytaxarbitration"
                     target="_blank"
@@ -892,14 +960,14 @@ export function CaseProgress({
                   >
                     texas.gov/propertytaxarbitration
                   </a>
-                  . A deposit is required with the request (refunded if the arbitrator's value lands closer
-                  to the owner's opinion of value than the ARB's).
+                  . A deposit is required with the request (refunded if the arbitrator's value lands
+                  closer to the owner's opinion of value than the ARB's).
                 </p>
               ) : (
                 <p className="mt-1.5 text-xs text-muted-foreground">
-                  A judicial appeal is a lawsuit filed in district court (Tax Code Chapter 42), not a
-                  Comptroller form — it typically requires an attorney and isn't something this app files.
-                  See the Comptroller's{" "}
+                  A judicial appeal is a lawsuit filed in district court (Tax Code Chapter 42), not
+                  a Comptroller form — it typically requires an attorney and isn't something this
+                  app files. See the Comptroller's{" "}
                   <a
                     href="https://comptroller.texas.gov/taxes/property-tax/protests/"
                     target="_blank"
@@ -923,12 +991,19 @@ export function CaseProgress({
                       className="rounded-md border border-input bg-background px-2 py-1.5 text-sm"
                     />
                   </label>
-                  <button type="submit" disabled={busy} className="btn-accent text-xs py-1.5 disabled:opacity-60">
+                  <button
+                    type="submit"
+                    disabled={busy}
+                    className="btn-accent text-xs py-1.5 disabled:opacity-60"
+                  >
                     Save
                   </button>
                 </form>
               ) : (
-                <button onClick={() => setShowCloseForm(true)} className="btn-outline text-xs py-1.5 mt-2">
+                <button
+                  onClick={() => setShowCloseForm(true)}
+                  className="btn-outline text-xs py-1.5 mt-2"
+                >
                   Record Final Outcome
                 </button>
               )}
@@ -954,8 +1029,9 @@ function Field({
   return (
     <div>
       <div className="text-xs text-muted-foreground">{label}</div>
-      <div className={`${bold ? "font-semibold" : ""} ${success ? "text-success" : ""}`}>{value}</div>
+      <div className={`${bold ? "font-semibold" : ""} ${success ? "text-success" : ""}`}>
+        {value}
+      </div>
     </div>
   );
 }
-

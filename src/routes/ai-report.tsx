@@ -22,6 +22,7 @@ import {
   TrendingDown,
   ShieldCheck,
   Wrench,
+  RefreshCw,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -682,6 +683,7 @@ function Report() {
               propertyType={state.propertyType}
               totalValue={state.totalValue}
               onOpen={() => openModule(m)}
+              onForceReload={() => loadModule(m.id, { force: true })}
             />
           ))}
         </div>
@@ -837,6 +839,7 @@ function ModuleCard({
   propertyType,
   totalValue,
   onOpen,
+  onForceReload,
 }: {
   m: Module;
   unlocked: boolean;
@@ -853,6 +856,7 @@ function ModuleCard({
   propertyType?: string;
   totalValue?: number | null;
   onOpen: () => void;
+  onForceReload: () => void;
 }) {
   // Reflects what's actually happening now that the grid eager-loads real
   // data (see the effect above Report()), not the old static per-module
@@ -899,6 +903,27 @@ function ModuleCard({
               </span>
             )}
             <StatusChip status={status} />
+            {/* Hidden for a locked/gated card (nothing to refetch), "Needs
+                Data" (income — that's a P&L upload gate, not an AI call this
+                page ever fires), and "savings" (deterministic, no AI call at
+                all — loadModule() no-ops for it). Spins in place, doubling
+                as the loading indicator the user asked for, and doubles as a
+                one-click retry for a genuinely slow/stuck module without
+                having to open the modal's own Retry button. */}
+            {unlocked && m.id !== "savings" && status !== "Locked" && status !== "Needs Data" && (
+              <button
+                type="button"
+                onClick={onForceReload}
+                disabled={status === "Analyzing"}
+                title={status === "Analyzing" ? "Analyzing…" : "Refresh this module"}
+                aria-label={status === "Analyzing" ? "Analyzing" : "Refresh this module"}
+                className="rounded-full p-1 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:cursor-default disabled:hover:bg-transparent"
+              >
+                <RefreshCw
+                  className={`h-3.5 w-3.5 ${status === "Analyzing" ? "animate-spin" : ""}`}
+                />
+              </button>
+            )}
           </div>
         </div>
         <div className="mt-4 flex-1 flex flex-col justify-center">

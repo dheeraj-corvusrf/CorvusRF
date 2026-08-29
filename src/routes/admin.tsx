@@ -866,12 +866,15 @@ function UserProperties({ userId }: { userId: string }) {
       .finally(() => setPropsLoading(false));
   }, [userId]);
 
-  async function handleAdd(e: React.FormEvent) {
-    e.preventDefault();
-    if (!newAddress.trim() || resolvingAddress) return;
+  // Shared by the form's own submit and by picking an address suggestion
+  // directly (see onPlaceSelected below) — takes the address as a parameter
+  // rather than reading `newAddress` state, since onPlaceSelected already
+  // hands over the final, fully-resolved value.
+  async function addAddress(addr: string) {
+    if (!addr.trim()) return;
     setAdding(true);
     try {
-      const created = await addProperty(userId, { address: newAddress.trim() });
+      const created = await addProperty(userId, { address: addr.trim() });
       setProperties((prev) => [created, ...prev.filter((p) => p.id !== created.id)]);
       setNewAddress("");
       toast.success("Property added.");
@@ -880,6 +883,12 @@ function UserProperties({ userId }: { userId: string }) {
     } finally {
       setAdding(false);
     }
+  }
+
+  function handleAdd(e: React.FormEvent) {
+    e.preventDefault();
+    if (resolvingAddress) return;
+    addAddress(newAddress);
   }
 
   async function handleDelete(id: string) {
@@ -901,6 +910,7 @@ function UserProperties({ userId }: { userId: string }) {
           value={newAddress}
           onChange={setNewAddress}
           onResolving={setResolvingAddress}
+          onPlaceSelected={addAddress}
           placeholder="Add a property address"
           className="rounded-md border border-input bg-background px-3 py-2 text-sm"
         />
