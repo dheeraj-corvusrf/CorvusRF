@@ -213,7 +213,9 @@ body.doors-page footer {
   transform-origin: left center;
   backface-visibility: hidden;
   box-shadow: inset 0 0 0 1px oklch(1 0 0 / 0.14);
-  transition: transform 0.65s cubic-bezier(0.6, 0, 0.35, 1), box-shadow 0.5s ease;
+  transition:
+    transform 0.65s cubic-bezier(0.6, 0, 0.35, 1),
+    box-shadow 0.5s ease;
 }
 /* Thin glowing light strip tracing the top and both sides of the door leaf
    (no bottom edge, matching a real recessed-LED door frame) — each door's
@@ -230,9 +232,12 @@ body.doors-page footer {
   z-index: 3;
   pointer-events: none;
   background:
-    linear-gradient(to right, var(--door-glow, #fff), var(--door-glow, #fff)) top / 100% 3px no-repeat,
-    linear-gradient(to bottom, var(--door-glow, #fff), var(--door-glow, #fff)) left / 3px 100% no-repeat,
-    linear-gradient(to bottom, var(--door-glow, #fff), var(--door-glow, #fff)) right / 3px 100% no-repeat;
+    linear-gradient(to right, var(--door-glow, #fff), var(--door-glow, #fff)) top / 100% 3px
+      no-repeat,
+    linear-gradient(to bottom, var(--door-glow, #fff), var(--door-glow, #fff)) left / 3px 100%
+      no-repeat,
+    linear-gradient(to bottom, var(--door-glow, #fff), var(--door-glow, #fff)) right / 3px 100%
+      no-repeat;
   filter: drop-shadow(0 0 3px var(--door-glow, #fff))
     drop-shadow(0 0 7px color-mix(in oklch, var(--door-glow, #fff) 70%, transparent));
 }
@@ -269,7 +274,12 @@ body.doors-page footer {
   width: 0.4375rem;
   height: 1.5rem;
   border-radius: 0 0.1875rem 0.1875rem 0;
-  background: linear-gradient(90deg, oklch(0.5 0.02 258), oklch(0.78 0.02 258) 60%, oklch(0.5 0.02 258));
+  background: linear-gradient(
+    90deg,
+    oklch(0.5 0.02 258),
+    oklch(0.78 0.02 258) 60%,
+    oklch(0.5 0.02 258)
+  );
   box-shadow: 1px 0 2px oklch(0 0 0 / 0.4);
 }
 .door-hinge-top {
@@ -311,7 +321,9 @@ body.doors-page footer {
     color-mix(in oklch, var(--door-glow, #ccc) 75%, white) 42%,
     color-mix(in oklch, var(--door-glow, #ccc) 35%, black) 100%
   );
-  box-shadow: 0 2px 5px oklch(0 0 0 / 0.6), 0 0 4px color-mix(in oklch, var(--door-glow, #ccc) 40%, transparent);
+  box-shadow:
+    0 2px 5px oklch(0 0 0 / 0.6),
+    0 0 4px color-mix(in oklch, var(--door-glow, #ccc) 40%, transparent);
 }
 
 /* ---------- Dark slab + glow-frame door style ----------
@@ -505,13 +517,17 @@ body.doors-page footer {
 .door:hover .door-panel,
 .door:focus-visible .door-panel {
   transform: rotateY(-30deg);
-  box-shadow: inset 0 0 0 1px oklch(1 0 0 / 0.14), 1.5rem 0 3rem -1rem oklch(0 0 0 / 0.55);
+  box-shadow:
+    inset 0 0 0 1px oklch(1 0 0 / 0.14),
+    1.5rem 0 3rem -1rem oklch(0 0 0 / 0.55);
 }
 .door:focus-visible {
   outline: none;
 }
 .door:focus-visible .door-panel {
-  box-shadow: inset 0 0 0 3px oklch(1 0 0 / 0.85), 1.5rem 0 3rem -1rem oklch(0 0 0 / 0.55);
+  box-shadow:
+    inset 0 0 0 3px oklch(1 0 0 / 0.85),
+    1.5rem 0 3rem -1rem oklch(0 0 0 / 0.55);
 }
 /* The actual open — swings well past vertical and, with backface-visibility
    hidden above, disappears from view just before the click handler
@@ -603,10 +619,15 @@ body .door.is-open .door-label {
     /* Desktop's top:54% (see the base .door-label rule) was tuned for a
        tall, narrow single-row door — on the shorter, more square doors the
        2-column mobile grid produces, that same 54% left the whole
-       label+caption block sitting low, with a large empty gap above it and
-       barely any margin below. Confirmed live on a real phone. Shifted up
-       so the group centers within the door instead. */
-    top: 46%;
+       label+caption block sitting low. A first pass shifted this to 46%,
+       but a real phone screenshot (annotated by the user) showed the
+       label+caption group was still riding low, with most of the empty
+       space stacked above it and almost none below. Recomputed from the
+       actual rendered box heights (label ~21% of panel height, gap ~1.5%,
+       3-line subtitle ~36%) so the whole block — label top edge through
+       subtitle bottom edge — lands roughly centered in the door instead of
+       guessed incrementally again. */
+    top: 32%;
   }
 }
 /* Matches the app header/footer wordmark, where "PT" is picked out in
@@ -714,10 +735,11 @@ body .door.is-open .door-subtitle {
     font-size: 0.8125rem;
     padding: 0.4375rem 0.625rem;
     gap: 0.125rem;
-    /* Follows .door-label's own top:46% shift above — same 11-point gap
-       from the label (top:65% - top:54% desktop) preserved, just moved up
-       together so the caption still sits directly under the name. */
-    top: 58%;
+    /* Follows .door-label's own top:32% above — same ~12-point gap from
+       the label preserved (see that rule's comment for how both numbers
+       were derived from actual box heights this time, not another guess),
+       so the caption still sits directly under the name. */
+    top: 44%;
   }
 }
 

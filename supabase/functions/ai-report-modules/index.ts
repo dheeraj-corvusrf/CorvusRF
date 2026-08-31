@@ -321,6 +321,18 @@ function buildRecord(input: ModulesInput): string {
 // a generic 500.
 type GeminiPart = { text: string } | { inline_data: { mime_type: string; data: string } };
 
+// No timeout on this fetch at all before this — a slow/hung Gemini response
+// just hung the edge function indefinitely, which is what actually surfaced
+// as modules stuck on "Analyzing" forever (confirmed live: latency to Gemini
+// is genuinely volatile right now — a trivial ping ranged from ~2s to 30s+
+// with nothing on our end to explain the difference; this is congestion on
+// Gemini's serving infrastructure, not something fixable by a prompt/config
+// change here). 20s bounds the worst case to something the client can retry
+// against instead of waiting forever — see the 504 handling below and the
+// matching retry-on-504 in src/lib/edge-functions.ts (previously only
+// retried 429).
+const GEMINI_TIMEOUT_MS = 20_000;
+
 async function generateJson(
   apiKey: string,
   system: string,
@@ -329,17 +341,42 @@ async function generateJson(
   const body = {
     systemInstruction: { parts: [{ text: system }] },
     contents: [{ role: "user", parts }],
-    generationConfig: { responseMimeType: "application/json" },
+    // Bounded, not left dynamic/unset — a fixed budget removes one source of
+    // worst-case blowup (an unset budget lets the model choose its own,
+    // unpredictable spend) and costs nothing when Gemini is responding
+    // normally. This model rejects a budget of exactly 0 with a 400, so 512
+    // is the smallest confirmed-working value.
+    generationConfig: {
+      responseMimeType: "application/json",
+      thinkingConfig: { thinkingBudget: 512 },
+    },
   };
 
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    },
-  );
+  const controller = new AbortController();
+  const t = setTimeout(() => controller.abort(), GEMINI_TIMEOUT_MS);
+  let res: Response;
+  try {
+    res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      },
+    );
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") {
+      const timeoutErr = new Error("AI response timed out. Please try again.") as Error & {
+        status?: number;
+      };
+      timeoutErr.status = 504;
+      throw timeoutErr;
+    }
+    throw err;
+  } finally {
+    clearTimeout(t);
+  }
 
   if (!res.ok) {
     const text = await res.text();
@@ -446,7 +483,8 @@ Deno.serve(async (req: Request) => {
     const result = spec.parse(parsed ?? {});
     return new Response(JSON.stringify(result), { status: 200, headers: corsHeaders });
   } catch (err) {
-    const status = (err as { status?: number } | null)?.status === 429 ? 429 : 500;
+    const errStatus = (err as { status?: number } | null)?.status;
+    const status = errStatus === 429 || errStatus === 504 ? errStatus : 500;
     return new Response(
       JSON.stringify({ error: err instanceof Error ? err.message : "unknown error" }),
       { status, headers: corsHeaders },

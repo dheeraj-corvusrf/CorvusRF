@@ -90,6 +90,40 @@ factors and comparisons used, not model internals>",
 "dataSufficient": <true|false — false if there's genuinely too little data for a responsible
 score>}`;
 
+// Gemini call had no timeout at all before this — a slow/hung response on
+// Gemini's end just hung the edge function indefinitely, which is what
+// actually surfaced as "the module keeps spinning and I never get results"
+// (confirmed live: a plain "reply OK" ping ranged from ~2s to 30s+ with
+// nothing on our side to explain the difference — this is external
+// congestion, not something a prompt/config change here can fix outright).
+// 20s bounds the worst case to something the client can retry against
+// instead of waiting forever; on abort this throws a TimeoutError the catch
+// block below turns into a 504 the client already knows to retry (see the
+// 429-retry loop in src/lib/edge-functions.ts, extended to also cover 504).
+const GEMINI_TIMEOUT_MS = 20_000;
+
+class TimeoutError extends Error {}
+
+async function fetchWithTimeout(url: string, body: unknown): Promise<Response> {
+  const controller = new AbortController();
+  const t = setTimeout(() => controller.abort(), GEMINI_TIMEOUT_MS);
+  try {
+    return await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw new TimeoutError("AI response timed out. Please try again.");
+    }
+    throw err;
+  } finally {
+    clearTimeout(t);
+  }
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
@@ -153,16 +187,25 @@ Deno.serve(async (req: Request) => {
     const body = {
       systemInstruction: { parts: [{ text: system }] },
       contents: [{ role: "user", parts: [{ text: record }] }],
-      generationConfig: { responseMimeType: "application/json" },
+      // Bounded (not dynamic/unset, and not 0 — this model rejects a budget of
+      // exactly 0 with a 400) thinking budget. Investigated live: this task's
+      // real-world latency turned out to be dominated by variable congestion on
+      // Gemini's own serving infrastructure (a trivial "reply OK" ping ranged
+      // from ~2s to a 30s+ timeout with no change on our end) rather than by
+      // thinking-token spend itself — but a bounded budget still removes one
+      // source of worst-case blowup (an unset/dynamic budget lets the model
+      // choose its own, unpredictable spend) and costs nothing when Gemini is
+      // responsive normally. See fetchWithTimeout below for the fix that
+      // actually addresses the "spins forever" symptom.
+      generationConfig: {
+        responseMimeType: "application/json",
+        thinkingConfig: { thinkingBudget: 512 },
+      },
     };
 
-    const res = await fetch(
+    const res = await fetchWithTimeout(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      },
+      body,
     );
 
     if (!res.ok) {
@@ -203,6 +246,12 @@ Deno.serve(async (req: Request) => {
 
     return new Response(JSON.stringify(result), { status: 200, headers: corsHeaders });
   } catch (err) {
+    if (err instanceof TimeoutError) {
+      return new Response(JSON.stringify({ error: err.message }), {
+        status: 504,
+        headers: corsHeaders,
+      });
+    }
     return new Response(
       JSON.stringify({ error: err instanceof Error ? err.message : "unknown error" }),
       { status: 500, headers: corsHeaders },
