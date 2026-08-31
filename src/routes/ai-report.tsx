@@ -576,6 +576,10 @@ function Report() {
       effectiveTaxRatePct: savingsEstimate.effectiveTaxRatePct,
     };
   }, [savingsEstimate, state.totalValue]);
+  // Drives the analysis banner's hero savings figure sizing below — the
+  // formatted string's own length, not viewport width, since a large enough
+  // property can produce a 6+ digit savings figure on any screen size.
+  const savingsDigits = useMemo(() => currency(estimated.savings).length, [estimated.savings]);
 
   // Eager-loads real data for the module overview grid below (real scores,
   // checklists, etc. instead of generic teaser text) as soon as the property
@@ -680,32 +684,66 @@ function Report() {
         </div>
       </section>
 
-      {/* Analysis banner */}
-      <section className="mt-6 card-elev p-5 flex flex-wrap items-center justify-between gap-3 bg-primary text-primary-foreground">
-        <div className="min-w-0 flex-1">
-          <p className="text-sm text-primary-foreground/80">
-            {analyzing ? "AI is analyzing your property..." : "AI analysis completed."}
-          </p>
-          <p className="font-serif text-lg sm:text-xl">
-            {analyzing
-              ? "Preparing your property valuation review..."
-              : `Estimated tax savings this year: ${currency(estimated.savings)}`}
-          </p>
-        </div>
-        <div className="print:hidden text-right text-sm shrink-0">
-          {hasFullAccess ? (
-            <div className="text-primary-foreground/70 text-xs">AI Report subscription active</div>
-          ) : (
-            <>
-              <div>
-                {FREE_MODULE_COUNT} of {MODULES.length} modules free
+      {/* Analysis banner — the savings figure is the whole point of this page for
+          most visitors, so it gets a hero-scale treatment (was the same text-lg
+          size as the "AI analysis completed" label above it, easy to skim past)
+          rather than reading as one more line of body copy. */}
+      <section className="mt-6 card-elev overflow-hidden bg-primary text-primary-foreground">
+        <div className="flex flex-wrap items-start justify-between gap-6 p-5 sm:p-8">
+          <div className="min-w-0">
+            <p className="text-sm text-primary-foreground/80">
+              {analyzing ? "AI is analyzing your property..." : "AI analysis completed."}
+            </p>
+            {analyzing ? (
+              <p className="mt-1 font-serif text-lg sm:text-xl">
+                Preparing your property valuation review...
+              </p>
+            ) : (
+              <>
+                <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-primary-foreground/70">
+                  Estimated tax savings this year
+                </p>
+                {/* Sized off the actual formatted string's length, not just the
+                    viewport — a fixed text-6xl/7xl/8xl scale (confirmed live)
+                    clips off-card on a narrow phone once a large property's
+                    savings run to 6+ digits ("$135,675" and up), since a wider
+                    viewport can't be assumed to always mean a shorter number.
+                    Common case (the vast majority of real properties) still
+                    gets the full hero size below. */}
+                <p
+                  className={`mt-1 flex items-center gap-2 font-serif font-bold leading-none text-accent ${
+                    savingsDigits <= 7
+                      ? "text-6xl sm:text-7xl lg:text-8xl"
+                      : savingsDigits <= 9
+                        ? "text-5xl sm:text-6xl lg:text-7xl"
+                        : "text-4xl sm:text-5xl lg:text-6xl"
+                  }`}
+                >
+                  <TrendingUp className="h-8 w-8 shrink-0 sm:h-10 sm:w-10 lg:h-14 lg:w-14" />
+                  <AnimatedNumber value={estimated.savings} format={currency} duration={900} />
+                </p>
+              </>
+            )}
+          </div>
+          <div className="print:hidden shrink-0 text-right text-sm">
+            {hasFullAccess ? (
+              <div className="text-primary-foreground/70 text-xs">
+                AI Report subscription active
               </div>
-              <div className="text-primary-foreground/70 text-xs">Subscribe to unlock the rest</div>
-            </>
-          )}
+            ) : (
+              <>
+                <div>
+                  {FREE_MODULE_COUNT} of {MODULES.length} modules free
+                </div>
+                <div className="text-primary-foreground/70 text-xs">
+                  Subscribe to unlock the rest
+                </div>
+              </>
+            )}
+          </div>
         </div>
         {user && (
-          <div className="w-full pt-3 border-t border-primary-foreground/20 print:hidden">
+          <div className="border-t border-primary-foreground/20 px-5 pb-5 pt-3 print:hidden sm:px-8 sm:pb-8">
             {existingProtest ? (
               <div className="flex items-center gap-3">
                 <span className="badge-soft">
