@@ -32,7 +32,7 @@ export const Route = createFileRoute("/pricing")({
       { property: "og:title", content: "CorvusPT.ai Pricing" },
       {
         property: "og:description",
-        content: "Free AI review. Then $99–$699/mo per property, priced by property value.",
+        content: "Free AI review. Then $99–$799/mo per property, priced by property value.",
       },
     ],
   }),

@@ -34,7 +34,7 @@ const BRACKET_LABEL: Record<Bracket, string> = {
 
 const TIER_BRACKET_PRICES: Record<Tier, Record<Bracket, number>> = {
   owner_managed: { under2m: 99, mid2m10m: 299, over10m: 499 },
-  corvusrf_managed: { under2m: 199, mid2m10m: 499, over10m: 699 },
+  corvusrf_managed: { under2m: 199, mid2m10m: 499, over10m: 799 },
 };
 
 const ADDITIONAL_PROPERTY_DISCOUNT = 0.15;
@@ -50,10 +50,13 @@ Deno.serve(async (req: Request) => {
       cancelPath?: string;
     };
     if (tier !== "owner_managed" && tier !== "corvusrf_managed") {
-      return new Response(JSON.stringify({ error: "tier must be owner_managed or corvusrf_managed" }), {
-        status: 400,
-        headers: corsHeaders,
-      });
+      return new Response(
+        JSON.stringify({ error: "tier must be owner_managed or corvusrf_managed" }),
+        {
+          status: 400,
+          headers: corsHeaders,
+        },
+      );
     }
     // Only ever appended to a server-validated origin below, never used as a whole
     // URL — but requiring a leading "/" (not "//", which a browser would treat as
