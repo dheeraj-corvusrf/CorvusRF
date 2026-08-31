@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   CheckCircle2,
@@ -424,6 +424,77 @@ function Report() {
         })),
       );
   }
+
+  // Auto-retry a module that landed in an error state, instead of making the
+  // user click "click to view & retry" themselves. invokeEdgeFunction already
+  // retries transient 429/504s internally before ever surfacing an error here
+  // (see src/lib/edge-functions.ts) — a module reaching this state exhausted
+  // that whole budget, which live testing while chasing this same "modules
+  // keep erroring" report showed happens during genuinely bad stretches of
+  // Gemini congestion (per-call failure rates swinging from ~0% to 50%+
+  // minute to minute), not a permanent problem. Capped at AUTO_RETRY_MAX so a
+  // truly broken call (missing secret, bad input) doesn't hammer the API
+  // forever — the existing manual retry link is still there as the fallback
+  // once this budget is spent.
+  const autoRetryRef = useRef<
+    Record<string, { count: number; timer: ReturnType<typeof setTimeout> | null }>
+  >({});
+  const AUTO_RETRY_MAX = 3;
+  const AUTO_RETRY_DELAY_MS = 6000;
+  useEffect(() => {
+    for (const [id, entry] of Object.entries(moduleData)) {
+      const tracked = autoRetryRef.current[id];
+      // A retry attempt itself sets {data: null, loading: true, error: null}
+      // — indistinguishable from "never failed" by entry.error alone, which
+      // would otherwise hit the branch below and wipe the count this same
+      // attempt just incremented, before its outcome is even known (making
+      // AUTO_RETRY_MAX effectively unbounded — confirmed by tracing it
+      // through). Skip entirely while in flight; only a real settled result
+      // (success below, or a fresh error two branches down) should touch
+      // tracking.
+      if (entry.loading) continue;
+      if (!entry.error) {
+        // A genuine success — clear tracking so a future failure on this
+        // same module gets a fresh retry budget instead of inheriting an
+        // old count.
+        if (tracked) {
+          if (tracked.timer) clearTimeout(tracked.timer);
+          delete autoRetryRef.current[id];
+        }
+        continue;
+      }
+      if (tracked?.timer) continue; // a retry is already scheduled for this module
+      const count = tracked?.count ?? 0;
+      if (count >= AUTO_RETRY_MAX) continue;
+      const timer = setTimeout(() => {
+        autoRetryRef.current[id] = { count: count + 1, timer: null };
+        loadModule(id, { force: true });
+      }, AUTO_RETRY_DELAY_MS);
+      autoRetryRef.current[id] = { count, timer };
+    }
+    // loadModule is intentionally excluded — same rationale as the eager-load
+    // effects elsewhere on this page (it closes over moduleData for its own
+    // fetch guard and would otherwise re-fire this effect on every load it
+    // itself triggers).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [moduleData]);
+  // Cleanup only, run once — cancels any still-pending auto-retry timers if
+  // the user navigates away mid-retry rather than letting them fire (and
+  // call setModuleData) against an unmounted page. Deliberately reads
+  // autoRetryRef.current live inside the cleanup rather than a captured
+  // snapshot — this ref isn't a DOM node, it's a running tally that keeps
+  // growing for as long as the page is mounted, so the exhaustive-deps
+  // warning's usual "copy .current to a variable" fix would only ever see
+  // the empty object from right after mount, before any retry was ever
+  // scheduled.
+  useEffect(() => {
+    return () => {
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      for (const entry of Object.values(autoRetryRef.current)) {
+        if (entry.timer) clearTimeout(entry.timer);
+      }
+    };
+  }, []);
 
   function loadCompsMap() {
     if (compsMap.data || compsMap.loading) return;
