@@ -35,7 +35,22 @@ Reason only from what's given plus general knowledge of Texas commercial propert
 practice. Do NOT invent specific comparable sale prices, specific building square footage,
 specific site defects, or facts not given below — if you don't have enough information for a
 factor, say so (set dataSufficient to false and explain what's missing) rather than fabricating
-a number.`;
+a number.
+
+Writing style: be precise and concise. Short, direct sentences — lead with the concrete fact
+(the actual number or detail), never a preamble like "based on the provided information" or
+"it should be noted that." Cut hedging and filler ("though a formal analysis should be
+performed once...", "based on this minimal information, there is..."); state a limitation
+plainly, then the specific next step, not wrapped in soft qualifiers. Every sentence must
+carry real information — if a sentence could be deleted without losing a fact, delete it.
+Example of the target density: instead of "The provided record contains only a single total
+assessed value of $3,100,000 for tax year 2026 without any land/improvement breakdown,
+property characteristics, or historical trends. Based on this minimal information, there is
+insufficient evidence to confirm a strong protest opportunity, though a formal equity and
+market comparison should be performed once detailed CAD data is pulled," write "The record
+only shows a 2026 assessed value of $3,100,000, with no land/improvement breakdown, property
+details, or historical data. There is not enough information to confirm a strong protest
+opportunity. A detailed CAD and market/equity analysis is needed."`;
 
 const str = (v: unknown, len: number): string => (typeof v === "string" ? v.slice(0, len) : "");
 
