@@ -23,6 +23,7 @@ import {
   ShieldCheck,
   Wrench,
   RefreshCw,
+  ArrowDown,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -38,6 +39,7 @@ import {
   LabelList,
   ScatterChart,
   Scatter,
+  ReferenceLine,
 } from "recharts";
 import {
   readIntake,
@@ -65,7 +67,12 @@ import {
   type StrategyEntry,
 } from "@/lib/ai-report-modules";
 import { getComps, type CompsResult, type CompProperty } from "@/lib/cad-comps";
-import { computeComparableStats, type RankedComp } from "@/lib/comps-analysis";
+import { getCadRecordUrl, isDirectCadRecordUrl } from "@/lib/cad-record-url";
+import {
+  computeComparableStats,
+  type RankedComp,
+  type ComparableStats,
+} from "@/lib/comps-analysis";
 import { estimateSavings } from "@/lib/savings-estimate";
 import {
   classifyPropertyCategory,
@@ -134,7 +141,7 @@ const CONFETTI_ORIGIN_RIGHT_X_PCT = 88;
 const CONFETTI_ORIGIN_RIGHT_Y_PCT = 45;
 
 // Real comps-derived signal fed into Module 2's prompt (see loadModule() below) —
-// median/min/max of the same real comparable market values CompsMap/CompsScatter
+// median/min/max of the same real comparable market values CompsMap/CompsValueScatter
 // already render, not a new fetch or an invented figure.
 function buildCompsSummary(compsData: CompsResult | null) {
   const values = (compsData?.comps ?? [])
@@ -402,8 +409,25 @@ function Report() {
       // Grounds the Market Value module's guidance in the real comps already
       // fetched for this property (median/range/count) instead of generic
       // advice — same real signal, same helper, as the Strategy module above.
+      // Also sends the real top-5-by-similarity comps (same computation the
+      // modal itself renders — see computeComparableStats in
+      // comps-analysis.ts) so recommendedUse can name specific real
+      // properties instead of speaking only in generalities.
       if (id === "comps") {
         input.compsSummary = buildCompsSummary(compsMap.data);
+        const stats = computeComparableStats(
+          compsMap.data?.subject ?? null,
+          compsMap.data?.comps ?? [],
+          state.totalValue,
+        );
+        if (stats.ranked.length > 0) {
+          input.topComps = stats.ranked.slice(0, 5).map((c) => ({
+            address: c.address || `Property #${c.pid}`,
+            distanceMi: c.distanceMi,
+            marketValue: c.marketValue,
+            similarity: c.similarity,
+          }));
+        }
       }
 
       // Improvement Condition reads uploaded evidence (photos/repair estimates/
@@ -642,6 +666,17 @@ function Report() {
     const strategyState = moduleData.strategy;
     const fire = () => {
       for (const id of SEQUENCED_AFTER_STRATEGY) {
+        // "comps" specifically also wants compsMap.data already populated
+        // (see loadModule()'s own comps branch, which sends real topComps
+        // for the Recommended Protest Use field) — loadCompsMap() right
+        // above is fire-and-forget, so without this check "comps" could
+        // fire in the very same tick as loadCompsMap() itself, well before
+        // that fetch resolves (confirmed live: compsMap.data was still null
+        // at the exact moment this ran). compsMap.loading is in the
+        // dependency array below specifically so this effect re-runs once
+        // that fetch actually settles, giving "comps" a second real chance
+        // to fire with real data instead of silently going out ungrounded.
+        if (id === "comps" && compsMap.loading) continue;
         const m = MODULES.find((mm) => mm.id === id);
         if (m && (m.n <= FREE_MODULE_COUNT || hasFullAccess)) loadModule(m.id);
       }
@@ -653,11 +688,18 @@ function Report() {
     const t = setTimeout(fire, 6000);
     return () => clearTimeout(t);
     // Same rationale as the effect above for omitting loadModule/loadCompsMap;
-    // moduleData.strategy's data/error are read explicitly instead of the
-    // whole moduleData map so this only re-fires on Module 2's own state
-    // transitions, not every other module's load.
+    // moduleData.strategy's data/error (plus compsMap.loading, for the
+    // "comps" race described above) are read explicitly instead of the
+    // whole moduleData/compsMap objects so this only re-fires on those
+    // specific state transitions, not every other module's load.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.totalValue, hasFullAccess, moduleData.strategy?.data, moduleData.strategy?.error]);
+  }, [
+    state.totalValue,
+    hasFullAccess,
+    moduleData.strategy?.data,
+    moduleData.strategy?.error,
+    compsMap.loading,
+  ]);
 
   function openModule(m: Module) {
     if (hasFullAccess || m.n <= FREE_MODULE_COUNT) {
@@ -1243,10 +1285,7 @@ function ModuleVisual({
           <span className="text-xs text-muted-foreground">comparable properties found nearby</span>
         </div>
         <div className="mt-1.5">
-          <CompsScatter
-            comps={compsMap.data.comps}
-            subjectValue={compsMap.data.subject?.marketValue ?? null}
-          />
+          <CompsValueScatter subject={compsMap.data.subject} comps={stats.ranked} />
         </div>
         {stats.limitedData ? (
           <div className="mt-1.5 rounded-md bg-warning/15 px-2 py-1 text-[11px] text-warning-foreground">
@@ -1254,42 +1293,33 @@ function ModuleVisual({
           </div>
         ) : (
           stats.indicated && (
-            <div className="mt-1.5 grid grid-cols-3 gap-1.5">
-              <div className="rounded-md bg-success/10 px-2 py-1">
-                <div className="text-[8px] uppercase tracking-wide text-success">
-                  Indicated Range
+            <>
+              <div className="mt-1.5 grid grid-cols-2 gap-1.5">
+                <div className="rounded-md bg-success/10 px-2 py-1">
+                  <div className="text-[8px] uppercase tracking-wide text-success">
+                    Market Value Range
+                  </div>
+                  <div className="truncate text-[11px] font-semibold text-success">
+                    {compactCurrency(stats.indicated.min)}–{compactCurrency(stats.indicated.max)}
+                  </div>
                 </div>
-                <div className="truncate text-[11px] font-semibold text-success">
-                  {compactCurrency(stats.indicated.min)}–{compactCurrency(stats.indicated.max)}
-                </div>
+                {stats.subjectValue != null && (
+                  <div className="rounded-md bg-destructive/10 px-2 py-1">
+                    <div className="text-[8px] uppercase tracking-wide text-destructive">
+                      CAD Value
+                    </div>
+                    <div className="truncate text-[11px] font-semibold text-destructive">
+                      {compactCurrency(stats.subjectValue)}
+                    </div>
+                  </div>
+                )}
               </div>
-              {stats.subjectValue != null && (
-                <div className="rounded-md bg-destructive/10 px-2 py-1">
-                  <div className="text-[8px] uppercase tracking-wide text-destructive">
-                    CAD Value
-                  </div>
-                  <div className="truncate text-[11px] font-semibold text-destructive">
-                    {compactCurrency(stats.subjectValue)}
-                  </div>
-                </div>
-              )}
               {stats.valuationGapPct != null && (
-                <div className="rounded-md bg-secondary/60 px-2 py-1">
-                  <div className="text-[8px] uppercase tracking-wide text-muted-foreground">
-                    Valuation Gap
-                  </div>
-                  <div
-                    className="truncate text-[11px] font-semibold"
-                    style={{
-                      color: scoreColor(100 - Math.min(100, Math.abs(stats.valuationGapPct))),
-                    }}
-                  >
-                    {stats.valuationGapPct > 0 ? "+" : ""}
-                    {stats.valuationGapPct}%
-                  </div>
+                <div className="mt-1 flex justify-center">
+                  <ArrowDown className={`h-3.5 w-3.5 ${m.color.text}`} />
                 </div>
               )}
-            </div>
+            </>
           )
         )}
       </div>
@@ -1474,40 +1504,318 @@ function compactCurrency(n: number): string {
   return currency(n);
 }
 
-function CompsScatter({
+// Real 2-D scatter — Value Per Acre (Y) vs Land Size (X), the honest
+// per-unit substitute for a "$/SF vs. building size" plot: no building-SF
+// field exists anywhere in this pipeline (see valuePerAcre() below), but
+// legalAcreage and marketValue are both real CAD fields every comp already
+// carries. The subject renders as a larger, labeled accent dot among the
+// comps (muted) so where the subject sits in the market reads at a glance,
+// same visual language as CompsMap's subject/comp marker distinction.
+// Subject dot shape shared by both the 2-D and 1-D fallback charts below —
+// a larger accent-colored, labeled marker so the subject reads as visually
+// distinct from the comps regardless of which chart is showing.
+function subjectDotShape(props: { cx?: number; cy?: number }) {
+  return (
+    <g>
+      <circle
+        cx={props.cx}
+        cy={props.cy}
+        r={6}
+        fill="var(--accent)"
+        stroke="var(--card)"
+        strokeWidth={2}
+      />
+      <text
+        x={props.cx}
+        y={(props.cy ?? 0) - 10}
+        textAnchor="middle"
+        fontSize={9}
+        fontWeight={700}
+        fill="var(--accent)"
+      >
+        Subject
+      </text>
+    </g>
+  );
+}
+
+function CompsValueScatter({
+  subject,
   comps,
-  subjectValue,
 }: {
-  comps: { marketValue: number | null }[];
-  subjectValue: number | null;
+  subject: CompProperty | null;
+  comps: RankedComp[];
 }) {
-  const points = comps
-    .filter((c): c is { marketValue: number } => c.marketValue != null)
+  const subjectPoint2D =
+    subject?.legalAcreage && valuePerAcre(subject.marketValue, subject.legalAcreage) != null
+      ? {
+          x: subject.legalAcreage,
+          y: valuePerAcre(subject.marketValue, subject.legalAcreage) as number,
+        }
+      : null;
+  const points2D = comps
+    .slice(0, 10)
+    .map((c) => ({ x: c.legalAcreage ?? null, y: valuePerAcre(c.marketValue, c.legalAcreage) }))
+    .filter((p): p is { x: number; y: number } => p.x != null && p.y != null);
+
+  // legalAcreage isn't populated for every CAD row the way marketValue is —
+  // a real 2-D plot needs both dimensions on the subject AND at least one
+  // comp, or it's just an empty box. When there isn't enough of it, fall
+  // back to a 1-D value-only scatter (marketValue alone, present far more
+  // consistently) rather than rendering nothing.
+  if (subjectPoint2D && points2D.length > 0) {
+    const allX = points2D.map((p) => p.x).concat([subjectPoint2D.x]);
+    const allY = points2D.map((p) => p.y).concat([subjectPoint2D.y]);
+    const xMin = Math.min(...allX);
+    const xMax = Math.max(...allX);
+    const yMin = Math.min(...allY);
+    const yMax = Math.max(...allY);
+    const xPad = (xMax - xMin) * 0.2 || xMax * 0.2 || 1;
+    const yPad = (yMax - yMin) * 0.2 || yMax * 0.2 || 1;
+
+    return (
+      <div>
+        <div className="flex items-stretch gap-1">
+          <div className="flex flex-col justify-between py-2 text-[8px] uppercase tracking-wide text-muted-foreground">
+            <span>High</span>
+            <span>Low</span>
+          </div>
+          <div className="min-w-0 flex-1">
+            <ResponsiveContainer width="100%" height={92}>
+              <ScatterChart margin={{ top: 16, right: 12, bottom: 2, left: 0 }}>
+                <XAxis type="number" dataKey="x" domain={[xMin - xPad, xMax + xPad]} hide />
+                <YAxis type="number" dataKey="y" domain={[yMin - yPad, yMax + yPad]} hide />
+                <Scatter data={points2D} fill="var(--success)" fillOpacity={0.55} />
+                <Scatter data={[subjectPoint2D]} shape={subjectDotShape} />
+              </ScatterChart>
+            </ResponsiveContainer>
+            <div className="flex items-center justify-between text-[8px] uppercase tracking-wide text-muted-foreground">
+              <span>Small</span>
+              <span>Land Size</span>
+              <span>Large</span>
+            </div>
+          </div>
+        </div>
+        <div className="mt-0.5 text-center text-[9px] text-muted-foreground">Value Per Acre</div>
+      </div>
+    );
+  }
+
+  // Fallback: 1-D, value-only scatter (no land-size axis) — still real data,
+  // just less of it plotted.
+  const subjectValue = subject?.marketValue ?? null;
+  const valuePoints = comps
+    .slice(0, 10)
+    .filter((c): c is RankedComp & { marketValue: number } => c.marketValue != null)
     .map((c) => ({ x: c.marketValue, y: 0 }));
-  if (points.length === 0) return null;
-  const values = points.map((p) => p.x).concat(subjectValue != null ? [subjectValue] : []);
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const pad = (max - min) * 0.2 || max * 0.1 || 1000;
+  if (valuePoints.length === 0 && subjectValue == null) return null;
+
+  const allValues = valuePoints.map((p) => p.x).concat(subjectValue != null ? [subjectValue] : []);
+  const vMin = Math.min(...allValues);
+  const vMax = Math.max(...allValues);
+  const vPad = (vMax - vMin) * 0.2 || vMax * 0.1 || 1000;
+
   return (
     <div>
-      <ResponsiveContainer width="100%" height={44}>
-        <ScatterChart margin={{ top: 4, right: 8, bottom: 4, left: 8 }}>
-          <XAxis type="number" dataKey="x" domain={[min - pad, max + pad]} hide />
+      <ResponsiveContainer width="100%" height={60}>
+        <ScatterChart margin={{ top: 16, right: 12, bottom: 4, left: 12 }}>
+          <XAxis type="number" dataKey="x" domain={[vMin - vPad, vMax + vPad]} hide />
           <YAxis type="number" dataKey="y" domain={[-1, 1]} hide />
-          <Scatter data={points} fill="var(--muted-foreground)" />
+          {valuePoints.length > 0 && (
+            <Scatter data={valuePoints} fill="var(--success)" fillOpacity={0.55} />
+          )}
           {subjectValue != null && (
-            <Scatter data={[{ x: subjectValue, y: 0 }]} fill="var(--accent)" shape="diamond" />
+            <Scatter data={[{ x: subjectValue, y: 0 }]} shape={subjectDotShape} />
           )}
         </ScatterChart>
       </ResponsiveContainer>
       <div className="flex items-center justify-between text-[10px] text-muted-foreground">
-        <span>{compactCurrency(min)}</span>
-        <span>◆ subject vs comps</span>
-        <span>{compactCurrency(max)}</span>
+        <span>{compactCurrency(vMin)}</span>
+        <span>Assessed Value</span>
+        <span>{compactCurrency(vMax)}</span>
       </div>
     </div>
   );
+}
+
+// Real-count selection funnel — "N Properties Reviewed → N Qualified → N
+// Best Comps Selected," matching the spec's own recommended visual flow
+// (comps.length → usable.length → min(5, usable.length), all straight from
+// computeComparableStats in comps-analysis.ts — no AI estimate involved).
+function ComparableSelectionFunnel({
+  reviewed,
+  qualified,
+  selected,
+}: {
+  reviewed: number;
+  qualified: number;
+  selected: number;
+}) {
+  const stages = [
+    { label: "Properties Reviewed", value: reviewed },
+    { label: "Qualified", value: qualified },
+    { label: "Best Comps Selected", value: selected },
+  ];
+  return (
+    <div className="flex items-center justify-between gap-1.5 rounded-lg bg-secondary/40 p-3 text-center">
+      {stages.map((s, i) => (
+        <Fragment key={s.label}>
+          <div className="min-w-0">
+            <div className="text-lg font-bold">{s.value}</div>
+            <div className="text-[9px] uppercase tracking-wide text-muted-foreground">
+              {s.label}
+            </div>
+          </div>
+          {i < stages.length - 1 && (
+            <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+          )}
+        </Fragment>
+      ))}
+    </div>
+  );
+}
+
+// Real per-signal deltas already computed inside similarityScore() — value
+// % diff, distance, land-size % diff, property-type match — surfaced as
+// "how each top comp differs from the subject" instead of staying buried
+// inside one opaque similarity number. Deliberately NOT a dollar-per-SF
+// adjustment: no building-size field exists anywhere in this pipeline (see
+// comps-analysis.ts), so this only ever shows real percentage/distance
+// deltas, never a fabricated adjustment value.
+function ComparableAdjustments({ subject, comps }: { subject: CompProperty; comps: RankedComp[] }) {
+  if (comps.length === 0) return null;
+  return (
+    <div className="grid gap-2">
+      {comps.map((c) => {
+        const valueDiffPct =
+          subject.marketValue && c.marketValue
+            ? Math.round(((c.marketValue - subject.marketValue) / subject.marketValue) * 100)
+            : null;
+        const landDiffPct =
+          subject.legalAcreage && c.legalAcreage
+            ? Math.round(((c.legalAcreage - subject.legalAcreage) / subject.legalAcreage) * 100)
+            : null;
+        const sameType = subject.propType && c.propType ? subject.propType === c.propType : null;
+        return (
+          <div key={c.pid} className="rounded-lg border border-border p-3 text-xs">
+            <div className="truncate font-semibold">{c.address || `Property #${c.pid}`}</div>
+            <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-muted-foreground">
+              <span>
+                Value:{" "}
+                {valueDiffPct != null ? (
+                  <span className={valueDiffPct >= 0 ? "text-success" : "text-destructive"}>
+                    {valueDiffPct > 0 ? "+" : ""}
+                    {valueDiffPct}%
+                  </span>
+                ) : (
+                  "—"
+                )}
+              </span>
+              <span>Distance: {c.distanceMi.toFixed(2)} mi</span>
+              <span>
+                Land size:{" "}
+                {landDiffPct != null
+                  ? `${landDiffPct > 0 ? "+" : ""}${landDiffPct}%`
+                  : "not on file"}
+              </span>
+              <span>
+                Property type: {sameType == null ? "not on file" : sameType ? "same" : "different"}
+              </span>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// Subject's CAD value vs. each top comp's assessed value — the real
+// "does the subject look high?" comparison at a glance. Relabeled from the
+// spec's own "$/SF" framing to plain assessed value, since no building-SF
+// field exists anywhere in this pipeline (real $/acre is already surfaced
+// per-row in ComparableTable, where land size is on file).
+function ComparableValueChart({
+  subjectValue,
+  comps,
+  median,
+}: {
+  subjectValue: number | null;
+  comps: RankedComp[];
+  median: number | null;
+}) {
+  // Truncated to a fixed short length (not left to Recharts' own tick
+  // wrapping) — a full street address at this axis width wrapped into 2-3
+  // ugly lines per bar; a short, consistent label reads far better than a
+  // literal-but-cramped one here, and the full address is already the row
+  // label in ComparableTable right above this chart.
+  const shortLabel = (s: string) => (s.length > 13 ? `${s.slice(0, 12)}…` : s);
+  const data = [
+    ...(subjectValue != null
+      ? [{ name: "Subject (CAD)", value: subjectValue, isSubject: true }]
+      : []),
+    ...comps
+      .filter((c): c is RankedComp & { marketValue: number } => c.marketValue != null)
+      .map((c) => ({
+        name: shortLabel(c.address ? c.address.split(",")[0] : `Property #${c.pid}`),
+        value: c.marketValue,
+        isSubject: false,
+      })),
+  ];
+  if (data.length === 0) return null;
+  return (
+    <div>
+      <ResponsiveContainer width="100%" height={Math.max(140, data.length * 32)}>
+        <BarChart data={data} layout="vertical" margin={{ top: 4, right: 24, bottom: 4, left: 4 }}>
+          <XAxis type="number" tickFormatter={compactCurrency} tick={{ fontSize: 10 }} />
+          <YAxis type="category" dataKey="name" width={110} tick={{ fontSize: 10 }} interval={0} />
+          {median != null && (
+            <ReferenceLine
+              x={median}
+              stroke="var(--muted-foreground)"
+              strokeDasharray="4 3"
+              label={{
+                value: "Median",
+                position: "top",
+                fontSize: 9,
+                fill: "var(--muted-foreground)",
+              }}
+            />
+          )}
+          <Bar dataKey="value" radius={[0, 4, 4, 0]}>
+            {data.map((d, i) => (
+              <Cell key={i} fill={d.isSubject ? "var(--destructive)" : "var(--success)"} />
+            ))}
+            <LabelList dataKey="value" position="right" formatter={compactCurrency} fontSize={10} />
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+// Real, deterministic explanation of the confidence score — the same two
+// inputs computeComparableStats() itself blends (usable comp count, value
+// spread), phrased in a sentence — never AI-written, matching the
+// SupportingDataGrid/SourcesList convention already used for Module 1.
+function comparableConfidenceReasoning(stats: ComparableStats): string | null {
+  if (stats.confidencePct == null || stats.indicated == null) return null;
+  const count = stats.ranked.filter((c) => c.marketValue != null).length;
+  const spreadPct =
+    stats.indicated.median > 0
+      ? Math.round(((stats.indicated.max - stats.indicated.min) / stats.indicated.median) * 100)
+      : null;
+  const countPhrase = `${count} comparable ${count === 1 ? "property" : "properties"} with a real assessed value`;
+  const spreadPhrase =
+    spreadPct != null
+      ? spreadPct <= 20
+        ? "a tight value range"
+        : spreadPct <= 50
+          ? "a moderate value range"
+          : "a wide value range"
+      : null;
+  return spreadPhrase
+    ? `${countPhrase}, within ${spreadPhrase} (±${spreadPct}%), support this indicated value.`
+    : `${countPhrase} support this indicated value.`;
 }
 
 // A real deed date (see CompProperty.lastTransferDt), never a sale price —
@@ -1535,7 +1843,7 @@ function valuePerAcre(marketValue?: number | null, acreage?: number | null): num
 // Assessed Value / $ per Acre / Distance / Similarity, all real fields (see
 // comps-analysis.ts). Each row expands on click (not hover, so it works on
 // touch too) rather than a tooltip, same pattern as Module 2's StrategyDetail.
-function ComparableTable({ ranked }: { ranked: RankedComp[] }) {
+function ComparableTable({ ranked, cad }: { ranked: RankedComp[]; cad?: string }) {
   const [expandedPid, setExpandedPid] = useState<number | null>(null);
   if (ranked.length === 0) return null;
   return (
@@ -1600,7 +1908,28 @@ function ComparableTable({ ranked }: { ranked: RankedComp[] }) {
                           {c.appraisedValue != null ? currency(c.appraisedValue) : "—"}
                         </div>
                         {c.zoning && <div>Zoning: {c.zoning}</div>}
-                        <div>Source: {c.pid ? `CAD record #${c.pid}` : "CAD public record"}</div>
+                        <div>
+                          Source:{" "}
+                          {(() => {
+                            const url = cad
+                              ? getCadRecordUrl({ cad, accountNumber: String(c.pid) })
+                              : null;
+                            if (!url) return c.pid ? `CAD record #${c.pid}` : "CAD public record";
+                            return (
+                              <a
+                                href={url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={(e) => e.stopPropagation()}
+                                className="text-accent underline underline-offset-2"
+                              >
+                                {isDirectCadRecordUrl(cad!)
+                                  ? `View CAD record #${c.pid}`
+                                  : `Search ${cad} for #${c.pid}`}
+                              </a>
+                            );
+                          })()}
+                        </div>
                       </div>
                     </td>
                   </tr>
@@ -1897,7 +2226,7 @@ function InsightBanner({ text, color }: { text: string; color: IconColor }) {
 // property's own coordinates — already loaded for every visitor via the
 // comps fetch (see loadCompsMap() in Report()), not a second API call.
 // Only renders when that data exists (TrueProdigy-backed counties only,
-// same real-data gate CompsMap/CompsScatter already use); Site Condition
+// same real-data gate CompsMap/CompsValueScatter already use); Site Condition
 // falls back to just the checklist rows everywhere else. Esri World
 // Imagery is a free, no-API-key satellite tile source, attributed per its
 // terms the same way CompsMap already attributes OpenStreetMap.
@@ -2808,65 +3137,121 @@ function ModulePreviewContent({
     const d = moduleState?.data as ModuleResultMap["comps"] | undefined;
     const map = compsMap.data;
     const stats = computeComparableStats(map?.subject ?? null, map?.comps ?? [], state.totalValue);
+    // Same real top-5-by-similarity subset used for the indicated value
+    // itself (see TOP_N_FOR_INDICATED_VALUE in comps-analysis.ts) — reused
+    // for the adjustments panel and value chart too, so every "top comps"
+    // view in this module means the same actual properties.
+    const usable = stats.ranked.filter((c) => c.marketValue != null);
+    const topRanked = usable.slice(0, 5);
+    const confidenceReasoning = comparableConfidenceReasoning(stats);
     return (
-      <div className="mt-4">
-        {stats.limitedData ? (
-          <div className="mb-3 rounded-lg bg-warning/15 p-3 text-sm text-warning-foreground">
+      <div className="mt-4 grid gap-4">
+        {stats.limitedData && (
+          <div className="rounded-lg bg-warning/15 p-3 text-sm text-warning-foreground">
             <span className="font-semibold">Limited Comparable Data.</span> Fewer than 3 comparable
             properties with a usable assessed value were found in this subdivision — the system may
             continue using other appraisal methods (see Protest Strategy) rather than relying on
             this alone.
           </div>
-        ) : (
-          stats.indicated && (
-            <div className="mb-3 grid grid-cols-3 gap-2">
-              <div className="rounded-lg bg-success/10 p-3">
-                <div className="text-[10px] font-semibold uppercase tracking-wide text-success">
-                  Indicated Value Range
-                </div>
-                <div className="mt-0.5 text-lg font-bold text-success">
-                  {compactCurrency(stats.indicated.min)}–{compactCurrency(stats.indicated.max)}
-                </div>
-              </div>
-              {stats.subjectValue != null && (
-                <div className="rounded-lg bg-destructive/10 p-3">
-                  <div className="text-[10px] font-semibold uppercase tracking-wide text-destructive">
-                    CAD Value
-                  </div>
-                  <div className="mt-0.5 text-lg font-bold text-destructive">
-                    {compactCurrency(stats.subjectValue)}
-                  </div>
-                </div>
-              )}
-              <div className="rounded-lg bg-secondary/60 p-3">
-                <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                  Valuation Gap
-                </div>
-                <div className="mt-0.5 text-lg font-bold">
-                  {stats.valuationGapPct != null
-                    ? `${stats.valuationGapPct > 0 ? "+" : ""}${stats.valuationGapPct}%`
-                    : "—"}
-                </div>
-                {stats.confidencePct != null && (
-                  <div className="mt-1 text-[10px] text-muted-foreground">
-                    Comparable confidence: {stats.confidencePct}%
-                  </div>
-                )}
-              </div>
-            </div>
-          )
         )}
         {compsMap.loading && (
           <div className="h-[280px] animate-pulse rounded-lg border border-border bg-secondary/40" />
         )}
         {map?.subject && map.comps.length > 0 && (
           <>
-            <div className="text-sm font-medium">
-              {map.comps.length} nearby properties in the same subdivision
+            {/* 1. How AI selected these comps — real counts only. */}
+            <ComparableSelectionFunnel
+              reviewed={map.comps.length}
+              qualified={usable.length}
+              selected={topRanked.length}
+            />
+
+            {/* 2. Map — richer popups (distance + relevance) via the same
+                ranked comps everything else here uses. */}
+            <div>
+              <div className="mb-1.5 text-sm font-medium">
+                {map.comps.length} nearby properties in the same subdivision
+              </div>
+              <CompsMap subject={map.subject} comps={stats.ranked} />
             </div>
-            <CompsMap subject={map.subject} comps={map.comps} />
-            <ComparableTable ranked={stats.ranked} />
-            <div className="mt-3 grid gap-2 rounded-lg bg-secondary/40 p-3 text-xs text-muted-foreground sm:grid-cols-2">
+
+            {/* 3. Comparable table — every ranked comp, "View Source" per row. */}
+            <ComparableTable ranked={stats.ranked} cad={state.cad} />
+
+            {/* 4. Adjustments — real per-signal deltas for the top comps. */}
+            {topRanked.length > 0 && (
+              <div>
+                <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Adjustments — How the Top Comps Differ
+                </div>
+                <ComparableAdjustments subject={map.subject} comps={topRanked} />
+              </div>
+            )}
+
+            {/* 5. Value comparison chart. */}
+            {(stats.subjectValue != null || topRanked.length > 0) && (
+              <div>
+                <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Assessed Value Comparison
+                </div>
+                <ComparableValueChart
+                  subjectValue={stats.subjectValue}
+                  comps={topRanked}
+                  median={stats.indicated?.median ?? null}
+                />
+              </div>
+            )}
+
+            {/* 6. Indicated Value / CAD Value / Gap. */}
+            {stats.indicated && (
+              <div className="grid grid-cols-3 gap-2">
+                <div className="rounded-lg bg-success/10 p-3">
+                  <div className="text-[10px] font-semibold uppercase tracking-wide text-success">
+                    Indicated Value Range
+                  </div>
+                  <div className="mt-0.5 text-lg font-bold text-success">
+                    {compactCurrency(stats.indicated.min)}–{compactCurrency(stats.indicated.max)}
+                  </div>
+                </div>
+                {stats.subjectValue != null && (
+                  <div className="rounded-lg bg-destructive/10 p-3">
+                    <div className="text-[10px] font-semibold uppercase tracking-wide text-destructive">
+                      CAD Value
+                    </div>
+                    <div className="mt-0.5 text-lg font-bold text-destructive">
+                      {compactCurrency(stats.subjectValue)}
+                    </div>
+                  </div>
+                )}
+                <div className="rounded-lg bg-secondary/60 p-3">
+                  <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    Valuation Gap
+                  </div>
+                  <div className="mt-0.5 text-lg font-bold">
+                    {stats.valuationGapPct != null
+                      ? `${stats.valuationGapPct > 0 ? "+" : ""}${stats.valuationGapPct}%`
+                      : "—"}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* 7. Confidence — real percentage + real, deterministic reasoning. */}
+            {stats.confidencePct != null && (
+              <div className="card-elev p-4">
+                <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  <ShieldCheck className="h-3.5 w-3.5" />
+                  Comparable Confidence
+                </div>
+                <MiniMeter value={stats.confidencePct} label="Comparable confidence" />
+                {confidenceReasoning && (
+                  <p className="mt-2 text-xs text-muted-foreground">{confidenceReasoning}</p>
+                )}
+              </div>
+            )}
+
+            {/* 8. Methodology + Sources. */}
+            <div className="grid gap-2 rounded-lg bg-secondary/40 p-3 text-xs text-muted-foreground sm:grid-cols-2">
               <div>
                 <div className="font-semibold text-foreground">Methodology</div>
                 <p className="mt-0.5">
@@ -2886,7 +3271,7 @@ function ModulePreviewContent({
               </div>
             </div>
             {state.deeds && state.deeds.length > 0 && (
-              <div className="mt-3">
+              <div>
                 <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                   This Property's Deed History
                 </div>
@@ -2927,25 +3312,33 @@ function ModulePreviewContent({
             )}
           </>
         )}
+
+        {/* 9. AI guidance + checklist + Recommended Protest Use — the one
+            genuinely AI-generated part of this module, grounded in the
+            real topComps sent from loadModule() above. */}
         {loading ? (
-          <p className="mt-3 text-sm text-muted-foreground">AI is generating this analysis…</p>
+          <p className="text-sm text-muted-foreground">AI is generating this analysis…</p>
         ) : error ? (
-          <div className="mt-3">
-            <ErrorWithRetry message={error} onRetry={onRetry} />
-          </div>
+          <ErrorWithRetry message={error} onRetry={onRetry} />
         ) : d ? (
-          <>
-            <div className="mt-3">
-              <AiVerdictLine icon={m.icon} text={d.guidance} color={m.color} />
-            </div>
-            <div className="mt-3 flex flex-wrap gap-2">
+          <div className="grid gap-3">
+            <AiVerdictLine icon={m.icon} text={d.guidance} color={m.color} />
+            <div className="flex flex-wrap gap-2">
               {d.checklist.map((c, i) => (
                 <Chip key={i} icon>
                   {c}
                 </Chip>
               ))}
             </div>
-          </>
+            {d.recommendedUse && (
+              <div>
+                <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Recommended Protest Use
+                </div>
+                <AiVerdictLine icon={ArrowRight} text={d.recommendedUse} color={m.color} />
+              </div>
+            )}
+          </div>
         ) : null}
       </div>
     );
