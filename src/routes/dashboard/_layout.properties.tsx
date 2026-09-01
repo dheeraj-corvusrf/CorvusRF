@@ -16,6 +16,8 @@ import { CopyButton } from "@/components/CopyButton";
 import { ImportPropertiesModal } from "@/components/ImportPropertiesModal";
 import { AddOwnershipsModal } from "@/components/AddOwnershipsModal";
 import { BulkProtestAuthorizationFlow } from "@/components/BulkProtestAuthorizationFlow";
+import { getCadRecordUrl, isDirectCadRecordUrl } from "@/lib/cad-record-url";
+import { ExternalLink } from "lucide-react";
 
 export const Route = createFileRoute("/dashboard/_layout/properties")({
   component: Properties,
@@ -158,6 +160,10 @@ function Properties() {
                 existingProtest?.status === "resolved" &&
                 existingProtest.taxYear != null &&
                 existingProtest.taxYear < CURRENT_YEAR;
+              const cad = p.cad;
+              const recordUrl = cad
+                ? getCadRecordUrl({ cad, accountNumber: p.accountNumber })
+                : null;
               return (
                 <div
                   key={p.id}
@@ -198,6 +204,19 @@ function Properties() {
                     <Link to="/pricing" className="btn-outline">
                       Upgrade
                     </Link>
+                    {recordUrl && cad && (
+                      <a
+                        href={recordUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="btn-outline inline-flex items-center gap-1.5"
+                      >
+                        <ExternalLink className="h-3.5 w-3.5" />
+                        {isDirectCadRecordUrl(cad)
+                          ? "View Official CAD Record"
+                          : `Search on ${cad}`}
+                      </a>
+                    )}
                     {existingProtest ? (
                       <>
                         <button onClick={() => setCaseProperty(p)} className="btn-outline">
