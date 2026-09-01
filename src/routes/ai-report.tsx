@@ -2935,7 +2935,9 @@ function ModulePreviewContent({
           </div>
         ) : d ? (
           <>
-            <p className="mt-3 text-sm text-muted-foreground">{d.guidance}</p>
+            <div className="mt-3">
+              <AiVerdictLine icon={m.icon} text={d.guidance} color={m.color} />
+            </div>
             <div className="mt-3 flex flex-wrap gap-2">
               {d.checklist.map((c, i) => (
                 <Chip key={i} icon>
@@ -2972,7 +2974,9 @@ function ModulePreviewContent({
     const answerKey = "health";
     return (
       <div className="mt-4 grid gap-4">
-        {data.executiveConclusion && <p className="text-sm">{data.executiveConclusion}</p>}
+        {data.executiveConclusion && (
+          <AiVerdictLine icon={m.icon} text={data.executiveConclusion} color={m.color} />
+        )}
 
         <div className="min-w-0">
           <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -3155,7 +3159,9 @@ function ModulePreviewContent({
       }
       return (
         <div className="mt-4 grid gap-4">
-          {d.topStrategySummary && <p className="text-sm font-medium">{d.topStrategySummary}</p>}
+          {d.topStrategySummary && (
+            <AiVerdictLine icon={m.icon} text={d.topStrategySummary} color={m.color} />
+          )}
           <div className="card-elev p-4">
             <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               Ranked Strategies
@@ -3189,7 +3195,9 @@ function ModulePreviewContent({
           <div className="mt-3">
             <MiniMeter value={d.priorityScore} label="Documentation priority" />
           </div>
-          <p className="mt-3 text-sm text-muted-foreground">{d.guidance}</p>
+          <div className="mt-3">
+            <AiVerdictLine icon={m.icon} text={d.guidance} color={m.color} />
+          </div>
           <div className="mt-3">
             <ChecklistIconRows items={d.checklist} color={m.color} />
           </div>
@@ -3207,7 +3215,9 @@ function ModulePreviewContent({
           <div className="mt-3">
             <MiniMeter value={d.priorityScore} label="Condition priority" />
           </div>
-          <p className="mt-3 text-sm text-muted-foreground">{d.guidance}</p>
+          <div className="mt-3">
+            <AiVerdictLine icon={m.icon} text={d.guidance} color={m.color} />
+          </div>
           <div className="mt-3">
             <ChecklistIconRows items={d.checklist} color={m.color} />
           </div>
@@ -3268,7 +3278,7 @@ function ModulePreviewContent({
             stated={state.propertyType}
             typical={d.typicalClassification || undefined}
           />
-          <p className="text-sm text-muted-foreground">{d.assessment}</p>
+          <AiVerdictLine icon={m.icon} text={d.assessment} color={m.color} />
         </div>
       );
     }
@@ -3496,6 +3506,30 @@ function ValueComparisonChart({ current, reduced }: { current: number; reduced: 
         </Bar>
       </BarChart>
     </ResponsiveContainer>
+  );
+}
+
+// Every module's AI-generated takeaway line goes through this — a tinted,
+// icon-led card instead of a bare <p>, so it reads as one distinct visual
+// element (like the gauges/chips/tables around it) rather than a paragraph
+// to read through. Paired with the tightened word-count prompts server-side
+// (see ai-health-score/ai-report-modules' SCHEMA comments — one short
+// sentence, not "2-3 sentences" anymore), so the text itself is short
+// enough to actually fit this treatment instead of overflowing it.
+function AiVerdictLine({
+  icon: Icon,
+  text,
+  color,
+}: {
+  icon: LucideIcon;
+  text: string;
+  color: IconColor;
+}) {
+  return (
+    <div className={`flex items-start gap-2.5 rounded-lg p-3 ${color.bg}`}>
+      <Icon className={`mt-0.5 h-4 w-4 shrink-0 ${color.text}`} />
+      <p className="text-sm font-medium leading-snug">{text}</p>
+    </div>
   );
 }
 
