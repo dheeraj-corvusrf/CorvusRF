@@ -1285,7 +1285,11 @@ function ModuleVisual({
           <span className="text-xs text-muted-foreground">comparable properties found nearby</span>
         </div>
         <div className="mt-1.5">
-          <CompsValueScatter subject={compsMap.data.subject} comps={stats.ranked} />
+          <CompsValueScatter
+            subject={compsMap.data.subject}
+            subjectValue={stats.subjectValue}
+            comps={stats.ranked}
+          />
         </div>
         {stats.limitedData ? (
           <div className="mt-1.5 rounded-md bg-warning/15 px-2 py-1 text-[11px] text-warning-foreground">
@@ -1583,16 +1587,26 @@ function subjectDotShapeCompact(props: { cx?: number; cy?: number }) {
 
 function CompsValueScatter({
   subject,
+  subjectValue,
   comps,
 }: {
   subject: CompProperty | null;
+  // The subject's real assessed value — passed in from
+  // computeComparableStats()'s own subjectValue (totalValue ?? the raw
+  // TrueProdigy subject record's marketValue), NOT read off `subject`
+  // directly: the comps-endpoint's own subject row doesn't always carry a
+  // marketValue, while the account's actual confirmed total value (already
+  // shown elsewhere as "CAD Value") almost always does. Using the weaker
+  // field here was why the chart went blank on some real properties even
+  // though a real value existed.
+  subjectValue: number | null;
   comps: RankedComp[];
 }) {
   const subjectPoint2D =
-    subject?.legalAcreage && valuePerAcre(subject.marketValue, subject.legalAcreage) != null
+    subject?.legalAcreage && valuePerAcre(subjectValue, subject.legalAcreage) != null
       ? {
           x: subject.legalAcreage,
-          y: valuePerAcre(subject.marketValue, subject.legalAcreage) as number,
+          y: valuePerAcre(subjectValue, subject.legalAcreage) as number,
         }
       : null;
   const points2D = comps
@@ -1652,7 +1666,6 @@ function CompsValueScatter({
 
   // Fallback: 1-D, value-only scatter (no land-size axis) — still real data,
   // just less of it plotted.
-  const subjectValue = subject?.marketValue ?? null;
   const valuePoints = comps
     .slice(0, 10)
     .filter((c): c is RankedComp & { marketValue: number } => c.marketValue != null)
