@@ -379,6 +379,14 @@ alter table public.protests add column if not exists closed_at timestamptz;
 -- by requested_at desc), so older rows without a year don't need one.
 alter table public.protests add column if not exists tax_year integer;
 
+-- Corvus "AI Guidance & Filing Notice" — one-time consent that gates entry into
+-- a not-yet-filed case (see CorvusGuidanceGate in CaseDetailModal.tsx). Null
+-- until acknowledged, never reset once set. Only ever checked while
+-- status = 'requested' — a case that already advanced past filing never needs
+-- to show this again, even on old rows that predate this column, so no
+-- backfill is required.
+alter table public.protests add column if not exists corvus_guidance_ack_at timestamptz;
+
 -- No delete UI exists for protests today — this exists so the authenticated E2E
 -- suite (e2e/authenticated/protest-authorization.spec.ts, run in CI on every push
 -- to dev) can clean up the real protest row it creates each run, instead of

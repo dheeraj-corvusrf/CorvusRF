@@ -5,6 +5,17 @@ import { supabase } from "./supabase";
 // src/routes/ai-report.tsx's Improvement Condition module.
 export const EVIDENCE_DOCUMENT_TYPE = "Improvement Evidence";
 
+// Same convention, for a real protest case's own evidence — shared between
+// CaseDetailModal's per-item checklist upload and ai-report.tsx's Module 8
+// upload widget, so a file uploaded via either path shows up as the same
+// tagged evidence, not two similarly-named-but-different strings.
+export const PROTEST_EVIDENCE_DOCUMENT_TYPE = "Protest Evidence";
+
+// Uploaded once a user confirms they've actually submitted their protest to
+// the county (see DocumentsSection's "Have you filed?" prompt) — optional,
+// best-effort proof, never required to mark a case Filed.
+export const FILING_PROOF_DOCUMENT_TYPE = "Filing Proof";
+
 export type DocumentRecord = {
   id: string;
   propertyId: string;

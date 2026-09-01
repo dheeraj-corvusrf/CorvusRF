@@ -3,7 +3,12 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { currency, resetIntake, updateIntake } from "@/lib/intake-store";
 import { useAuth } from "@/lib/auth";
-import { listProperties, deleteProperty, type PropertyRecord } from "@/lib/properties";
+import {
+  listProperties,
+  deleteProperty,
+  buildAiReportIntakePatch,
+  type PropertyRecord,
+} from "@/lib/properties";
 import { useSavingsBackfill } from "@/hooks/use-savings-backfill";
 import { listProtests, type ProtestRecord } from "@/lib/protests";
 import { listHealthScores, type PropertyAiScore } from "@/lib/property-scores";
@@ -82,19 +87,7 @@ function Properties() {
   });
 
   function openAiReport(p: PropertyRecord) {
-    updateIntake({
-      address: p.address,
-      cad: p.cad ?? undefined,
-      accountNumber: p.accountNumber ?? undefined,
-      ownerName: p.ownerName ?? undefined,
-      propertyType: p.propertyType ?? undefined,
-      landValue: p.landValue ?? undefined,
-      improvementValue: p.improvementValue ?? undefined,
-      totalValue: p.totalValue ?? undefined,
-      taxYear: p.taxYear ?? undefined,
-      valueHistory: p.valueHistory ?? undefined,
-      confirmed: true,
-    });
+    updateIntake(buildAiReportIntakePatch(p));
     navigate({ to: "/ai-report" });
   }
 

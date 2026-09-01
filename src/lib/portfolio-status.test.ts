@@ -45,6 +45,7 @@ function protest(overrides: Partial<ProtestRecord> = {}): ProtestRecord {
     escalationPath: null,
     closedAt: null,
     taxYear: null,
+    corvusGuidanceAckAt: null,
     ...overrides,
   };
 }
@@ -122,10 +123,9 @@ describe("getPropertyProtestStatus", () => {
   });
 
   it("prefers an active protest's status over a looming deadline", () => {
-    const result = getPropertyProtestStatus(
-      property({ protestDeadline: "2024-06-02T00:00:00Z" }),
-      [protest({ status: "filed" })],
-    );
+    const result = getPropertyProtestStatus(property({ protestDeadline: "2024-06-02T00:00:00Z" }), [
+      protest({ status: "filed" }),
+    ]);
     expect(result.status).toBe("in_progress");
     expect(result.label).toBe("Filed");
   });

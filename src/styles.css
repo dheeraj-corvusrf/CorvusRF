@@ -2,6 +2,16 @@
 @source "../src";
 @import "tw-animate-css";
 
+/* Dark theme removed for now (per explicit request). Tailwind v4's default
+   `dark:` variant follows the OS's prefers-color-scheme automatically —
+   redefining it to only match inside a `.dark` ancestor class instead (the
+   standard manual-toggle pattern) makes every scattered `dark:` utility
+   class already in components (SiteChrome, HeroBackground, alert, chart,
+   ai-report, dashboard, index) permanently inert without deleting them one
+   by one, since nothing in the app ever adds a `.dark` class. Delete this
+   line (and restore a real toggle) if dark mode comes back later. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 @theme inline {
   /* Single-font system (Figtree) for both body and headings, matching the Ownwell
      reference — --font-serif is kept as the variable name since h1/h2/h3/.font-serif
@@ -81,10 +91,10 @@
   --input: oklch(0.92 0.012 250);
   --ring: oklch(0.55 0.12 163);
   /* Fixed navy/white brand colors for things that must look the same regardless
-     of theme (homepage hero overlay, the CorvusRF logo mark) — intentionally NOT
-     overridden in the dark-mode media query below, since --primary/--primary-
-     foreground flip for button contrast and would otherwise wash these out or
-     invert them when the OS is in dark mode. */
+     of theme (homepage hero overlay, the CorvusRF logo mark) — kept as their
+     own tokens rather than reusing --primary/--primary-foreground (which
+     flip for button contrast) even though dark mode itself is removed for
+     now; see the @custom-variant dark comment near the top of this file. */
   --brand: oklch(0.29 0.08 255);
   --brand-foreground: oklch(0.985 0.005 90);
 
@@ -109,57 +119,23 @@
   --hero-field-shade: oklch(0.74 0.13 148); /* deeper green, for the second wave */
   --hero-tree: oklch(0.42 0.12 145); /* dark green foliage */
   --hero-sun: oklch(0.85 0.15 90); /* warm sun yellow */
-  --hero-moon: oklch(0.9 0.02 250); /* pale moon (only shown in dark mode) */
+  --hero-moon: oklch(
+    0.9 0.02 250
+  ); /* pale moon — unused while dark mode is removed, see .hero-moon-wrap above */
 }
 
-/* The hero shows a sun in light mode and a moon in dark mode — same spot, swapped
-   via display rather than two separately-positioned elements, so there's no layout
-   shift between themes. */
+/* Dark theme removed for now (per explicit request) — the app is
+   permanently light-themed regardless of OS preference. The hero always
+   shows its sun; .hero-moon-wrap is unused dead weight left in
+   HeroBackground.tsx but simply never displayed since nothing sets
+   display:block on it anymore. If dark mode comes back later, restore the
+   `@media (prefers-color-scheme: dark)` block this replaced (see git
+   history) rather than rebuilding it from scratch. */
 .hero-sun-wrap {
   display: block;
 }
 .hero-moon-wrap {
   display: none;
-}
-
-/* Follows the OS/browser's own light-vs-dark preference — no manual toggle. */
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: oklch(0.15 0.03 250);
-    --foreground: oklch(0.98 0.003 90);
-    --card: oklch(0.2 0.04 250);
-    --card-foreground: oklch(0.98 0.003 90);
-    --popover: oklch(0.2 0.04 250);
-    --popover-foreground: oklch(0.98 0.003 90);
-    --primary: oklch(0.85 0.05 250);
-    --primary-foreground: oklch(0.2 0.04 250);
-    --secondary: oklch(0.26 0.04 250);
-    --secondary-foreground: oklch(0.98 0.003 90);
-    --muted: oklch(0.26 0.04 250);
-    --muted-foreground: oklch(0.75 0.02 250);
-    --accent: oklch(0.596 0.145 163.225);
-    --accent-foreground: oklch(0.99 0.01 163);
-    --border: oklch(1 0 0 / 0.1);
-    --input: oklch(1 0 0 / 0.14);
-    --ring: oklch(0.55 0.12 163);
-
-    --hero-sky-top: oklch(0.2 0.04 250);
-    --hero-sky-bottom: oklch(0.15 0.03 250);
-    --hero-cloud: oklch(0.6 0.03 250); /* solid moonlit gray-blue, not white */
-    --hero-cloud-opacity: 0.55;
-    --hero-field: oklch(0.32 0.07 145);
-    --hero-field-shade: oklch(0.24 0.07 148);
-    --hero-tree: oklch(0.32 0.09 145);
-    --hero-sun: oklch(0.8 0.16 85);
-    --hero-moon: oklch(0.88 0.02 250);
-  }
-
-  .hero-sun-wrap {
-    display: none;
-  }
-  .hero-moon-wrap {
-    display: block;
-  }
 }
 
 @layer base {
@@ -408,19 +384,6 @@ header .container-page {
   background: oklch(0.965 0.008 255);
   border-radius: 1.25rem;
   padding: 1.5rem;
-}
-@media (prefers-color-scheme: dark) {
-  .dashboard-contrast {
-    --border: oklch(1 0 0 / 0.18);
-    /* Dark mode's default --muted-foreground (0.75 lightness) already reads
-       clearly against the dark card/background tokens — only light mode's
-       (0.48, too close to mid-gray-on-white) needed strengthening. */
-    /* Dark mode's --card (0.20) is already LIGHTER than --background (0.15)
-       — the inverse of light mode — so cards already separate from the page
-       there; this only needs to be a touch darker than --background itself,
-       not a whole extra tone away like the light-mode fill above. */
-    background: oklch(0.13 0.03 250);
-  }
 }
 
 @utility badge-soft {
