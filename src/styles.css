@@ -46,25 +46,30 @@
   /* Thin bright band on a wide transparent field — accent-foreground is the
      same near-white in both light and dark mode, so one gradient works for
      both without a dark-mode override. */
-  --btn-sheen-gradient: linear-gradient(115deg, transparent 42%, oklch(1 0 0 / 0.35) 50%, transparent 58%);
+  --btn-sheen-gradient: linear-gradient(
+    115deg,
+    transparent 42%,
+    oklch(1 0 0 / 0.35) 50%,
+    transparent 58%
+  );
 }
 
 :root {
   --radius: 0.75rem;
   /* Deep Texas navy + emerald green accent (matches the PT door's green in hub/hub.css) */
   --background: oklch(0.995 0.003 90);
-  --foreground: oklch(0.20 0.04 250);
+  --foreground: oklch(0.2 0.04 250);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.20 0.04 250);
+  --card-foreground: oklch(0.2 0.04 250);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.20 0.04 250);
-  --primary: oklch(0.29 0.08 255);            /* deep navy */
+  --popover-foreground: oklch(0.2 0.04 250);
+  --primary: oklch(0.29 0.08 255); /* deep navy */
   --primary-foreground: oklch(0.985 0.005 90);
   --secondary: oklch(0.955 0.012 250);
   --secondary-foreground: oklch(0.25 0.05 255);
   --muted: oklch(0.96 0.008 250);
   --muted-foreground: oklch(0.48 0.02 255);
-  --accent: oklch(0.596 0.145 163.225);        /* emerald, matching the PT door green */
+  --accent: oklch(0.596 0.145 163.225); /* emerald, matching the PT door green */
   --accent-foreground: oklch(0.99 0.01 163);
   --destructive: oklch(0.58 0.22 27);
   --destructive-foreground: oklch(0.985 0 0);
@@ -72,7 +77,7 @@
   --success-foreground: oklch(0.985 0 0);
   --warning: oklch(0.78 0.15 75);
   --warning-foreground: oklch(0.22 0.05 60);
-  --border: oklch(0.90 0.012 250);
+  --border: oklch(0.9 0.012 250);
   --input: oklch(0.92 0.012 250);
   --ring: oklch(0.55 0.12 163);
   /* Fixed navy/white brand colors for things that must look the same regardless
@@ -96,32 +101,38 @@
      existing surface color, to avoid a jarring bright patch on a near-black page. */
   --hero-sky-top: oklch(0.955 0.012 250);
   --hero-sky-bottom: oklch(0.98 0.006 90);
-  --hero-cloud: oklch(1 0 0);                 /* solid white — opacity applied per-element, not baked into the color, so overlapping cloud shapes don't show stacking seams */
+  --hero-cloud: oklch(
+    1 0 0
+  ); /* solid white — opacity applied per-element, not baked into the color, so overlapping cloud shapes don't show stacking seams */
   --hero-cloud-opacity: 0.92;
-  --hero-field: oklch(0.88 0.09 145);         /* light green */
-  --hero-field-shade: oklch(0.74 0.13 148);   /* deeper green, for the second wave */
-  --hero-tree: oklch(0.42 0.12 145);           /* dark green foliage */
-  --hero-sun: oklch(0.85 0.15 90);             /* warm sun yellow */
-  --hero-moon: oklch(0.9 0.02 250);            /* pale moon (only shown in dark mode) */
+  --hero-field: oklch(0.88 0.09 145); /* light green */
+  --hero-field-shade: oklch(0.74 0.13 148); /* deeper green, for the second wave */
+  --hero-tree: oklch(0.42 0.12 145); /* dark green foliage */
+  --hero-sun: oklch(0.85 0.15 90); /* warm sun yellow */
+  --hero-moon: oklch(0.9 0.02 250); /* pale moon (only shown in dark mode) */
 }
 
 /* The hero shows a sun in light mode and a moon in dark mode — same spot, swapped
    via display rather than two separately-positioned elements, so there's no layout
    shift between themes. */
-.hero-sun-wrap { display: block; }
-.hero-moon-wrap { display: none; }
+.hero-sun-wrap {
+  display: block;
+}
+.hero-moon-wrap {
+  display: none;
+}
 
 /* Follows the OS/browser's own light-vs-dark preference — no manual toggle. */
 @media (prefers-color-scheme: dark) {
   :root {
     --background: oklch(0.15 0.03 250);
     --foreground: oklch(0.98 0.003 90);
-    --card: oklch(0.20 0.04 250);
+    --card: oklch(0.2 0.04 250);
     --card-foreground: oklch(0.98 0.003 90);
-    --popover: oklch(0.20 0.04 250);
+    --popover: oklch(0.2 0.04 250);
     --popover-foreground: oklch(0.98 0.003 90);
     --primary: oklch(0.85 0.05 250);
-    --primary-foreground: oklch(0.20 0.04 250);
+    --primary-foreground: oklch(0.2 0.04 250);
     --secondary: oklch(0.26 0.04 250);
     --secondary-foreground: oklch(0.98 0.003 90);
     --muted: oklch(0.26 0.04 250);
@@ -132,9 +143,9 @@
     --input: oklch(1 0 0 / 0.14);
     --ring: oklch(0.55 0.12 163);
 
-    --hero-sky-top: oklch(0.20 0.04 250);
+    --hero-sky-top: oklch(0.2 0.04 250);
     --hero-sky-bottom: oklch(0.15 0.03 250);
-    --hero-cloud: oklch(0.6 0.03 250);         /* solid moonlit gray-blue, not white */
+    --hero-cloud: oklch(0.6 0.03 250); /* solid moonlit gray-blue, not white */
     --hero-cloud-opacity: 0.55;
     --hero-field: oklch(0.32 0.07 145);
     --hero-field-shade: oklch(0.24 0.07 148);
@@ -143,30 +154,47 @@
     --hero-moon: oklch(0.88 0.02 250);
   }
 
-  .hero-sun-wrap { display: none; }
-  .hero-moon-wrap { display: block; }
+  .hero-sun-wrap {
+    display: none;
+  }
+  .hero-moon-wrap {
+    display: block;
+  }
 }
 
 @layer base {
-  * { border-color: var(--color-border); }
+  * {
+    border-color: var(--color-border);
+  }
   /* Scales every rem-based Tailwind text/spacing utility site-wide from one
      line, preserving the existing text-sm/text-xs body-vs-description ratio
      rather than flattening it — description/meta text stays the smallest
      tier, just larger in absolute terms along with everything else. */
-  html { font-family: var(--font-sans); font-size: 112.5%; }
+  html {
+    font-family: var(--font-sans);
+    font-size: 112.5%;
+  }
   body {
     background-color: var(--color-background);
     color: var(--color-foreground);
     -webkit-font-smoothing: antialiased;
   }
-  h1, h2, h3, .font-serif { font-family: var(--font-serif); letter-spacing: -0.01em; }
+  h1,
+  h2,
+  h3,
+  .font-serif {
+    font-family: var(--font-serif);
+    letter-spacing: -0.01em;
+  }
 }
 
 @utility container-page {
   max-width: 80rem;
   margin-inline: auto;
   padding-inline: 1.25rem;
-  @media (min-width: 768px) { padding-inline: 2rem; }
+  @media (min-width: 768px) {
+    padding-inline: 2rem;
+  }
 }
 
 /* The header's own .container-page spans the full window edge-to-edge instead of
@@ -179,7 +207,9 @@ header .container-page {
 }
 
 @utility btn-primary {
-  display: inline-flex; align-items: center; justify-content: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   gap: 0.5rem;
   position: relative;
   overflow: hidden;
@@ -190,23 +220,49 @@ header .container-page {
   padding: 0.75rem 1.25rem;
   border-radius: 0.6rem;
   font-weight: 600;
-  transition: transform .15s ease, background-color .15s ease, box-shadow .15s ease;
+  transition:
+    transform 0.15s ease,
+    background-color 0.15s ease,
+    box-shadow 0.15s ease;
   box-shadow: var(--shadow-elev);
   /* Baseline press/lift feedback lives on the base class (not the opt-in
      -hover modifiers below) so every button gets it regardless of whether a
      call site also opted into the extra color-darken modifier. */
-  &:hover { transform: translateY(-1px); box-shadow: 0 14px 34px -14px oklch(0.18 0.06 250 / 0.32); }
-  &:active { transform: translateY(0) scale(0.97); }
-  &::after { content: ""; position: absolute; inset: 0; background: var(--btn-sheen-gradient); background-size: 250% 100%; background-position: 150% 0; pointer-events: none; }
+  &:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 14px 34px -14px oklch(0.18 0.06 250 / 0.32);
+  }
+  &:active {
+    transform: translateY(0) scale(0.97);
+  }
+  &::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: var(--btn-sheen-gradient);
+    background-size: 250% 100%;
+    background-position: 150% 0;
+    pointer-events: none;
+  }
   @media (prefers-reduced-motion: no-preference) {
-    &::after { transition: background-position .6s ease; }
-    &:hover::after { background-position: -50% 0; }
+    &::after {
+      transition: background-position 0.6s ease;
+    }
+    &:hover::after {
+      background-position: -50% 0;
+    }
   }
 }
-@utility btn-primary-hover { &:hover { background-color: oklch(0.50 0.145 163); } }
+@utility btn-primary-hover {
+  &:hover {
+    background-color: oklch(0.5 0.145 163);
+  }
+}
 
 @utility btn-accent {
-  display: inline-flex; align-items: center; justify-content: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   gap: 0.5rem;
   position: relative;
   overflow: hidden;
@@ -216,25 +272,44 @@ header .container-page {
   border-radius: 0.6rem;
   font-weight: 700;
   box-shadow: var(--shadow-elev);
-  transition: transform .15s ease, background-color .15s ease, box-shadow .15s ease;
+  transition:
+    transform 0.15s ease,
+    background-color 0.15s ease,
+    box-shadow 0.15s ease;
   &:hover {
-    background-color: oklch(0.50 0.145 163);
+    background-color: oklch(0.5 0.145 163);
     transform: translateY(-1px);
     box-shadow: 0 14px 34px -14px oklch(0.18 0.06 250 / 0.32);
   }
-  &:active { transform: translateY(0) scale(0.97); }
+  &:active {
+    transform: translateY(0) scale(0.97);
+  }
   /* Diagonal light sheen that sweeps across on hover — a thin bright band
      riding a wide transparent gradient, slid via background-position rather
      than a second animated element, so it never affects layout/hit-testing. */
-  &::after { content: ""; position: absolute; inset: 0; background: var(--btn-sheen-gradient); background-size: 250% 100%; background-position: 150% 0; pointer-events: none; }
+  &::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: var(--btn-sheen-gradient);
+    background-size: 250% 100%;
+    background-position: 150% 0;
+    pointer-events: none;
+  }
   @media (prefers-reduced-motion: no-preference) {
-    &::after { transition: background-position .6s ease; }
-    &:hover::after { background-position: -50% 0; }
+    &::after {
+      transition: background-position 0.6s ease;
+    }
+    &:hover::after {
+      background-position: -50% 0;
+    }
   }
 }
 
 @utility btn-outline {
-  display: inline-flex; align-items: center; justify-content: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   gap: 0.5rem;
   background: transparent;
   color: var(--color-foreground);
@@ -245,14 +320,26 @@ header .container-page {
   /* Transform-only — no color/background hover here, since a few call sites
      (e.g. the destructive delete button) already set their own hover:bg-*
      via inline Tailwind classes and a base color rule would fight them. */
-  transition: transform .15s ease, box-shadow .15s ease;
-  &:hover { transform: translateY(-1px); }
-  &:active { transform: translateY(0) scale(0.97); }
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.15s ease;
+  &:hover {
+    transform: translateY(-1px);
+  }
+  &:active {
+    transform: translateY(0) scale(0.97);
+  }
 }
 
 @keyframes card-enter {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 @utility card-elev {
@@ -265,14 +352,17 @@ header .container-page {
      cards, and a lift/tint would falsely imply they're clickable. This just
      makes whichever hover:* Tailwind classes a call site already applies
      (the genuinely clickable cards) animate smoothly instead of snapping. */
-  transition: background-color .2s ease, box-shadow .2s ease, transform .2s ease;
+  transition:
+    background-color 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.2s ease;
   /* Runs once whenever a card is actually inserted into the DOM (initial page
      load, a new list item mounting, a modal opening) — not on every re-render,
      since CSS animations don't restart unless the element itself is freshly
      mounted. Respects reduced-motion since entrance animation is decorative,
      not functional. */
   @media (prefers-reduced-motion: no-preference) {
-    animation: card-enter .4s ease-out both;
+    animation: card-enter 0.4s ease-out both;
   }
 }
 
@@ -283,8 +373,10 @@ header .container-page {
    of its own — call sites already have one (card-elev, or their own
    rounded-* utility), so this only ever adds the background+transition. */
 @utility row-hover {
-  transition: background-color .15s ease;
-  &:hover { background-color: var(--color-secondary); }
+  transition: background-color 0.15s ease;
+  &:hover {
+    background-color: var(--color-secondary);
+  }
 }
 
 /* Scoped contrast boost for the dashboard overview — user feedback was that
@@ -302,8 +394,8 @@ header .container-page {
    overridden to here, no per-card edits needed) rather than risking a
    site-wide visual regression. */
 .dashboard-contrast {
-  --border: oklch(0.80 0.02 255);
-  --muted-foreground: oklch(0.40 0.02 255);
+  --border: oklch(0.8 0.02 255);
+  --muted-foreground: oklch(0.4 0.02 255);
   --shadow-card: 0 1px 2px oklch(0 0 0 / 0.05), 0 10px 26px -10px oklch(0.18 0.06 250 / 0.18);
   /* AppShell's own content wrapper (src/components/AppShell.tsx) is fully
      transparent — this is genuinely the first background painted below the
@@ -332,30 +424,51 @@ header .container-page {
 }
 
 @utility badge-soft {
-  display: inline-flex; align-items: center; gap: .35rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
   padding: 0.25rem 0.6rem;
   border-radius: 999px;
   background: oklch(0.93 0.05 163);
   color: oklch(0.32 0.12 163);
-  font-size: 0.75rem; font-weight: 600;
-  transition: background-color .2s ease, color .2s ease;
+  font-size: 0.75rem;
+  font-weight: 600;
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease;
 }
 
 /* Same shape as .badge-soft, warning/amber-tinted — used where a badge needs to read
    as "premium" rather than the default informational green (e.g. pricing's white-glove
    tier), without changing badge-soft's own color for every other site-wide use. */
 @utility badge-soft-warning {
-  display: inline-flex; align-items: center; gap: .35rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
   padding: 0.25rem 0.6rem;
   border-radius: 999px;
   background: color-mix(in oklch, var(--color-warning) 30%, transparent);
   color: var(--color-warning-foreground);
-  font-size: 0.75rem; font-weight: 600;
-  transition: background-color .2s ease, color .2s ease;
+  font-size: 0.75rem;
+  font-weight: 600;
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease;
 }
 
-@keyframes shimmer { 0%{background-position:-400px 0} 100%{background-position:400px 0} }
-.locked-blur { filter: blur(6px); user-select: none; pointer-events: none; }
+@keyframes shimmer {
+  0% {
+    background-position: -400px 0;
+  }
+  100% {
+    background-position: 400px 0;
+  }
+}
+.locked-blur {
+  filter: blur(6px);
+  user-select: none;
+  pointer-events: none;
+}
 
 /* Cascading entrance for list/grid children (stat cards, table rows, checklist
    items) — same fade+rise as .card-elev's card-enter, but as an opt-in utility
@@ -363,22 +476,35 @@ header .container-page {
    user action, not a bulk initial render). Callers pair this with an inline
    `animation-delay` per index, same convention as .radiate-ring below. */
 @keyframes list-item-enter {
-  from { opacity: 0; transform: translateY(6px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 @utility list-item-enter {
   @media (prefers-reduced-motion: no-preference) {
-    animation: list-item-enter .45s ease-out both;
+    animation: list-item-enter 0.45s ease-out both;
   }
 }
 
 /* Fade for Modal.tsx's backdrop — the inner box already animates in via
    card-enter (inherited from .card-elev), but the backdrop itself used to
    pop in instantly. Matches radix Dialog's own fade-in-0/fade-out-0. */
-@keyframes backdrop-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes backdrop-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
 @utility backdrop-fade-in {
   @media (prefers-reduced-motion: no-preference) {
-    animation: backdrop-fade .2s ease-out both;
+    animation: backdrop-fade 0.2s ease-out both;
   }
 }
 
@@ -386,12 +512,18 @@ header .container-page {
    AppShell.tsx) — keyed on pathname so React remounts this wrapper and the
    animation restarts. Never touches the prerendered HTML's first paint. */
 @keyframes page-enter {
-  from { opacity: 0; transform: translateY(4px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 @utility page-enter {
   @media (prefers-reduced-motion: no-preference) {
-    animation: page-enter .3s ease-out both;
+    animation: page-enter 0.3s ease-out both;
   }
 }
 
@@ -400,42 +532,93 @@ header .container-page {
    -delay inline (see HeroBackground.tsx) so multiple clouds/trees don't move
    in lockstep. All gated behind reduced-motion since it's purely decorative. */
 @keyframes cloud-drift {
-  0%, 100% { transform: translateX(0); }
-  50% { transform: translateX(16px); }
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  50% {
+    transform: translateX(16px);
+  }
 }
 @keyframes sun-glow-pulse {
-  0%, 100% { opacity: 0.5; transform: scale(1); }
-  50% { opacity: 0.68; transform: scale(1.1); }
+  0%,
+  100% {
+    opacity: 0.5;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.68;
+    transform: scale(1.1);
+  }
 }
 @keyframes tree-sway {
-  0%, 100% { transform: rotate(-2deg); }
-  50% { transform: rotate(2deg); }
+  0%,
+  100% {
+    transform: rotate(-2deg);
+  }
+  50% {
+    transform: rotate(2deg);
+  }
 }
 @keyframes wave-arm {
-  0%, 100% { transform: rotate(0deg); }
-  25% { transform: rotate(15deg); }
-  50% { transform: rotate(-4deg); }
-  75% { transform: rotate(10deg); }
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  25% {
+    transform: rotate(15deg);
+  }
+  50% {
+    transform: rotate(-4deg);
+  }
+  75% {
+    transform: rotate(10deg);
+  }
 }
 /* One-shot "steps out of the doorway" entrance, plus a delayed pop-in for
    the speech bubble once he's arrived — separate elements from the
    continuously-waving arm, so none of these ever fight over the same
    element's transform (see the CorvusRE doors work for why that matters). */
 @keyframes bear-emerge {
-  from { opacity: 0; transform: translateY(18px) scale(0.7); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(0.7);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 @keyframes bubble-pop {
-  from { opacity: 0; transform: translateY(6px) scale(0.85); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.85);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 @media (prefers-reduced-motion: no-preference) {
-  .hero-cloud-drift { animation: cloud-drift 9s ease-in-out infinite; }
-  .hero-sun-glow { animation: sun-glow-pulse 4s ease-in-out infinite; }
-  .hero-tree-sway { animation: tree-sway 5s ease-in-out infinite; transform-origin: 50% 100%; }
-  .hero-wave-arm { animation: wave-arm 1.8s ease-in-out infinite; }
-  .hero-bear-emerge { animation: bear-emerge 0.6s cubic-bezier(0.22, 1, 0.36, 1) 0.15s both; }
-  .hero-bubble { animation: bubble-pop 0.5s cubic-bezier(0.22, 1, 0.36, 1) 0.7s both; }
+  .hero-cloud-drift {
+    animation: cloud-drift 9s ease-in-out infinite;
+  }
+  .hero-sun-glow {
+    animation: sun-glow-pulse 4s ease-in-out infinite;
+  }
+  .hero-tree-sway {
+    animation: tree-sway 5s ease-in-out infinite;
+    transform-origin: 50% 100%;
+  }
+  .hero-wave-arm {
+    animation: wave-arm 1.8s ease-in-out infinite;
+  }
+  .hero-bear-emerge {
+    animation: bear-emerge 0.6s cubic-bezier(0.22, 1, 0.36, 1) 0.15s both;
+  }
+  .hero-bubble {
+    animation: bubble-pop 0.5s cubic-bezier(0.22, 1, 0.36, 1) 0.7s both;
+  }
 }
 
 /* Speech bubble greeting beside the hero's waving bear — visible
@@ -471,11 +654,19 @@ header .container-page {
    illustration — each ring carries its own animation-delay inline (see
    index.tsx) so they radiate in sequence rather than all at once. */
 @keyframes radiate-ping {
-  0% { transform: scale(0.8); opacity: 0.5; }
-  100% { transform: scale(1.4); opacity: 0; }
+  0% {
+    transform: scale(0.8);
+    opacity: 0.5;
+  }
+  100% {
+    transform: scale(1.4);
+    opacity: 0;
+  }
 }
 @media (prefers-reduced-motion: no-preference) {
-  .radiate-ring { animation: radiate-ping 3s ease-out infinite; }
+  .radiate-ring {
+    animation: radiate-ping 3s ease-out infinite;
+  }
 }
 
 /* Homepage beta-signup announcement — a small plane towing a banner sign,
@@ -486,8 +677,12 @@ header .container-page {
    (same band as the sun/moon and top clouds) so it mostly clears the
    centered headline text as it crosses. */
 @keyframes fly-across {
-  from { transform: translateX(100vw); }
-  to { transform: translateX(-100%); }
+  from {
+    transform: translateX(100vw);
+  }
+  to {
+    transform: translateX(-100%);
+  }
 }
 .beta-flyby-plane {
   position: absolute;
@@ -530,16 +725,144 @@ header .container-page {
   /* Slower than a first pass might suggest — the banner now carries an extra
      bolded line, so it needs more time on screen to stay readable as it
      crosses. */
-  .beta-flyby-plane { animation: fly-across 48s linear infinite; }
+  .beta-flyby-plane {
+    animation: fly-across 48s linear infinite;
+  }
 }
 /* Reduced-motion: no flight, just a centered, static plane+banner. */
 @media (prefers-reduced-motion: reduce) {
-  .beta-flyby-plane { left: 50%; transform: translateX(-50%); }
+  .beta-flyby-plane {
+    left: 50%;
+    transform: translateX(-50%);
+  }
 }
 
 /* Without this, browsers strip background colors by default when printing —
    the colorful chips/badges/chart fills that make the AI report worth exporting
    would silently print as plain black-on-white otherwise. */
 @media print {
-  * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+}
+
+/* Ambient glow breathing behind the AI Report savings banner's hero number
+   (see CelebrationConfetti.tsx and the ".savings-glow"/".savings-glow-warm"
+   elements in ai-report.tsx) — two blobs now, not one: emerald top-left
+   (savings-glow) plus a warm gold one bottom-right (savings-glow-warm, its
+   own offset timing via animation-delay so they don't breathe in lockstep),
+   replacing a flat solid-navy card with something that actually feels alive.
+   Same idea as the homepage hero's sun-glow-pulse — a second/third instance
+   since Tailwind's arbitrary-value opacity/scale utilities can't express a
+   looping animation on their own. */
+@keyframes savings-glow-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.55;
+    transform: scale(1.12);
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .savings-glow {
+    animation: savings-glow-pulse 5s ease-in-out infinite;
+  }
+  .savings-glow-warm {
+    animation: savings-glow-pulse 6s ease-in-out 1.5s infinite;
+  }
+}
+
+/* Slow diagonal light sweep across the whole savings banner — a soft bright
+   band drifting through and fading, like light catching a premium card's
+   surface. One more layer (besides the two glow blobs above and the
+   confetti loop below) making the banner read as an intentionally
+   celebratory surface rather than a flat color fill. */
+@keyframes savings-sheen-sweep {
+  0% {
+    transform: translateX(-40%) skewX(-12deg);
+    opacity: 0;
+  }
+  15%,
+  35% {
+    opacity: 0.5;
+  }
+  55% {
+    opacity: 0;
+  }
+  100% {
+    transform: translateX(220%) skewX(-12deg);
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .savings-sheen {
+    animation: savings-sheen-sweep 6s ease-in-out infinite;
+  }
+}
+
+/* Continuous celebration confetti on the AI Report savings banner (see
+   CelebrationConfetti.tsx) — bursts of real paper-like flecks and emoji
+   exploding outward from a fixed spot, then falling with gravity, confined
+   to the dark banner itself (its own `overflow-hidden` from ai-report.tsx
+   clips anything that would otherwise spill past its edges) rather than the
+   whole viewport — a contained "bomb blast" in the banner, not a page-wide
+   effect. Each piece fades to fully transparent by the end of its own
+   animation (100% opacity: 0) so pieces dissolve away instead of visibly
+   piling up wherever they land. Loops continuously the whole time the
+   report is showing a completed analysis — not hover-triggered (an earlier
+   version was; moved to always-on per explicit feedback that it shouldn't
+   depend on the cursor at all) — see CelebrationConfetti.tsx's own internal
+   interval for how a fresh burst keeps regenerating. Positioning/layout
+   below is unconditional (harmless with zero pieces if motion is off); only
+   the actual burst/fall is gated, and CelebrationConfetti.tsx additionally
+   never starts its loop at all for a reduced-motion user in the first place
+   — belt-and-suspenders for anyone whose OS-level media query and JS check
+   somehow disagree. */
+.celebration-confetti {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  overflow: hidden;
+  pointer-events: none;
+}
+.celebration-confetti-piece {
+  position: absolute;
+  border-radius: 1px;
+  opacity: 0;
+}
+/* translate(-50%, -50%) as the constant base in every stop centers each
+   piece exactly on its own --origin-x/--origin-y point (set inline per
+   piece — see CelebrationConfetti.tsx) regardless of the piece's own
+   width/height, the same anchoring trick a tooltip arrow uses; --burst-*
+   is the initial explosive kick outward in a random direction, --fall-* is
+   the additional gravity drop layered on top of wherever the burst left it. */
+@keyframes confetti-burst {
+  0% {
+    transform: translate(-50%, -50%) rotate(0deg) scale(0.5);
+    opacity: 0;
+  }
+  18% {
+    transform: translate(calc(-50% + var(--burst-x)), calc(-50% + var(--burst-y)))
+      rotate(calc(var(--confetti-rotate) * 0.25)) scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(
+        calc(-50% + var(--burst-x) + var(--fall-x)),
+        calc(-50% + var(--burst-y) + var(--fall-y))
+      )
+      rotate(var(--confetti-rotate)) scale(0.85);
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .celebration-confetti-piece {
+    animation-name: confetti-burst;
+    animation-timing-function: cubic-bezier(0.15, 0.6, 0.4, 1);
+    animation-fill-mode: forwards;
+  }
 }

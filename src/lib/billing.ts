@@ -40,7 +40,7 @@ export const VALUE_BRACKETS: { value: PropertyValueBracket; label: string }[] = 
 
 export const TIER_BRACKET_PRICES: Record<Tier, Record<PropertyValueBracket, number>> = {
   owner_managed: { under2m: 99, mid2m10m: 299, over10m: 499 },
-  corvusrf_managed: { under2m: 199, mid2m10m: 499, over10m: 699 },
+  corvusrf_managed: { under2m: 199, mid2m10m: 499, over10m: 799 },
 };
 
 // Non-metered — shown on /pricing as a third, always-visible card with a
@@ -83,7 +83,7 @@ export function bracketPropertyCount(brackets: BracketQuantities): number {
 export const PLAN_OPTIONS: { value: PlanValue; label: string }[] = [
   { value: "free_ai_review", label: "Free AI Review" },
   { value: "owner_managed", label: "Owner-Managed ($99–$499/mo/property, by value)" },
-  { value: "corvusrf_managed", label: "CorvusPT-Managed ($199–$699/mo/property, by value)" },
+  { value: "corvusrf_managed", label: "CorvusPT-Managed ($199–$799/mo/property, by value)" },
   { value: "beta", label: "Beta (free, full access)" },
 ];
 

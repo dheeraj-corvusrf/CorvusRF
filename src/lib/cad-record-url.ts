@@ -22,7 +22,7 @@ import type { CadRecord } from "./cad-lookup";
 // never actually confirmed works) rather than a specific-record URL nobody's
 // checked. Better an honest "search here yourself" than a link that might
 // silently 404 or land on the wrong page.
-const CAD_SEARCH_HOMEPAGE: Record<string, string> = {
+export const CAD_SEARCH_HOMEPAGE: Record<string, string> = {
   "Bexar Appraisal District": "https://bcad.org",
   "Collin Central Appraisal District": "https://www.collincad.org",
   "Dallas Central Appraisal District": "https://www.dallascad.org",
@@ -56,3 +56,16 @@ export function getCadRecordUrl(record: Pick<CadRecord, "cad" | "accountNumber">
 export function isDirectCadRecordUrl(cad: string): boolean {
   return cad === "Bexar Appraisal District" || cad === "Dallas Central Appraisal District";
 }
+
+// Plain county names ("Bexar", not "Bexar Appraisal District") derived from
+// CAD_SEARCH_HOMEPAGE's own keys above — the one place this app's actual
+// county coverage is enumerated — rather than a second hand-maintained list
+// that could silently drift out of sync with it (the same class of bug as
+// the $699/$799 pricing mismatch: two copies of one fact, only one updated).
+// Used by intake.tsx to tell "this county genuinely isn't supported yet"
+// apart from "supported county, just no record found for this address."
+export const SUPPORTED_COUNTY_NAMES = new Set(
+  Object.keys(CAD_SEARCH_HOMEPAGE).map((cad) =>
+    cad.replace(/\s*(Central\s+)?Appraisal District$/i, "").trim(),
+  ),
+);

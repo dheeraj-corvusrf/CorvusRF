@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   CheckCircle2,
@@ -88,6 +88,7 @@ import { CaseDetailModal } from "@/components/CaseDetailModal";
 import { AnimatedNumber } from "@/components/AnimatedNumber";
 import { ValueHistorySection } from "@/components/ValueHistorySection";
 import { Modal } from "@/components/Modal";
+import { CelebrationConfetti } from "@/components/CelebrationConfetti";
 
 type ModuleAsyncState = {
   data: unknown;
@@ -114,6 +115,23 @@ export const Route = createFileRoute("/ai-report")({
 // paid subscription — there is no sign-in-only tier and no per-user "pick any
 // 3" quota; which modules are free is fixed by module number, not user choice.
 const FREE_MODULE_COUNT = 3;
+
+// Fixed spots the savings-banner confetti bursts always originate from — not
+// tied to wherever the cursor happened to enter (this ran on hover in an
+// earlier version). Percentages of the banner's own box, so each stays
+// roughly in the same place across both the wide desktop layout and the
+// narrower mobile one. Three origins — near the number on the left, a
+// second "cracker" burst on the right side, and a third in the middle — so
+// the celebration reads as coming from across the whole banner rather than
+// one or two spots. Each CelebrationConfetti instance runs on its own
+// independently randomized schedule (see that component), so the three
+// don't burst/fade in visible lockstep with each other.
+const CONFETTI_ORIGIN_X_PCT = 15;
+const CONFETTI_ORIGIN_Y_PCT = 60;
+const CONFETTI_ORIGIN_CENTER_X_PCT = 50;
+const CONFETTI_ORIGIN_CENTER_Y_PCT = 55;
+const CONFETTI_ORIGIN_RIGHT_X_PCT = 88;
+const CONFETTI_ORIGIN_RIGHT_Y_PCT = 45;
 
 // Real comps-derived signal fed into Module 2's prompt (see loadModule() below) —
 // median/min/max of the same real comparable market values CompsMap/CompsScatter
@@ -425,6 +443,77 @@ function Report() {
       );
   }
 
+  // Auto-retry a module that landed in an error state, instead of making the
+  // user click "click to view & retry" themselves. invokeEdgeFunction already
+  // retries transient 429/504s internally before ever surfacing an error here
+  // (see src/lib/edge-functions.ts) — a module reaching this state exhausted
+  // that whole budget, which live testing while chasing this same "modules
+  // keep erroring" report showed happens during genuinely bad stretches of
+  // Gemini congestion (per-call failure rates swinging from ~0% to 50%+
+  // minute to minute), not a permanent problem. Capped at AUTO_RETRY_MAX so a
+  // truly broken call (missing secret, bad input) doesn't hammer the API
+  // forever — the existing manual retry link is still there as the fallback
+  // once this budget is spent.
+  const autoRetryRef = useRef<
+    Record<string, { count: number; timer: ReturnType<typeof setTimeout> | null }>
+  >({});
+  const AUTO_RETRY_MAX = 3;
+  const AUTO_RETRY_DELAY_MS = 6000;
+  useEffect(() => {
+    for (const [id, entry] of Object.entries(moduleData)) {
+      const tracked = autoRetryRef.current[id];
+      // A retry attempt itself sets {data: null, loading: true, error: null}
+      // — indistinguishable from "never failed" by entry.error alone, which
+      // would otherwise hit the branch below and wipe the count this same
+      // attempt just incremented, before its outcome is even known (making
+      // AUTO_RETRY_MAX effectively unbounded — confirmed by tracing it
+      // through). Skip entirely while in flight; only a real settled result
+      // (success below, or a fresh error two branches down) should touch
+      // tracking.
+      if (entry.loading) continue;
+      if (!entry.error) {
+        // A genuine success — clear tracking so a future failure on this
+        // same module gets a fresh retry budget instead of inheriting an
+        // old count.
+        if (tracked) {
+          if (tracked.timer) clearTimeout(tracked.timer);
+          delete autoRetryRef.current[id];
+        }
+        continue;
+      }
+      if (tracked?.timer) continue; // a retry is already scheduled for this module
+      const count = tracked?.count ?? 0;
+      if (count >= AUTO_RETRY_MAX) continue;
+      const timer = setTimeout(() => {
+        autoRetryRef.current[id] = { count: count + 1, timer: null };
+        loadModule(id, { force: true });
+      }, AUTO_RETRY_DELAY_MS);
+      autoRetryRef.current[id] = { count, timer };
+    }
+    // loadModule is intentionally excluded — same rationale as the eager-load
+    // effects elsewhere on this page (it closes over moduleData for its own
+    // fetch guard and would otherwise re-fire this effect on every load it
+    // itself triggers).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [moduleData]);
+  // Cleanup only, run once — cancels any still-pending auto-retry timers if
+  // the user navigates away mid-retry rather than letting them fire (and
+  // call setModuleData) against an unmounted page. Deliberately reads
+  // autoRetryRef.current live inside the cleanup rather than a captured
+  // snapshot — this ref isn't a DOM node, it's a running tally that keeps
+  // growing for as long as the page is mounted, so the exhaustive-deps
+  // warning's usual "copy .current to a variable" fix would only ever see
+  // the empty object from right after mount, before any retry was ever
+  // scheduled.
+  useEffect(() => {
+    return () => {
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      for (const entry of Object.values(autoRetryRef.current)) {
+        if (entry.timer) clearTimeout(entry.timer);
+      }
+    };
+  }, []);
+
   function loadCompsMap() {
     if (compsMap.data || compsMap.loading) return;
     setCompsMap({ data: null, loading: true });
@@ -505,6 +594,10 @@ function Report() {
       effectiveTaxRatePct: savingsEstimate.effectiveTaxRatePct,
     };
   }, [savingsEstimate, state.totalValue]);
+  // Drives the analysis banner's hero savings figure sizing below — the
+  // formatted string's own length, not viewport width, since a large enough
+  // property can produce a 6+ digit savings figure on any screen size.
+  const savingsDigits = useMemo(() => currency(estimated.savings).length, [estimated.savings]);
 
   // Eager-loads real data for the module overview grid below (real scores,
   // checklists, etc. instead of generic teaser text) as soon as the property
@@ -609,32 +702,129 @@ function Report() {
         </div>
       </section>
 
-      {/* Analysis banner */}
-      <section className="mt-6 card-elev p-5 flex flex-wrap items-center justify-between gap-3 bg-primary text-primary-foreground">
-        <div className="min-w-0 flex-1">
-          <p className="text-sm text-primary-foreground/80">
-            {analyzing ? "AI is analyzing your property..." : "AI analysis completed."}
-          </p>
-          <p className="font-serif text-lg sm:text-xl">
-            {analyzing
-              ? "Preparing your property valuation review..."
-              : `Estimated tax savings this year: ${currency(estimated.savings)}`}
-          </p>
-        </div>
-        <div className="print:hidden text-right text-sm shrink-0">
-          {hasFullAccess ? (
-            <div className="text-primary-foreground/70 text-xs">AI Report subscription active</div>
-          ) : (
-            <>
-              <div>
-                {FREE_MODULE_COUNT} of {MODULES.length} modules free
+      {/* Analysis banner — the savings figure is the whole point of this page for
+          most visitors, so it gets a hero-scale treatment (was the same text-lg
+          size as the "AI analysis completed" label above it, easy to skim past)
+          rather than reading as one more line of body copy. Two confetti
+          "cracker" bursts run continuously (see CelebrationConfetti.tsx) the
+          whole time a completed analysis is showing — not hover-triggered, an
+          earlier version was but per explicit feedback it should run on its
+          own regardless of the cursor. */}
+      <section className="relative mt-6 card-elev overflow-hidden text-primary-foreground">
+        {/* Richer than a flat bg-primary fill — a diagonal gradient with a
+            faint accent-green undertone, so the banner reads as an
+            intentionally celebratory surface even before any motion kicks in. */}
+        <div
+          className="absolute inset-0"
+          style={{
+            background:
+              "linear-gradient(135deg, var(--primary) 0%, color-mix(in oklch, var(--primary) 82%, var(--accent) 18%) 50%, var(--primary) 100%)",
+          }}
+        />
+        {/* Two ambient glow blobs — a flat solid-navy card read as plain/
+            static for what's meant to be the page's one exciting moment.
+            Emerald top-left near the number, warm gold bottom-right (offset
+            pulse timing via the CSS itself), both z-0'd behind the real
+            content below. */}
+        {!analyzing && (
+          <>
+            <div
+              className="savings-glow pointer-events-none absolute -left-24 -top-24 z-0 h-96 w-96 rounded-full"
+              style={{
+                background:
+                  "radial-gradient(circle, color-mix(in oklch, var(--accent) 55%, transparent) 0%, transparent 70%)",
+              }}
+            />
+            <div
+              className="savings-glow-warm pointer-events-none absolute -bottom-24 -right-24 z-0 h-96 w-96 rounded-full"
+              style={{
+                background:
+                  "radial-gradient(circle, color-mix(in oklch, var(--warning) 50%, transparent) 0%, transparent 70%)",
+              }}
+            />
+            {/* Slow diagonal light sweep across the whole banner surface —
+                see the savings-sheen-sweep keyframe in styles.css. */}
+            <div className="savings-sheen pointer-events-none absolute -inset-y-12 left-0 z-0 w-1/3 bg-white/10" />
+          </>
+        )}
+        {/* Confined to this banner (its own overflow-hidden above clips
+            them) — three fixed origins (left near the number, center, and a
+            "cracker" burst on the right), each looping continuously the
+            whole time a completed analysis is showing (see `active` below)
+            on its OWN independently randomized schedule (see
+            CelebrationConfetti's internal timer), independent of the cursor
+            entirely. z-20, above both the z-0 glow layers and the z-10
+            content, so they're never hidden behind either. */}
+        <CelebrationConfetti
+          active={!analyzing}
+          originXPct={CONFETTI_ORIGIN_X_PCT}
+          originYPct={CONFETTI_ORIGIN_Y_PCT}
+        />
+        <CelebrationConfetti
+          active={!analyzing}
+          originXPct={CONFETTI_ORIGIN_CENTER_X_PCT}
+          originYPct={CONFETTI_ORIGIN_CENTER_Y_PCT}
+        />
+        <CelebrationConfetti
+          active={!analyzing}
+          originXPct={CONFETTI_ORIGIN_RIGHT_X_PCT}
+          originYPct={CONFETTI_ORIGIN_RIGHT_Y_PCT}
+        />
+        <div className="relative z-10 flex flex-wrap items-start justify-between gap-6 p-5 sm:p-8">
+          <div className="min-w-0">
+            <p className="text-sm text-primary-foreground/80">
+              {analyzing ? "AI is analyzing your property..." : "AI analysis completed."}
+            </p>
+            {analyzing ? (
+              <p className="mt-1 font-serif text-lg sm:text-xl">
+                Preparing your property valuation review...
+              </p>
+            ) : (
+              <>
+                <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-primary-foreground/70">
+                  Estimated tax savings this year
+                </p>
+                {/* Sized off the actual formatted string's length, not just the
+                    viewport — a fixed text-6xl/7xl/8xl scale (confirmed live)
+                    clips off-card on a narrow phone once a large property's
+                    savings run to 6+ digits ("$135,675" and up), since a wider
+                    viewport can't be assumed to always mean a shorter number.
+                    Common case (the vast majority of real properties) still
+                    gets the full hero size below. */}
+                <p
+                  className={`mt-1 flex w-fit items-center gap-2 font-serif font-bold leading-none text-accent ${
+                    savingsDigits <= 7
+                      ? "text-6xl sm:text-7xl lg:text-8xl"
+                      : savingsDigits <= 9
+                        ? "text-5xl sm:text-6xl lg:text-7xl"
+                        : "text-4xl sm:text-5xl lg:text-6xl"
+                  }`}
+                >
+                  <TrendingUp className="h-8 w-8 shrink-0 sm:h-10 sm:w-10 lg:h-14 lg:w-14" />
+                  <AnimatedNumber value={estimated.savings} format={currency} duration={900} />
+                </p>
+              </>
+            )}
+          </div>
+          <div className="print:hidden shrink-0 text-right text-sm">
+            {hasFullAccess ? (
+              <div className="text-primary-foreground/70 text-xs">
+                AI Report subscription active
               </div>
-              <div className="text-primary-foreground/70 text-xs">Subscribe to unlock the rest</div>
-            </>
-          )}
+            ) : (
+              <>
+                <div>
+                  {FREE_MODULE_COUNT} of {MODULES.length} modules free
+                </div>
+                <div className="text-primary-foreground/70 text-xs">
+                  Subscribe to unlock the rest
+                </div>
+              </>
+            )}
+          </div>
         </div>
         {user && (
-          <div className="w-full pt-3 border-t border-primary-foreground/20 print:hidden">
+          <div className="relative z-10 border-t border-primary-foreground/20 px-5 pb-5 pt-3 print:hidden sm:px-8 sm:pb-8">
             {existingProtest ? (
               <div className="flex items-center gap-3">
                 <span className="badge-soft">

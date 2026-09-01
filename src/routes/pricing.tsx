@@ -14,6 +14,7 @@ import {
   VALUE_BRACKETS,
   TIER_BRACKET_PRICES,
   CUSTOM_TIER,
+  ADDITIONAL_PROPERTY_DISCOUNT,
   type PlanValue,
   type Tier,
   type BracketQuantities,
@@ -32,7 +33,7 @@ export const Route = createFileRoute("/pricing")({
       { property: "og:title", content: "CorvusPT.ai Pricing" },
       {
         property: "og:description",
-        content: "Free AI review. Then $99–$699/mo per property, priced by property value.",
+        content: "Free AI review. Then $99–$799/mo per property, priced by property value.",
       },
     ],
   }),
@@ -258,6 +259,72 @@ function Page() {
             our staff file and represent you. Priced per property, by property value, billed
             monthly.
           </p>
+        </div>
+      </div>
+
+      {/* One table with every price side by side — Own and Corvus were previously
+          only comparable by scanning between the two separate picker cards further
+          down (or, before that overhaul, by switching tabs). Always visible,
+          regardless of sign-in/subscription state, since it's a plain reference:
+          every number here reads straight off TIER_BRACKET_PRICES/VALUE_BRACKETS/
+          ADDITIONAL_PROPERTY_DISCOUNT/CUSTOM_TIER — the exact same single source of
+          truth the interactive cards below and the real Stripe checkout both use —
+          so this can never drift out of sync with what a subscriber is actually
+          charged the way the $699/$799 mismatch did. */}
+      <div className="container-page">
+        <div className="card-elev overflow-hidden">
+          <div className="p-6 pb-4">
+            <h2 className="font-serif text-xl font-semibold">Pricing at a glance</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Every price for both plans, by property value — compare them here before picking one
+              below.
+            </p>
+          </div>
+          {/* min-w keeps every column at a readable width instead of the table
+              shrinking to fit a narrow viewport and clipping the header text (confirmed
+              live at 390px: without it, "Additional property, same bracket" squeezed down
+              to unreadable fragments instead of the wrapper actually scrolling) — wide
+              content should scroll inside its own container, never squeeze. */}
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[640px] text-sm">
+              <thead>
+                <tr className="border-t border-border text-left text-xs uppercase tracking-wide text-muted-foreground">
+                  <th className="whitespace-nowrap py-3 pl-6 pr-4 font-medium">
+                    Property value range
+                  </th>
+                  <th className="whitespace-nowrap py-3 pr-4 font-medium">Owner-Managed</th>
+                  <th className="whitespace-nowrap py-3 pr-4 font-medium">CorvusPT-Managed</th>
+                  <th className="whitespace-nowrap py-3 pr-6 font-medium">
+                    Price per additional property
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {VALUE_BRACKETS.map((b) => (
+                  <tr key={b.value} className="border-t border-border">
+                    <td className="py-3 pl-6 pr-4 font-medium">{b.label}</td>
+                    <td className="py-3 pr-4">
+                      ${TIER_BRACKET_PRICES.owner_managed[b.value]}
+                      <span className="text-muted-foreground">/mo</span>
+                    </td>
+                    <td className="py-3 pr-4">
+                      ${TIER_BRACKET_PRICES.corvusrf_managed[b.value]}
+                      <span className="text-muted-foreground">/mo</span>
+                    </td>
+                    <td className="py-3 pr-6 text-muted-foreground">
+                      {Math.round(ADDITIONAL_PROPERTY_DISCOUNT * 100)}% off base price
+                    </td>
+                  </tr>
+                ))}
+                <tr className="border-t border-border">
+                  <td className="py-3 pl-6 pr-4 font-medium">{CUSTOM_TIER.label}</td>
+                  <td className="py-3 pr-4 text-muted-foreground">Custom</td>
+                  <td className="py-3 pr-4 text-muted-foreground">Custom</td>
+                  <td className="py-3 pr-6 text-muted-foreground">—</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
 
