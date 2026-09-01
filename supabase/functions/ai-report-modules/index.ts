@@ -191,22 +191,23 @@ const MODULE_SPECS: Record<string, ModuleSpec> = {
     schema:
       '{"strategies": [{"name": "<Comparable Sales | Site Condition | Improvement Condition | ' +
       'Income Approach | Zoning / Classification | Other: label>", "strengthScore": <integer ' +
-      '0-100>, "primaryReason": "<short phrase>", "whySelected": "<1-2 sentences>", ' +
-      '"supportingFindings": "<1-2 sentences>", "valuationRelevance": "<1 sentence>", ' +
+      '0-100>, "primaryReason": "<short phrase>", "whySelected": "<ONE short sentence, max ' +
+      '~15 words>", "supportingFindings": "<ONE short sentence, max ~15 words>", ' +
+      '"valuationRelevance": "<ONE short sentence, max ~12 words>", ' +
       '"existingEvidence": ["<short>", ...], "missingEvidence": ["<short>", ...], ' +
-      '"confidencePct": <integer 0-100>, "recommendedInvestigation": "<1 sentence>", ' +
-      '"dataSufficient": <true|false>}, ...], "topStrategySummary": "<1 short sentence naming ' +
-      'the top 1-2 strategies>"}',
+      '"confidencePct": <integer 0-100>, "recommendedInvestigation": "<ONE short sentence, max ' +
+      '~12 words>", "dataSufficient": <true|false>}, ...], "topStrategySummary": "<ONE short ' +
+      'sentence, max ~15 words, naming the top 1-2 strategies>"}',
     parse: (p) => ({
       strategies: strategies(p.strategies),
-      topStrategySummary: str(p.topStrategySummary, 160),
+      topStrategySummary: str(p.topStrategySummary, 140),
     }),
   },
   comps: {
     instruction:
       "Give guidance on comparable-sale and equity-comp evidence relevant to this property type and county.",
-    schema: `{"guidance": "<1-2 sentences>", "checklist": ["<short item>", ...]}`,
-    parse: (p) => ({ guidance: str(p.guidance, 400), checklist: checklist(p.checklist) }),
+    schema: `{"guidance": "<ONE short sentence, max ~18 words — a headline, the checklist below carries the detail>", "checklist": ["<short item>", ...]}`,
+    parse: (p) => ({ guidance: str(p.guidance, 160), checklist: checklist(p.checklist) }),
   },
   site: {
     instruction:
@@ -214,9 +215,9 @@ const MODULE_SPECS: Record<string, ModuleSpec> = {
       "Also give an overall 0-100 documentation-priority score for how worthwhile pursuing site-" +
       "condition evidence looks for this specific property (based on its value profile and property " +
       "type — not a claim about a specific defect you haven't observed).",
-    schema: `{"guidance": "<1-2 sentences>", "checklist": ["<short item>", ...], "priorityScore": <integer 0-100>}`,
+    schema: `{"guidance": "<ONE short sentence, max ~18 words — a headline, the checklist below carries the detail>", "checklist": ["<short item>", ...], "priorityScore": <integer 0-100>}`,
     parse: (p) => ({
-      guidance: str(p.guidance, 400),
+      guidance: str(p.guidance, 160),
       checklist: checklist(p.checklist),
       priorityScore: score100(p.priorityScore),
     }),
@@ -227,9 +228,9 @@ const MODULE_SPECS: Record<string, ModuleSpec> = {
       "Also give an overall 0-100 documentation-priority score for how worthwhile pursuing " +
       "improvement-condition evidence looks for this specific property (based on its value profile " +
       "and property type — not a claim about a specific defect you haven't observed).",
-    schema: `{"guidance": "<1-2 sentences>", "checklist": ["<short item>", ...], "priorityScore": <integer 0-100>}`,
+    schema: `{"guidance": "<ONE short sentence, max ~18 words — a headline, the checklist below carries the detail>", "checklist": ["<short item>", ...], "priorityScore": <integer 0-100>}`,
     parse: (p) => ({
-      guidance: str(p.guidance, 400),
+      guidance: str(p.guidance, 160),
       checklist: checklist(p.checklist),
       priorityScore: score100(p.priorityScore),
     }),
@@ -239,14 +240,14 @@ const MODULE_SPECS: Record<string, ModuleSpec> = {
       "Assess whether the stated property type and typical CAD classification appear consistent. " +
       "Also state, in 2-4 words, what CAD classification would typically be expected for a property " +
       'like this (e.g. "Commercial - Retail").',
-    schema: `{"matches": "<one of: consistent | inconsistent | uncertain>", "assessment": "<1-2 sentences>", "typicalClassification": "<2-4 words>"}`,
+    schema: `{"matches": "<one of: consistent | inconsistent | uncertain>", "assessment": "<ONE short sentence, max ~18 words>", "typicalClassification": "<2-4 words>"}`,
     parse: (p) => {
       const matches = typeof p.matches === "string" ? p.matches : "";
       return {
         matches: (["consistent", "inconsistent", "uncertain"].includes(matches)
           ? matches
           : "uncertain") as "consistent" | "inconsistent" | "uncertain",
-        assessment: str(p.assessment, 400),
+        assessment: str(p.assessment, 160),
         typicalClassification: str(p.typicalClassification, 40),
       };
     },
@@ -262,11 +263,11 @@ const MODULE_SPECS: Record<string, ModuleSpec> = {
   },
   executive: {
     instruction: "Write the final executive recommendation, basis, and next step.",
-    schema: `{"recommendation": "<1 sentence>", "basis": "<1 sentence>", "nextStep": "<1 sentence>"}`,
+    schema: `{"recommendation": "<ONE short sentence, max ~15 words>", "basis": "<ONE short sentence, max ~15 words>", "nextStep": "<ONE short sentence, max ~12 words>"}`,
     parse: (p) => ({
-      recommendation: str(p.recommendation, 300),
-      basis: str(p.basis, 300),
-      nextStep: str(p.nextStep, 300),
+      recommendation: str(p.recommendation, 140),
+      basis: str(p.basis, 140),
+      nextStep: str(p.nextStep, 100),
     }),
   },
 };

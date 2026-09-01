@@ -89,8 +89,10 @@ const scoreBreakdown = (v: unknown): BreakdownEntry[] =>
     : [];
 
 const SCHEMA = `{"score": <integer 0-100, higher = stronger protest opportunity>,
-"executiveConclusion": "<2-3 sentences: does this property appear to have a meaningful
-protest opportunity, and why>",
+"executiveConclusion": "<ONE short sentence, max ~18 words — a headline verdict, not a
+paragraph: does this property have a meaningful protest opportunity? The UI shows this next
+to a gauge/chips that already cover the supporting numbers, so this is the takeaway line
+only, never a restatement of the data itself>",
 "scoreBreakdown": [{"label": "<one of: ${BREAKDOWN_LABELS.join(" | ")}>", "score": <integer
 0-100>}, ...] (only include labels the given data can actually speak to),
 "factorsIncreasing": ["<short finding that supports a protest>", ...] (up to 5),
@@ -98,10 +100,11 @@ protest opportunity, and why>",
 none apply),
 "confidencePct": <integer 0-100, how confident this analysis is given the data actually
 available>,
-"confidenceReasoning": "<1-2 sentences citing what data was/wasn't available>",
-"methodology": "<2-3 plain-language sentences on how the score was reached — the major
-factors and comparisons used, not model internals>",
-"nextStep": "<1 sentence: what the user should do next>",
+"confidenceReasoning": "<ONE short sentence, max ~15 words, naming what's missing — not a
+list, the UI already shows what data was pulled elsewhere>",
+"methodology": "<ONE short sentence, max ~18 words, on how the score was reached — not
+model internals>",
+"nextStep": "<ONE short sentence, max ~12 words: the single next action>",
 "dataSufficient": <true|false — false if there's genuinely too little data for a responsible
 score>}`;
 
@@ -248,14 +251,19 @@ Deno.serve(async (req: Request) => {
 
     const result = {
       score: score100(parsed.score, 0),
-      executiveConclusion: str(parsed.executiveConclusion, 500),
+      // Caps tightened alongside the SCHEMA's own word-count instructions
+      // above (500/300/500/200 chars was enough room for the paragraphs
+      // the old "2-3 sentences" instructions produced — these are a hard
+      // backstop against a single unusually long sentence, not the actual
+      // enforcement, which the prompt's word counts do).
+      executiveConclusion: str(parsed.executiveConclusion, 160),
       scoreBreakdown: scoreBreakdown(parsed.scoreBreakdown),
-      factorsIncreasing: strList(parsed.factorsIncreasing, 5, 160),
-      factorsReducing: strList(parsed.factorsReducing, 5, 160),
+      factorsIncreasing: strList(parsed.factorsIncreasing, 5, 90),
+      factorsReducing: strList(parsed.factorsReducing, 5, 90),
       confidencePct: score100(parsed.confidencePct),
-      confidenceReasoning: str(parsed.confidenceReasoning, 300),
-      methodology: str(parsed.methodology, 500),
-      nextStep: str(parsed.nextStep, 200),
+      confidenceReasoning: str(parsed.confidenceReasoning, 140),
+      methodology: str(parsed.methodology, 160),
+      nextStep: str(parsed.nextStep, 100),
       dataSufficient: parsed.dataSufficient !== false,
     };
 
