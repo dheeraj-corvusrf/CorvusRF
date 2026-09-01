@@ -1284,7 +1284,7 @@ function ModuleVisual({
           <span className="font-serif text-xl font-bold">{compsMap.data.comps.length}</span>
           <span className="text-xs text-muted-foreground">comparable properties found nearby</span>
         </div>
-        <div className="mt-1.5">
+        <div className="mt-3">
           <CompsValueScatter
             subject={compsMap.data.subject}
             subjectValue={stats.subjectValue}
@@ -1292,13 +1292,13 @@ function ModuleVisual({
           />
         </div>
         {stats.limitedData ? (
-          <div className="mt-1.5 rounded-md bg-warning/15 px-2 py-1 text-[11px] text-warning-foreground">
+          <div className="mt-3 rounded-md bg-warning/15 px-2 py-1 text-[11px] text-warning-foreground">
             Limited Comparable Data
           </div>
         ) : (
           stats.indicated && (
             <>
-              <div className="mt-2 grid grid-cols-2 gap-2">
+              <div className="mt-3 grid grid-cols-2 gap-2">
                 <div className="rounded-lg bg-success/10 px-2 py-2 text-center">
                   <div className="text-[9px] font-medium uppercase tracking-wide text-success">
                     Market Value Range
@@ -1529,7 +1529,7 @@ const COMPS_DOT_COLOR = "#0d9488";
 const SUBJECT_DOT_COLOR = "#0284c7";
 
 function compDotShape(props: { cx?: number; cy?: number }) {
-  return <circle cx={props.cx} cy={props.cy} r={5} fill={COMPS_DOT_COLOR} fillOpacity={0.65} />;
+  return <circle cx={props.cx} cy={props.cy} r={7} fill={COMPS_DOT_COLOR} fillOpacity={0.7} />;
 }
 
 // Two-line "Subject / Property" label for the full 2-D plot, where there's
@@ -1539,12 +1539,19 @@ function subjectDotShape(props: { cx?: number; cy?: number }) {
   const cy = props.cy ?? 0;
   return (
     <g>
-      <circle cx={cx} cy={cy} r={9} fill={SUBJECT_DOT_COLOR} stroke="var(--card)" strokeWidth={2} />
+      <circle
+        cx={cx}
+        cy={cy}
+        r={12}
+        fill={SUBJECT_DOT_COLOR}
+        stroke="var(--card)"
+        strokeWidth={2.5}
+      />
       <text
         x={cx}
-        y={cy - 20}
+        y={cy - 25}
         textAnchor="middle"
-        fontSize={9}
+        fontSize={11}
         fontWeight={700}
         fill={SUBJECT_DOT_COLOR}
       >
@@ -1552,9 +1559,9 @@ function subjectDotShape(props: { cx?: number; cy?: number }) {
       </text>
       <text
         x={cx}
-        y={cy - 11}
+        y={cy - 13}
         textAnchor="middle"
-        fontSize={9}
+        fontSize={11}
         fontWeight={700}
         fill={SUBJECT_DOT_COLOR}
       >
@@ -1570,12 +1577,19 @@ function subjectDotShapeCompact(props: { cx?: number; cy?: number }) {
   const cy = props.cy ?? 0;
   return (
     <g>
-      <circle cx={cx} cy={cy} r={7} fill={SUBJECT_DOT_COLOR} stroke="var(--card)" strokeWidth={2} />
+      <circle
+        cx={cx}
+        cy={cy}
+        r={9}
+        fill={SUBJECT_DOT_COLOR}
+        stroke="var(--card)"
+        strokeWidth={2.5}
+      />
       <text
         x={cx}
-        y={cy - 11}
+        y={cy - 14}
         textAnchor="middle"
-        fontSize={9}
+        fontSize={11}
         fontWeight={700}
         fill={SUBJECT_DOT_COLOR}
       >
@@ -1594,22 +1608,29 @@ function subjectDotShapeAtOrigin(props: { cx?: number; cy?: number }) {
   const cy = props.cy ?? 0;
   return (
     <g>
-      <circle cx={cx} cy={cy} r={9} fill={SUBJECT_DOT_COLOR} stroke="var(--card)" strokeWidth={2} />
+      <circle
+        cx={cx}
+        cy={cy}
+        r={12}
+        fill={SUBJECT_DOT_COLOR}
+        stroke="var(--card)"
+        strokeWidth={2.5}
+      />
       <text
-        x={cx + 11}
-        y={cy - 3}
+        x={cx + 15}
+        y={cy - 4}
         textAnchor="start"
-        fontSize={9}
+        fontSize={11}
         fontWeight={700}
         fill={SUBJECT_DOT_COLOR}
       >
         Subject
       </text>
       <text
-        x={cx + 11}
-        y={cy + 7}
+        x={cx + 15}
+        y={cy + 10}
         textAnchor="start"
-        fontSize={9}
+        fontSize={11}
         fontWeight={700}
         fill={SUBJECT_DOT_COLOR}
       >
@@ -1697,8 +1718,8 @@ function CompsValueScatter({
           </div>
           <div className="min-w-0 flex-1">
             <div className="border-b border-l border-border">
-              <ResponsiveContainer width="100%" height={104}>
-                <ScatterChart margin={{ top: 30, right: 14, bottom: 4, left: 4 }}>
+              <ResponsiveContainer width="100%" height={190}>
+                <ScatterChart margin={{ top: 36, right: 20, bottom: 8, left: 8 }}>
                   <XAxis type="number" dataKey="x" domain={[xMin - xPad, xMax + xPad]} hide />
                   <YAxis type="number" dataKey="y" domain={[yMin - yPad, yMax + yPad]} hide />
                   <ReferenceLine
@@ -1746,8 +1767,8 @@ function CompsValueScatter({
 
     return (
       <div>
-        <ResponsiveContainer width="100%" height={64}>
-          <ScatterChart margin={{ top: 18, right: 12, bottom: 4, left: 12 }}>
+        <ResponsiveContainer width="100%" height={120}>
+          <ScatterChart margin={{ top: 26, right: 16, bottom: 6, left: 16 }}>
             <XAxis type="number" dataKey="x" domain={[vMin - vPad, vMax + vPad]} hide />
             <YAxis type="number" dataKey="y" domain={[-1, 1]} hide />
             {valuePoints.length > 0 && <Scatter data={valuePoints} shape={compDotShape} />}
@@ -1785,8 +1806,8 @@ function CompsValueScatter({
         </div>
         <div className="min-w-0 flex-1">
           <div className="border-b border-l border-border">
-            <ResponsiveContainer width="100%" height={104}>
-              <ScatterChart margin={{ top: 12, right: 14, bottom: 4, left: 4 }}>
+            <ResponsiveContainer width="100%" height={190}>
+              <ScatterChart margin={{ top: 20, right: 20, bottom: 8, left: 8 }}>
                 <XAxis type="number" dataKey="x" domain={[0, maxDistance * 1.15]} hide />
                 <YAxis type="number" dataKey="y" domain={[0, 100]} hide />
                 <Scatter data={distancePoints} shape={compDotShape} />
@@ -2526,17 +2547,12 @@ function strategySlug(name: string): string {
 }
 
 // Compact ranked row for the card preview — used by both ModuleVisual's
-// "strategy" case and StrategyDetail's header below.
-function StrategyBar({ s, rank, color }: { s: StrategyEntry; rank: number; color: IconColor }) {
+// "strategy" case and StrategyDetail's header below. Row order itself
+// already conveys rank (top = strongest), so no separate number badge.
+function StrategyBar({ s }: { s: StrategyEntry }) {
   const Icon = strategyIcon(s);
   return (
     <div className="flex items-center gap-2.5">
-      <span
-        className="grid h-5 w-5 shrink-0 place-items-center rounded-full text-[10px] font-bold text-white"
-        style={{ backgroundColor: color.solid }}
-      >
-        {rank}
-      </span>
       <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
       <div className="min-w-0 flex-1">
         <div className="truncate text-xs text-muted-foreground">{s.name}</div>
@@ -2575,8 +2591,8 @@ function StrategyRankList({
   const shown = max ? strategies.slice(0, max) : strategies;
   return (
     <div className="grid gap-2">
-      {shown.map((s, i) => (
-        <StrategyBar key={s.name} s={s} rank={i + 1} color={color} />
+      {shown.map((s) => (
+        <StrategyBar key={s.name} s={s} />
       ))}
     </div>
   );
