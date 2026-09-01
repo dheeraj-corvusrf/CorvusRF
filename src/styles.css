@@ -748,13 +748,13 @@ header .container-page {
 }
 
 /* Ambient glow breathing behind the AI Report savings banner's hero number
-   (see CelebrationConfetti.tsx and the ".savings-glow"/".savings-glow-warm"
-   elements in ai-report.tsx) — two blobs now, not one: emerald top-left
-   (savings-glow) plus a warm gold one bottom-right (savings-glow-warm, its
-   own offset timing via animation-delay so they don't breathe in lockstep),
-   replacing a flat solid-navy card with something that actually feels alive.
-   Same idea as the homepage hero's sun-glow-pulse — a second/third instance
-   since Tailwind's arbitrary-value opacity/scale utilities can't express a
+   (see the ".savings-glow"/".savings-glow-warm" elements in ai-report.tsx)
+   — two blobs now, not one: emerald top-left (savings-glow) plus a warm
+   gold one bottom-right (savings-glow-warm, its own offset timing via
+   animation-delay so they don't breathe in lockstep), replacing a flat
+   solid-navy card with something that actually feels alive. Same idea as
+   the homepage hero's sun-glow-pulse — a second/third instance since
+   Tailwind's arbitrary-value opacity/scale utilities can't express a
    looping animation on their own. */
 @keyframes savings-glow-pulse {
   0%,
@@ -778,9 +778,9 @@ header .container-page {
 
 /* Slow diagonal light sweep across the whole savings banner — a soft bright
    band drifting through and fading, like light catching a premium card's
-   surface. One more layer (besides the two glow blobs above and the
-   confetti loop below) making the banner read as an intentionally
-   celebratory surface rather than a flat color fill. */
+   surface. One more layer (besides the two glow blobs above) making the
+   banner read as an intentionally celebratory surface rather than a flat
+   color fill. */
 @keyframes savings-sheen-sweep {
   0% {
     transform: translateX(-40%) skewX(-12deg);
@@ -801,68 +801,5 @@ header .container-page {
 @media (prefers-reduced-motion: no-preference) {
   .savings-sheen {
     animation: savings-sheen-sweep 6s ease-in-out infinite;
-  }
-}
-
-/* Continuous celebration confetti on the AI Report savings banner (see
-   CelebrationConfetti.tsx) — bursts of real paper-like flecks and emoji
-   exploding outward from a fixed spot, then falling with gravity, confined
-   to the dark banner itself (its own `overflow-hidden` from ai-report.tsx
-   clips anything that would otherwise spill past its edges) rather than the
-   whole viewport — a contained "bomb blast" in the banner, not a page-wide
-   effect. Each piece fades to fully transparent by the end of its own
-   animation (100% opacity: 0) so pieces dissolve away instead of visibly
-   piling up wherever they land. Loops continuously the whole time the
-   report is showing a completed analysis — not hover-triggered (an earlier
-   version was; moved to always-on per explicit feedback that it shouldn't
-   depend on the cursor at all) — see CelebrationConfetti.tsx's own internal
-   interval for how a fresh burst keeps regenerating. Positioning/layout
-   below is unconditional (harmless with zero pieces if motion is off); only
-   the actual burst/fall is gated, and CelebrationConfetti.tsx additionally
-   never starts its loop at all for a reduced-motion user in the first place
-   — belt-and-suspenders for anyone whose OS-level media query and JS check
-   somehow disagree. */
-.celebration-confetti {
-  position: absolute;
-  inset: 0;
-  z-index: 20;
-  overflow: hidden;
-  pointer-events: none;
-}
-.celebration-confetti-piece {
-  position: absolute;
-  border-radius: 1px;
-  opacity: 0;
-}
-/* translate(-50%, -50%) as the constant base in every stop centers each
-   piece exactly on its own --origin-x/--origin-y point (set inline per
-   piece — see CelebrationConfetti.tsx) regardless of the piece's own
-   width/height, the same anchoring trick a tooltip arrow uses; --burst-*
-   is the initial explosive kick outward in a random direction, --fall-* is
-   the additional gravity drop layered on top of wherever the burst left it. */
-@keyframes confetti-burst {
-  0% {
-    transform: translate(-50%, -50%) rotate(0deg) scale(0.5);
-    opacity: 0;
-  }
-  18% {
-    transform: translate(calc(-50% + var(--burst-x)), calc(-50% + var(--burst-y)))
-      rotate(calc(var(--confetti-rotate) * 0.25)) scale(1);
-    opacity: 1;
-  }
-  100% {
-    transform: translate(
-        calc(-50% + var(--burst-x) + var(--fall-x)),
-        calc(-50% + var(--burst-y) + var(--fall-y))
-      )
-      rotate(var(--confetti-rotate)) scale(0.85);
-    opacity: 0;
-  }
-}
-@media (prefers-reduced-motion: no-preference) {
-  .celebration-confetti-piece {
-    animation-name: confetti-burst;
-    animation-timing-function: cubic-bezier(0.15, 0.6, 0.4, 1);
-    animation-fill-mode: forwards;
   }
 }

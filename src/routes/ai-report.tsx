@@ -95,7 +95,6 @@ import { CaseDetailModal } from "@/components/CaseDetailModal";
 import { AnimatedNumber } from "@/components/AnimatedNumber";
 import { ValueHistorySection } from "@/components/ValueHistorySection";
 import { Modal } from "@/components/Modal";
-import { CelebrationConfetti } from "@/components/CelebrationConfetti";
 
 type ModuleAsyncState = {
   data: unknown;
@@ -122,23 +121,6 @@ export const Route = createFileRoute("/ai-report")({
 // paid subscription — there is no sign-in-only tier and no per-user "pick any
 // 3" quota; which modules are free is fixed by module number, not user choice.
 const FREE_MODULE_COUNT = 3;
-
-// Fixed spots the savings-banner confetti bursts always originate from — not
-// tied to wherever the cursor happened to enter (this ran on hover in an
-// earlier version). Percentages of the banner's own box, so each stays
-// roughly in the same place across both the wide desktop layout and the
-// narrower mobile one. Three origins — near the number on the left, a
-// second "cracker" burst on the right side, and a third in the middle — so
-// the celebration reads as coming from across the whole banner rather than
-// one or two spots. Each CelebrationConfetti instance runs on its own
-// independently randomized schedule (see that component), so the three
-// don't burst/fade in visible lockstep with each other.
-const CONFETTI_ORIGIN_X_PCT = 15;
-const CONFETTI_ORIGIN_Y_PCT = 60;
-const CONFETTI_ORIGIN_CENTER_X_PCT = 50;
-const CONFETTI_ORIGIN_CENTER_Y_PCT = 55;
-const CONFETTI_ORIGIN_RIGHT_X_PCT = 88;
-const CONFETTI_ORIGIN_RIGHT_Y_PCT = 45;
 
 // Real comps-derived signal fed into Module 2's prompt (see loadModule() below) —
 // median/min/max of the same real comparable market values CompsMap/CompsValueScatter
@@ -747,11 +729,11 @@ function Report() {
       {/* Analysis banner — the savings figure is the whole point of this page for
           most visitors, so it gets a hero-scale treatment (was the same text-lg
           size as the "AI analysis completed" label above it, easy to skim past)
-          rather than reading as one more line of body copy. Two confetti
-          "cracker" bursts run continuously (see CelebrationConfetti.tsx) the
-          whole time a completed analysis is showing — not hover-triggered, an
-          earlier version was but per explicit feedback it should run on its
-          own regardless of the cursor. */}
+          rather than reading as one more line of body copy. Previously had
+          continuous confetti bursts here; removed per explicit feedback that
+          it read as cartoonish for what's otherwise a professional tax-filing
+          tool — the gradient/glow/sheen surface below carries the "this is a
+          good moment" read on its own, without particle animation. */}
       <section className="relative mt-6 card-elev overflow-hidden text-primary-foreground">
         {/* Richer than a flat bg-primary fill — a diagonal gradient with a
             faint accent-green undertone, so the banner reads as an
@@ -789,29 +771,6 @@ function Report() {
             <div className="savings-sheen pointer-events-none absolute -inset-y-12 left-0 z-0 w-1/3 bg-white/10" />
           </>
         )}
-        {/* Confined to this banner (its own overflow-hidden above clips
-            them) — three fixed origins (left near the number, center, and a
-            "cracker" burst on the right), each looping continuously the
-            whole time a completed analysis is showing (see `active` below)
-            on its OWN independently randomized schedule (see
-            CelebrationConfetti's internal timer), independent of the cursor
-            entirely. z-20, above both the z-0 glow layers and the z-10
-            content, so they're never hidden behind either. */}
-        <CelebrationConfetti
-          active={!analyzing}
-          originXPct={CONFETTI_ORIGIN_X_PCT}
-          originYPct={CONFETTI_ORIGIN_Y_PCT}
-        />
-        <CelebrationConfetti
-          active={!analyzing}
-          originXPct={CONFETTI_ORIGIN_CENTER_X_PCT}
-          originYPct={CONFETTI_ORIGIN_CENTER_Y_PCT}
-        />
-        <CelebrationConfetti
-          active={!analyzing}
-          originXPct={CONFETTI_ORIGIN_RIGHT_X_PCT}
-          originYPct={CONFETTI_ORIGIN_RIGHT_Y_PCT}
-        />
         <div className="relative z-10 flex flex-wrap items-start justify-between gap-6 p-5 sm:p-8">
           <div className="min-w-0">
             <p className="text-sm text-primary-foreground/80">
@@ -1284,17 +1243,21 @@ function ModuleVisual({
           <span className="font-serif text-xl font-bold">{compsMap.data.comps.length}</span>
           <span className="text-xs text-muted-foreground">comparable properties found nearby</span>
         </div>
-        <div className="mt-1.5">
-          <CompsValueScatter subject={compsMap.data.subject} comps={stats.ranked} />
+        <div className="mt-3">
+          <CompsValueScatter
+            subject={compsMap.data.subject}
+            subjectValue={stats.subjectValue}
+            comps={stats.ranked}
+          />
         </div>
         {stats.limitedData ? (
-          <div className="mt-1.5 rounded-md bg-warning/15 px-2 py-1 text-[11px] text-warning-foreground">
+          <div className="mt-3 rounded-md bg-warning/15 px-2 py-1 text-[11px] text-warning-foreground">
             Limited Comparable Data
           </div>
         ) : (
           stats.indicated && (
             <>
-              <div className="mt-2 grid grid-cols-2 gap-2">
+              <div className="mt-3 grid grid-cols-2 gap-2">
                 <div className="rounded-lg bg-success/10 px-2 py-2 text-center">
                   <div className="text-[9px] font-medium uppercase tracking-wide text-success">
                     Market Value Range
@@ -1525,7 +1488,7 @@ const COMPS_DOT_COLOR = "#0d9488";
 const SUBJECT_DOT_COLOR = "#0284c7";
 
 function compDotShape(props: { cx?: number; cy?: number }) {
-  return <circle cx={props.cx} cy={props.cy} r={5} fill={COMPS_DOT_COLOR} fillOpacity={0.65} />;
+  return <circle cx={props.cx} cy={props.cy} r={7} fill={COMPS_DOT_COLOR} fillOpacity={0.7} />;
 }
 
 // Two-line "Subject / Property" label for the full 2-D plot, where there's
@@ -1535,12 +1498,19 @@ function subjectDotShape(props: { cx?: number; cy?: number }) {
   const cy = props.cy ?? 0;
   return (
     <g>
-      <circle cx={cx} cy={cy} r={9} fill={SUBJECT_DOT_COLOR} stroke="var(--card)" strokeWidth={2} />
+      <circle
+        cx={cx}
+        cy={cy}
+        r={12}
+        fill={SUBJECT_DOT_COLOR}
+        stroke="var(--card)"
+        strokeWidth={2.5}
+      />
       <text
         x={cx}
-        y={cy - 20}
+        y={cy - 25}
         textAnchor="middle"
-        fontSize={9}
+        fontSize={11}
         fontWeight={700}
         fill={SUBJECT_DOT_COLOR}
       >
@@ -1548,9 +1518,9 @@ function subjectDotShape(props: { cx?: number; cy?: number }) {
       </text>
       <text
         x={cx}
-        y={cy - 11}
+        y={cy - 13}
         textAnchor="middle"
-        fontSize={9}
+        fontSize={11}
         fontWeight={700}
         fill={SUBJECT_DOT_COLOR}
       >
@@ -1566,12 +1536,19 @@ function subjectDotShapeCompact(props: { cx?: number; cy?: number }) {
   const cy = props.cy ?? 0;
   return (
     <g>
-      <circle cx={cx} cy={cy} r={7} fill={SUBJECT_DOT_COLOR} stroke="var(--card)" strokeWidth={2} />
+      <circle
+        cx={cx}
+        cy={cy}
+        r={9}
+        fill={SUBJECT_DOT_COLOR}
+        stroke="var(--card)"
+        strokeWidth={2.5}
+      />
       <text
         x={cx}
-        y={cy - 11}
+        y={cy - 14}
         textAnchor="middle"
-        fontSize={9}
+        fontSize={11}
         fontWeight={700}
         fill={SUBJECT_DOT_COLOR}
       >
@@ -1581,29 +1558,105 @@ function subjectDotShapeCompact(props: { cx?: number; cy?: number }) {
   );
 }
 
+// Right-aligned "Subject / Property" label for Tier 3's distance chart,
+// where the subject sits at x=0 — the chart's own left edge — so a
+// centered label above the dot (like subjectDotShape) would clip against
+// the axis border. Text runs rightward from the dot instead.
+function subjectDotShapeAtOrigin(props: { cx?: number; cy?: number }) {
+  const cx = props.cx ?? 0;
+  const cy = props.cy ?? 0;
+  return (
+    <g>
+      <circle
+        cx={cx}
+        cy={cy}
+        r={12}
+        fill={SUBJECT_DOT_COLOR}
+        stroke="var(--card)"
+        strokeWidth={2.5}
+      />
+      <text
+        x={cx + 15}
+        y={cy - 4}
+        textAnchor="start"
+        fontSize={11}
+        fontWeight={700}
+        fill={SUBJECT_DOT_COLOR}
+      >
+        Subject
+      </text>
+      <text
+        x={cx + 15}
+        y={cy + 10}
+        textAnchor="start"
+        fontSize={11}
+        fontWeight={700}
+        fill={SUBJECT_DOT_COLOR}
+      >
+        Property
+      </text>
+    </g>
+  );
+}
+
+// Best real value available for a comp — tries marketValue first, then
+// appraisedValue, then landValue+improvementValue summed, all real CAD
+// fields on the same row. TrueProdigy is known-inconsistent about which of
+// these it actually populates for a given county/property (some rows carry
+// an appraised or land+improvement figure but a null marketValue) — this
+// widens which comps the CARD's own chart can plot without changing
+// computeComparableStats()'s stricter marketValue-only definition, which
+// still drives the actual $ figures (Market Value Range, Valuation Gap,
+// "Limited Comparable Data") since those feed the real protest argument.
+function bestAvailableValue(c: {
+  marketValue: number | null;
+  appraisedValue?: number | null;
+  landValue?: number | null;
+  improvementValue?: number | null;
+}): number | null {
+  if (c.marketValue != null) return c.marketValue;
+  if (c.appraisedValue != null) return c.appraisedValue;
+  if (c.landValue != null && c.improvementValue != null) return c.landValue + c.improvementValue;
+  return null;
+}
+
 function CompsValueScatter({
   subject,
+  subjectValue,
   comps,
 }: {
   subject: CompProperty | null;
+  // The subject's real assessed value — passed in from
+  // computeComparableStats()'s own subjectValue (totalValue ?? the raw
+  // TrueProdigy subject record's marketValue), NOT read off `subject`
+  // directly: the comps-endpoint's own subject row doesn't always carry a
+  // marketValue, while the account's actual confirmed total value (already
+  // shown elsewhere as "CAD Value") almost always does. Using the weaker
+  // field here was why the chart went blank on some real properties even
+  // though a real value existed.
+  subjectValue: number | null;
   comps: RankedComp[];
 }) {
+  const subjectBestValue = subjectValue ?? (subject ? bestAvailableValue(subject) : null);
   const subjectPoint2D =
-    subject?.legalAcreage && valuePerAcre(subject.marketValue, subject.legalAcreage) != null
+    subject?.legalAcreage && valuePerAcre(subjectBestValue, subject.legalAcreage) != null
       ? {
           x: subject.legalAcreage,
-          y: valuePerAcre(subject.marketValue, subject.legalAcreage) as number,
+          y: valuePerAcre(subjectBestValue, subject.legalAcreage) as number,
         }
       : null;
   const points2D = comps
     .slice(0, 10)
-    .map((c) => ({ x: c.legalAcreage ?? null, y: valuePerAcre(c.marketValue, c.legalAcreage) }))
+    .map((c) => ({
+      x: c.legalAcreage ?? null,
+      y: valuePerAcre(bestAvailableValue(c), c.legalAcreage),
+    }))
     .filter((p): p is { x: number; y: number } => p.x != null && p.y != null);
 
-  // legalAcreage isn't populated for every CAD row the way marketValue is —
-  // a real 2-D plot needs both dimensions on the subject AND at least one
-  // comp, or it's just an empty box. When there isn't enough of it, fall
-  // back to a 1-D value-only scatter (marketValue alone, present far more
+  // legalAcreage isn't populated for every CAD row the way value fields
+  // are — a real 2-D plot needs both dimensions on the subject AND at
+  // least one comp, or it's just an empty box. When there isn't enough of
+  // it, fall back to a 1-D value-only scatter (present far more
   // consistently) rather than rendering nothing.
   if (subjectPoint2D && points2D.length > 0) {
     const allX = points2D.map((p) => p.x).concat([subjectPoint2D.x]);
@@ -1624,8 +1677,8 @@ function CompsValueScatter({
           </div>
           <div className="min-w-0 flex-1">
             <div className="border-b border-l border-border">
-              <ResponsiveContainer width="100%" height={104}>
-                <ScatterChart margin={{ top: 30, right: 14, bottom: 4, left: 4 }}>
+              <ResponsiveContainer width="100%" height={190}>
+                <ScatterChart margin={{ top: 36, right: 20, bottom: 8, left: 8 }}>
                   <XAxis type="number" dataKey="x" domain={[xMin - xPad, xMax + xPad]} hide />
                   <YAxis type="number" dataKey="y" domain={[yMin - yPad, yMax + yPad]} hide />
                   <ReferenceLine
@@ -1650,37 +1703,85 @@ function CompsValueScatter({
     );
   }
 
-  // Fallback: 1-D, value-only scatter (no land-size axis) — still real data,
-  // just less of it plotted.
-  const subjectValue = subject?.marketValue ?? null;
+  // Fallback tier 2: 1-D, value-only scatter (no land-size axis) — still
+  // real data (marketValue, or appraisedValue, or landValue+improvementValue
+  // — see bestAvailableValue above), just less of it plotted.
   const valuePoints = comps
     .slice(0, 10)
-    .filter((c): c is RankedComp & { marketValue: number } => c.marketValue != null)
-    .map((c) => ({ x: c.marketValue, y: 0 }));
-  if (valuePoints.length === 0 && subjectValue == null) return null;
+    .map((c) => bestAvailableValue(c))
+    .filter((v): v is number => v != null)
+    .map((v) => ({ x: v, y: 0 }));
+  // Requires BOTH the subject and at least one comp to have a real value —
+  // a subject-only dot with nothing to compare it against isn't a
+  // meaningful plot (same requirement Tier 1 already applies). When comps
+  // have no usable value at all, fall through to Tier 3 instead, which
+  // always has real multi-point data to show.
+  if (valuePoints.length > 0 && subjectBestValue != null) {
+    const allValues = valuePoints
+      .map((p) => p.x)
+      .concat(subjectBestValue != null ? [subjectBestValue] : []);
+    const vMin = Math.min(...allValues);
+    const vMax = Math.max(...allValues);
+    const vPad = (vMax - vMin) * 0.2 || vMax * 0.1 || 1000;
 
-  const allValues = valuePoints.map((p) => p.x).concat(subjectValue != null ? [subjectValue] : []);
-  const vMin = Math.min(...allValues);
-  const vMax = Math.max(...allValues);
-  const vPad = (vMax - vMin) * 0.2 || vMax * 0.1 || 1000;
+    return (
+      <div>
+        <ResponsiveContainer width="100%" height={120}>
+          <ScatterChart margin={{ top: 26, right: 16, bottom: 6, left: 16 }}>
+            <XAxis type="number" dataKey="x" domain={[vMin - vPad, vMax + vPad]} hide />
+            <YAxis type="number" dataKey="y" domain={[-1, 1]} hide />
+            {valuePoints.length > 0 && <Scatter data={valuePoints} shape={compDotShape} />}
+            {subjectBestValue != null && (
+              <Scatter data={[{ x: subjectBestValue, y: 0 }]} shape={subjectDotShapeCompact} />
+            )}
+          </ScatterChart>
+        </ResponsiveContainer>
+        <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+          <span>{compactCurrency(vMin)}</span>
+          <span>Assessed Value</span>
+          <span>{compactCurrency(vMax)}</span>
+        </div>
+      </div>
+    );
+  }
+
+  // Fallback tier 3: no usable value field at all on the subject or any
+  // comp (rare, but real — some TrueProdigy rows carry no value data
+  // whatsoever). distanceMi and similarity are always real, always present
+  // on every RankedComp regardless of value data (plain haversine distance
+  // + similarityScore(), see comps-analysis.ts) — this tier can't go blank
+  // as long as at least one comp was found, so it's the guaranteed floor
+  // for "always show something meaningful."
+  if (comps.length === 0) return null;
+  const distancePoints = comps.slice(0, 10).map((c) => ({ x: c.distanceMi, y: c.similarity }));
+  const maxDistance = Math.max(...distancePoints.map((p) => p.x), 0.1);
 
   return (
     <div>
-      <ResponsiveContainer width="100%" height={64}>
-        <ScatterChart margin={{ top: 18, right: 12, bottom: 4, left: 12 }}>
-          <XAxis type="number" dataKey="x" domain={[vMin - vPad, vMax + vPad]} hide />
-          <YAxis type="number" dataKey="y" domain={[-1, 1]} hide />
-          {valuePoints.length > 0 && <Scatter data={valuePoints} shape={compDotShape} />}
-          {subjectValue != null && (
-            <Scatter data={[{ x: subjectValue, y: 0 }]} shape={subjectDotShapeCompact} />
-          )}
-        </ScatterChart>
-      </ResponsiveContainer>
-      <div className="flex items-center justify-between text-[10px] text-muted-foreground">
-        <span>{compactCurrency(vMin)}</span>
-        <span>Assessed Value</span>
-        <span>{compactCurrency(vMax)}</span>
+      <div className="flex items-stretch gap-1">
+        <div className="flex flex-col justify-between py-2 text-[8px] font-medium uppercase tracking-wide text-muted-foreground">
+          <span>High</span>
+          <span>Low</span>
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="border-b border-l border-border">
+            <ResponsiveContainer width="100%" height={190}>
+              <ScatterChart margin={{ top: 20, right: 20, bottom: 8, left: 8 }}>
+                <XAxis type="number" dataKey="x" domain={[0, maxDistance * 1.15]} hide />
+                <YAxis type="number" dataKey="y" domain={[0, 100]} hide />
+                <Scatter data={distancePoints} shape={compDotShape} />
+                <Scatter data={[{ x: 0, y: 100 }]} shape={subjectDotShapeAtOrigin} />
+              </ScatterChart>
+            </ResponsiveContainer>
+          </div>
+          <div className="mt-0.5 flex items-center justify-between text-[8px] font-medium uppercase tracking-wide text-muted-foreground">
+            <span>Near</span>
+            <span>Distance</span>
+            <span>Far</span>
+          </div>
+        </div>
       </div>
+      <div className="mt-0.5 text-center text-[9px] text-muted-foreground">Similarity</div>
     </div>
   );
 }
@@ -2405,17 +2506,12 @@ function strategySlug(name: string): string {
 }
 
 // Compact ranked row for the card preview — used by both ModuleVisual's
-// "strategy" case and StrategyDetail's header below.
-function StrategyBar({ s, rank, color }: { s: StrategyEntry; rank: number; color: IconColor }) {
+// "strategy" case and StrategyDetail's header below. Row order itself
+// already conveys rank (top = strongest), so no separate number badge.
+function StrategyBar({ s }: { s: StrategyEntry }) {
   const Icon = strategyIcon(s);
   return (
     <div className="flex items-center gap-2.5">
-      <span
-        className="grid h-5 w-5 shrink-0 place-items-center rounded-full text-[10px] font-bold text-white"
-        style={{ backgroundColor: color.solid }}
-      >
-        {rank}
-      </span>
       <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
       <div className="min-w-0 flex-1">
         <div className="truncate text-xs text-muted-foreground">{s.name}</div>
@@ -2454,8 +2550,8 @@ function StrategyRankList({
   const shown = max ? strategies.slice(0, max) : strategies;
   return (
     <div className="grid gap-2">
-      {shown.map((s, i) => (
-        <StrategyBar key={s.name} s={s} rank={i + 1} color={color} />
+      {shown.map((s) => (
+        <StrategyBar key={s.name} s={s} />
       ))}
     </div>
   );
@@ -3297,24 +3393,25 @@ function ModulePreviewContent({
               </div>
             )}
 
-            {/* 8. Methodology + Sources. */}
-            <div className="grid gap-2 rounded-lg bg-secondary/40 p-3 text-xs text-muted-foreground sm:grid-cols-2">
-              <div>
-                <div className="font-semibold text-foreground">Methodology</div>
-                <p className="mt-0.5">
-                  Comps are properties sharing this property's own CAD subdivision code — a real
-                  grouping the county itself uses. Similarity blends assessed-value proximity,
-                  distance, land-size proximity, and property-type match into one 0-100 score; the
-                  indicated range uses the top 5 by similarity.
-                </p>
+            {/* 8. Methodology + Sources — real, static facts (not AI prose),
+                so this is short icon-led bullets rather than paragraphs. */}
+            <div className="grid gap-3 rounded-lg bg-secondary/40 p-3 sm:grid-cols-2">
+              <div className="grid gap-1.5">
+                <div className="text-xs font-semibold text-foreground">Methodology</div>
+                <FactBullet icon={Building2}>Same CAD subdivision as this property</FactBullet>
+                <FactBullet icon={Percent}>
+                  0–100 similarity: value, distance, land size, type
+                </FactBullet>
+                <FactBullet icon={Target}>Indicated range uses the top 5 by similarity</FactBullet>
               </div>
-              <div>
-                <div className="font-semibold text-foreground">Sources</div>
-                <p className="mt-0.5">
-                  {state.cad ?? "County appraisal district"} public property records. Texas does not
-                  require sale prices to be publicly disclosed, so "Last Transfer" reflects a real
-                  deed date only — never a sale price.
-                </p>
+              <div className="grid gap-1.5">
+                <div className="text-xs font-semibold text-foreground">Sources</div>
+                <FactBullet icon={FileText}>
+                  {state.cad ?? "County appraisal district"} public records
+                </FactBullet>
+                <FactBullet icon={ShieldCheck}>
+                  No sale prices — Texas law; deed dates only
+                </FactBullet>
               </div>
             </div>
             {state.deeds && state.deeds.length > 0 && (
@@ -3370,13 +3467,7 @@ function ModulePreviewContent({
         ) : d ? (
           <div className="grid gap-3">
             <AiVerdictLine icon={m.icon} text={d.guidance} color={m.color} />
-            <div className="flex flex-wrap gap-2">
-              {d.checklist.map((c, i) => (
-                <Chip key={i} icon>
-                  {c}
-                </Chip>
-              ))}
-            </div>
+            <ChecklistSteps items={d.checklist} color={m.color} />
             {d.recommendedUse && (
               <div>
                 <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -3979,6 +4070,43 @@ function Chip({ children, icon }: { children: React.ReactNode; icon?: boolean })
       {icon && <CheckCircle2 className="h-3.5 w-3.5 text-success" />}
       {children}
     </span>
+  );
+}
+
+// Short icon-led fact row — for real, static/deterministic facts (a
+// methodology or sources note), not AI prose. Turns what would otherwise be
+// a paragraph into one scannable line.
+function FactBullet({ icon: Icon, children }: { icon: LucideIcon; children: React.ReactNode }) {
+  return (
+    <div className="flex items-start gap-2 text-xs text-muted-foreground">
+      <Icon className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+      <span>{children}</span>
+    </div>
+  );
+}
+
+// Connected vertical checklist — replaces stuffing full-sentence AI
+// checklist items into rounded-full Chip "pills" (a tag-shaped component
+// asked to hold a paragraph, which just wraps into a bulky block). Each
+// item still gets its real full text — the checklist can't be shortened
+// without losing what it's telling the user to do — but reads as an actual
+// step list instead of a wall of stacked pills.
+function ChecklistSteps({ items, color }: { items: string[]; color: IconColor }) {
+  if (items.length === 0) return null;
+  return (
+    <div className="grid">
+      {items.map((c, i) => (
+        <div key={i} className="flex gap-3">
+          <div className="flex flex-col items-center">
+            <span className={`grid h-6 w-6 shrink-0 place-items-center rounded-full ${color.bg}`}>
+              <CheckCircle2 className={`h-4 w-4 ${color.text}`} />
+            </span>
+            {i < items.length - 1 && <div className="my-0.5 w-px flex-1 bg-border" />}
+          </div>
+          <p className="pb-3 text-xs text-muted-foreground">{c}</p>
+        </div>
+      ))}
+    </div>
   );
 }
 
