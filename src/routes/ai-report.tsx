@@ -16,7 +16,6 @@ import {
   Home,
   Percent,
   DollarSign,
-  Award,
   Activity,
   TrendingUp,
   TrendingDown,
@@ -74,6 +73,12 @@ import {
   type ComparableStats,
 } from "@/lib/comps-analysis";
 import { estimateSavings } from "@/lib/savings-estimate";
+import { getExecutiveSummary, getDefenseReadinessScore } from "@/lib/executive-summary";
+import {
+  getPreFilingCheck,
+  isPreFilingBlocked,
+  type PreFilingCheckItem,
+} from "@/lib/pre-filing-check";
 import {
   classifyPropertyCategory,
   getAssessmentRatioInfo,
@@ -439,6 +444,69 @@ function Report() {
         }
       }
 
+      // Module 10 reconciles Modules 2/3/8/9's already-real outputs — see the
+      // sequencing effect above that waits for strategy + evidence to settle
+      // before this ever fires, so these reads are the real thing, not
+      // whatever happened to be in state on the first render.
+      if (id === "executive") {
+        const strategyData = moduleData.strategy?.data as ModuleResultMap["strategy"] | undefined;
+        if (strategyData && strategyData.strategies.length > 0) {
+          input.topStrategies = strategyData.strategies.slice(0, 2).map((s) => ({
+            name: s.name,
+            primaryReason: s.primaryReason,
+            strengthScore: s.strengthScore,
+            whySelected: s.whySelected,
+            existingEvidence: s.existingEvidence,
+            missingEvidence: s.missingEvidence,
+          }));
+        }
+        const evidenceData = moduleData.evidence?.data as ModuleResultMap["evidence"] | undefined;
+        if (evidenceData) {
+          input.evidenceReadiness = {
+            criticalMissing: evidenceData.items
+              .filter((i) => i.importance === "High" && i.availability === "Low")
+              .map((i) => i.item),
+            importantMissing: evidenceData.items
+              .filter(
+                (i) =>
+                  !(i.importance === "High" && i.availability === "Low") &&
+                  i.availability === "Low",
+              )
+              .map((i) => i.item),
+            uploadedCount: evidenceDocs.length,
+          };
+        }
+        const execStats = computeComparableStats(
+          compsMap.data?.subject ?? null,
+          compsMap.data?.comps ?? [],
+          state.totalValue,
+        );
+        if (execStats.indicated) {
+          input.compsIndicated = {
+            min: execStats.indicated.min,
+            median: execStats.indicated.median,
+            max: execStats.indicated.max,
+            gapPct: execStats.valuationGapPct,
+            confidencePct: execStats.confidencePct,
+          };
+        }
+        if (savingsEstimate) {
+          input.financialSummary = {
+            savings: savingsEstimate.amount,
+            basis: savingsEstimate.basis,
+            reductionPct: savingsEstimate.basis === "formula" ? savingsEstimate.reductionPct : null,
+          };
+        }
+        if (existingProtest && resolvedProperty) {
+          const items = getPreFilingCheck(resolvedProperty, existingProtest);
+          input.preFilingStatus = {
+            missingBlocking: items
+              .filter((i) => i.blocking && i.status === "missing")
+              .map((i) => i.label),
+          };
+        }
+      }
+
       // Improvement Condition reads uploaded evidence (photos/repair estimates/
       // appraisals) back from storage and attaches it so the AI grounds its
       // guidance in what's actually shown rather than only general advice — see
@@ -663,11 +731,22 @@ function Report() {
   // ranks, so they're sequenced to fire after it (see the effect below) rather
   // than in this immediate batch, which is why they're excluded here.
   const SEQUENCED_AFTER_STRATEGY = new Set(["comps", "site", "improvement", "zoning"]);
+  // Module 10 (executive) reconciles Module 2's strategy AND Module 8's
+  // evidence — firing it in this same immediate batch (as it did before this
+  // sequencing was added) meant its own AI call went out before either had
+  // resolved, reading moduleData.strategy/evidence as still undefined. See
+  // the dedicated effect below.
 
   useEffect(() => {
     if (!state.totalValue) return;
     for (const m of MODULES) {
-      if (m.id === "savings" || m.id === "income" || SEQUENCED_AFTER_STRATEGY.has(m.id)) continue;
+      if (
+        m.id === "savings" ||
+        m.id === "income" ||
+        m.id === "executive" ||
+        SEQUENCED_AFTER_STRATEGY.has(m.id)
+      )
+        continue;
       if (m.n <= FREE_MODULE_COUNT || hasFullAccess) loadModule(m.id);
     }
     // loadModule closes over moduleData for its own-fetch guard, which is
@@ -725,6 +804,33 @@ function Report() {
     moduleData.strategy?.data,
     moduleData.strategy?.error,
     compsMap.loading,
+  ]);
+
+  // Module 10 (executive) reconciles Module 2's strategy and Module 8's
+  // evidence into one final recommendation — it needs to actually read their
+  // real output, so it waits for both to settle (data or error) before firing
+  // its own call, same 6s-capped-timeout pattern as the comps/strategy effect
+  // above (a slow/failed dependency shouldn't stall Module 10 indefinitely).
+  useEffect(() => {
+    if (!state.totalValue || !hasFullAccess) return;
+    const strategyState = moduleData.strategy;
+    const evidenceState = moduleData.evidence;
+    const strategyDone = !!(strategyState?.data || strategyState?.error);
+    const evidenceDone = !!(evidenceState?.data || evidenceState?.error);
+    if (strategyDone && evidenceDone) {
+      loadModule("executive");
+      return;
+    }
+    const t = setTimeout(() => loadModule("executive"), 6000);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    state.totalValue,
+    hasFullAccess,
+    moduleData.strategy?.data,
+    moduleData.strategy?.error,
+    moduleData.evidence?.data,
+    moduleData.evidence?.error,
   ]);
 
   function openModule(m: Module) {
@@ -966,6 +1072,11 @@ function Report() {
                 onForceReload={() => {}}
                 onAnswerStrategy={() => {}}
                 onAskQuestion={() => Promise.resolve("")}
+                existingProtest={null}
+                resolvedProperty={null}
+                onOpenModule={() => {}}
+                onStartProtest={() => {}}
+                onViewCase={() => {}}
               />
             </div>
           ));
@@ -997,6 +1108,14 @@ function Report() {
             onForceReload={() => loadModule(openModel.id, { force: true })}
             onAnswerStrategy={answerStrategy}
             onAskQuestion={askQuestion}
+            existingProtest={existingProtest}
+            resolvedProperty={resolvedProperty}
+            onOpenModule={(id) => {
+              const target = MODULES.find((mm) => mm.id === id);
+              if (target) openModule(target);
+            }}
+            onStartProtest={startProtest}
+            onViewCase={() => setShowCase(true)}
           />
           <div className="mt-6 flex gap-2 justify-end">
             <button onClick={() => setOpenId(null)} className="btn-outline">
@@ -1466,35 +1585,38 @@ function ModuleVisual({
     }
     case "executive": {
       const d = moduleState.data as ModuleResultMap["executive"];
-      const strategyData = moduleData.strategy?.data as ModuleResultMap["strategy"] | undefined;
       const evidenceData = moduleData.evidence?.data as ModuleResultMap["evidence"] | undefined;
-      const keyEvidence =
-        evidenceData?.items.find((i) => i.importance === "High")?.item ??
-        evidenceData?.items[0]?.item ??
-        null;
-      const comps =
-        compsMap.data?.comps.filter(
-          (c): c is typeof c & { marketValue: number } => c.marketValue != null,
-        ) ?? [];
-      const valueRange =
-        comps.length > 0
-          ? `${compactCurrency(Math.min(...comps.map((c) => c.marketValue)))}–${compactCurrency(Math.max(...comps.map((c) => c.marketValue)))}`
-          : null;
+      const execStats = computeComparableStats(
+        compsMap.data?.subject ?? null,
+        compsMap.data?.comps ?? [],
+        totalValue,
+      );
+      const summary = getExecutiveSummary(
+        execStats,
+        estimated.savings,
+        evidenceData?.items ?? [],
+        null,
+      );
       return (
-        <div>
-          <div className="mb-1.5 flex justify-center">
-            <span
-              className={`grid h-10 w-10 place-items-center rounded-full ${m.color.bg} ${m.color.text}`}
-            >
-              <Award className="h-5 w-5" />
-            </span>
+        <div className="grid gap-2 text-center">
+          <span
+            className={`mx-auto rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide ${
+              summary.protestOpportunity === "Potentially Overvalued"
+                ? "bg-destructive/10 text-destructive"
+                : summary.protestOpportunity === "Insufficient Data"
+                  ? "bg-secondary/60 text-muted-foreground"
+                  : "bg-warning/15 text-warning-foreground"
+            }`}
+          >
+            {summary.protestOpportunity}
+          </span>
+          {summary.overallConfidencePct != null && (
+            <SpeedometerGauge value={summary.overallConfidencePct} size="sm" />
+          )}
+          <div className="-mt-2 text-[10px] uppercase tracking-wide text-muted-foreground">
+            Case Confidence
           </div>
-          <ExecutiveBadges
-            strategy={strategyData?.strategies[0]?.name ?? null}
-            keyEvidence={keyEvidence}
-            valueRange={valueRange}
-            nextStep={d.nextStep}
-          />
+          <div className="font-serif text-sm font-bold leading-snug">{d.recommendedAction}</div>
         </div>
       );
     }
@@ -2275,37 +2397,90 @@ function FormulaChain({
   );
 }
 
-function ExecutiveBadges({
-  strategy,
-  keyEvidence,
-  valueRange,
-  nextStep,
-}: {
-  strategy: string | null;
-  keyEvidence: string | null;
-  valueRange: string | null;
-  nextStep: string;
-}) {
-  const badges = [
-    { icon: Target, label: "Primary Strategy", value: strategy },
-    { icon: FileText, label: "Key Evidence", value: keyEvidence },
-    { icon: BarChart3, label: "Value Range", value: valueRange },
-    { icon: ArrowRight, label: "Next Step", value: nextStep },
-  ];
+// Module 10's Executive Summary tile — one real number/label per stat, see
+// getExecutiveSummary() in src/lib/executive-summary.ts for the source of
+// every value passed in here.
+function ExecutiveStat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="grid grid-cols-4 gap-1">
-      {badges.map((b) => (
-        <div
-          key={b.label}
-          className="flex flex-col items-center gap-0.5 rounded-md bg-secondary/40 px-1 py-1.5 text-center"
-        >
-          <b.icon className="h-3.5 w-3.5 shrink-0 text-accent" />
-          <div className="w-full truncate text-[7px] uppercase tracking-wide text-muted-foreground">
-            {b.label}
-          </div>
-          <div className="w-full truncate text-[9px] font-semibold">{b.value || "—"}</div>
+    <div className="rounded-lg bg-secondary/40 px-2 py-2 text-center">
+      <div className="text-[8px] uppercase tracking-wide text-muted-foreground">{label}</div>
+      <div className="mt-0.5 truncate text-xs font-semibold">{value}</div>
+    </div>
+  );
+}
+
+// Module 10's "Major Supporting Findings" row — real AI findings grounded in
+// the record, each optionally deep-linking back to the module that actually
+// produced the underlying analysis (same modal, just switches which module
+// is open — see onOpenModule in Report()).
+function FindingCard({
+  finding,
+  onOpenModule,
+}: {
+  finding: { finding: string; whyItMatters: string; relatedModule: string | null };
+  onOpenModule: (moduleId: string) => void;
+}) {
+  const target = finding.relatedModule
+    ? MODULES.find((mm) => mm.id === finding.relatedModule)
+    : null;
+  return (
+    <div className="card-elev p-3">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-semibold">{finding.finding}</div>
+          <p className="mt-0.5 text-xs text-muted-foreground">{finding.whyItMatters}</p>
         </div>
-      ))}
+        {target && (
+          <button
+            onClick={() => onOpenModule(target.id)}
+            className="shrink-0 whitespace-nowrap text-xs text-accent hover:underline"
+          >
+            View Analysis →
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const DEFENSE_QA_STATUS_TONE: Record<string, string> = {
+  Supported: "bg-success/15 text-success",
+  "Partially Supported": "bg-warning/15 text-warning-foreground",
+  "Evidence Needed": "bg-destructive/10 text-destructive",
+  "User Input Needed": "bg-secondary/60 text-muted-foreground",
+};
+
+// One row of the first-version Defense Readiness Q&A table — read-only
+// (editing the answer / re-uploading evidence for just this question is a
+// follow-up, see the plan this was built from). "View Evidence" only
+// appears when the AI actually named a real module its answer draws from.
+function DefenseQARow({
+  qa,
+  onOpenModule,
+}: {
+  qa: ModuleResultMap["executive"]["defenseQA"][number];
+  onOpenModule: (moduleId: string) => void;
+}) {
+  const target = qa.relatedModule ? MODULES.find((mm) => mm.id === qa.relatedModule) : null;
+  return (
+    <div className="card-elev p-3">
+      <div className="flex items-start justify-between gap-2">
+        <div className="text-sm font-semibold">{qa.question}</div>
+        <span
+          className={`shrink-0 whitespace-nowrap rounded-full px-2 py-0.5 text-[9px] font-semibold ${DEFENSE_QA_STATUS_TONE[qa.status] ?? "bg-secondary/60 text-muted-foreground"}`}
+        >
+          {qa.status}
+        </span>
+      </div>
+      <p className="mt-1 text-xs text-muted-foreground">{qa.suggestedAnswer}</p>
+      {target && (
+        <button
+          onClick={() => onOpenModule(target.id)}
+          className="mt-1.5 text-xs text-accent hover:underline"
+        >
+          View Evidence →
+        </button>
+      )}
     </div>
   );
 }
@@ -2390,7 +2565,7 @@ function moduleInsight(
     }
     case "executive": {
       const d = moduleState.data as ModuleResultMap["executive"];
-      return d.recommendation;
+      return d.recommendedAction;
     }
     default:
       return null;
@@ -3252,6 +3427,11 @@ function ModulePreviewContent({
   onUploadEvidence,
   onForceReload,
   onAnswerStrategy,
+  existingProtest,
+  resolvedProperty,
+  onOpenModule,
+  onStartProtest,
+  onViewCase,
 }: {
   m: Module;
   estimated: {
@@ -3272,6 +3452,14 @@ function ModulePreviewContent({
   onForceReload: () => void;
   onAnswerStrategy: (strategyId: string, answer: string) => void;
   onAskQuestion: (moduleId: string, question: string) => Promise<string>;
+  // Module 10 only — real case state + navigation, so it can show real
+  // filing readiness and a genuinely working "View Analysis"/CTA without a
+  // page reload (just switches which module is open in this same modal).
+  existingProtest: ProtestRecord | null;
+  resolvedProperty: PropertyRecord | null;
+  onOpenModule: (moduleId: string) => void;
+  onStartProtest: () => void;
+  onViewCase: () => void;
 }) {
   if (m.requiresUserData) {
     return (
@@ -3932,42 +4120,279 @@ function ModulePreviewContent({
       const d = moduleState.data as ModuleResultMap["executive"];
       const strategyData = moduleData.strategy?.data as ModuleResultMap["strategy"] | undefined;
       const evidenceData = moduleData.evidence?.data as ModuleResultMap["evidence"] | undefined;
-      const keyEvidence =
-        evidenceData?.items.find((i) => i.importance === "High")?.item ??
-        evidenceData?.items[0]?.item ??
-        null;
-      const comps =
-        compsMap.data?.comps.filter(
-          (c): c is typeof c & { marketValue: number } => c.marketValue != null,
-        ) ?? [];
-      const valueRange =
-        comps.length > 0
-          ? `${compactCurrency(Math.min(...comps.map((c) => c.marketValue)))}–${compactCurrency(Math.max(...comps.map((c) => c.marketValue)))}`
+      const evidenceItems = evidenceData?.items ?? [];
+      const execStats = computeComparableStats(
+        compsMap.data?.subject ?? null,
+        compsMap.data?.comps ?? [],
+        state.totalValue,
+      );
+      const preFilingItems =
+        existingProtest && resolvedProperty
+          ? getPreFilingCheck(resolvedProperty, existingProtest)
           : null;
+      const summary = getExecutiveSummary(
+        execStats,
+        estimated.savings,
+        evidenceItems,
+        preFilingItems,
+      );
+      const defenseScore = getDefenseReadinessScore(d.defenseQA);
+      const criticalMissing = evidenceItems.filter(
+        (i) => i.importance === "High" && i.availability === "Low",
+      );
+
+      // Single primary CTA, deterministic — never more than one rendered.
+      let cta: { label: string; onClick: () => void } | null = null;
+      if (preFilingItems && isPreFilingBlocked(preFilingItems)) {
+        cta = null; // "Complete Missing Information" — see the Properties link below instead
+      } else if (criticalMissing.length > 0) {
+        cta = { label: "Complete Missing Evidence", onClick: () => onOpenModule("evidence") };
+      } else if (!existingProtest) {
+        cta = { label: "Prepare My Protest", onClick: onStartProtest };
+      } else {
+        cta = { label: "Review Case", onClick: onViewCase };
+      }
+
       return (
-        <div className="mt-4 grid gap-3">
-          <div className="flex justify-center">
-            <span
-              className={`grid h-14 w-14 place-items-center rounded-full ${m.color.bg} ${m.color.text}`}
-            >
-              <Award className="h-7 w-7" />
-            </span>
+        <div className="mt-4 grid gap-4">
+          {/* 2. Executive Protest Summary — real numbers only, see
+              src/lib/executive-summary.ts for the exact formulas. */}
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <ExecutiveStat label="Protest Opportunity" value={summary.protestOpportunity} />
+            {summary.currentCadValue != null && (
+              <ExecutiveStat label="Current CAD Value" value={currency(summary.currentCadValue)} />
+            )}
+            {summary.indicatedValueRange && (
+              <ExecutiveStat
+                label="Market Value Range"
+                value={`${compactCurrency(summary.indicatedValueRange.min)}–${compactCurrency(summary.indicatedValueRange.max)}`}
+              />
+            )}
+            {summary.potentialValueReduction != null && (
+              <ExecutiveStat
+                label="Potential Reduction"
+                value={compactCurrency(summary.potentialValueReduction)}
+              />
+            )}
+            {summary.estimatedAnnualSavings != null && summary.estimatedAnnualSavings > 0 && (
+              <ExecutiveStat
+                label="Est. Annual Savings"
+                value={compactCurrency(summary.estimatedAnnualSavings)}
+              />
+            )}
+            <ExecutiveStat label="Evidence Readiness" value={summary.evidenceReadiness} />
+            <ExecutiveStat label="Protest Readiness" value={summary.protestReadiness} />
           </div>
-          <ExecutiveBadges
-            strategy={strategyData?.strategies[0]?.name ?? null}
-            keyEvidence={keyEvidence}
-            valueRange={valueRange}
-            nextStep={d.nextStep}
-          />
-          <div className={`rounded-lg p-4 text-center ${m.color.bg}`}>
+          {summary.overallConfidencePct != null && (
+            <div className="flex flex-col items-center">
+              <SpeedometerGauge value={summary.overallConfidencePct} size="sm" />
+              <div className="-mt-1 text-xs text-muted-foreground">Overall Case Assessment</div>
+            </div>
+          )}
+
+          {/* 3. Final Protest Recommendation */}
+          <div className={`rounded-lg p-4 ${m.color.bg}`}>
             <div className={`text-[10px] font-semibold uppercase tracking-wide ${m.color.text}`}>
               Recommended Action
             </div>
-            <div className="mt-1 font-serif text-xl font-bold">{d.recommendation}</div>
+            <div className="mt-1 font-serif text-lg font-bold">{d.recommendedAction}</div>
+            {d.recommendationExplanation && (
+              <p className="mt-1.5 text-sm text-foreground/90">{d.recommendationExplanation}</p>
+            )}
           </div>
+          {d.conflictNote && (
+            <div className="flex items-start gap-2 rounded-lg bg-warning/15 p-3 text-sm text-warning-foreground">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <p className="min-w-0 flex-1">{d.conflictNote}</p>
+            </div>
+          )}
+
+          {/* 4. Recommended Protest Strategy */}
+          {(d.primaryStrategyExplanation || d.secondaryStrategyExplanation) && (
+            <div className="grid gap-2">
+              {d.primaryStrategyExplanation && (
+                <div className="card-elev p-3">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Primary Strategy
+                    {strategyData?.strategies[0] ? ` — ${strategyData.strategies[0].name}` : ""}
+                  </div>
+                  <p className="mt-1 text-sm">{d.primaryStrategyExplanation}</p>
+                </div>
+              )}
+              {d.secondaryStrategyExplanation && (
+                <div className="card-elev p-3">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Secondary Strategy
+                    {strategyData?.strategies[1] ? ` — ${strategyData.strategies[1].name}` : ""}
+                  </div>
+                  <p className="mt-1 text-sm">{d.secondaryStrategyExplanation}</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 5. Major Supporting Findings */}
+          {d.majorFindings.length > 0 && (
+            <div>
+              <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Major Supporting Findings
+              </div>
+              <div className="grid gap-2">
+                {d.majorFindings.map((f, i) => (
+                  <FindingCard key={i} finding={f} onOpenModule={onOpenModule} />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* 6. Value Recommendation + 7. Financial Opportunity */}
           <div className="grid gap-2 sm:grid-cols-2">
-            <FactBox label="Basis" value={d.basis} />
-            <FactBox label="Next Step" value={d.nextStep} />
+            <FactBox
+              label="Recommended Protest Value"
+              value={
+                d.recommendedProtestValue != null
+                  ? currency(d.recommendedProtestValue)
+                  : "Additional Analysis Required"
+              }
+            />
+            <FactBox
+              label="Value Basis"
+              value={d.recommendedProtestValueBasis || "Not enough data yet."}
+            />
+          </div>
+          {estimated.savings > 0 && <CostBenefitRow savings={estimated.savings} />}
+
+          {/* 8. Evidence Readiness */}
+          <div className="card-elev p-3">
+            <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Evidence Readiness
+            </div>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {evidenceItems.length === 0
+                ? "Evidence checklist not generated yet."
+                : criticalMissing.length === 0
+                  ? "No top-priority evidence gaps remain."
+                  : `${criticalMissing.length} top-priority item${criticalMissing.length === 1 ? "" : "s"} still outstanding.`}
+            </p>
+            {criticalMissing.length > 0 && (
+              <ul className="mt-2 grid gap-1">
+                {criticalMissing.map((i, idx) => (
+                  <li key={idx} className="flex items-center justify-between gap-2 text-sm">
+                    <span className="min-w-0 flex-1 truncate">{i.item}</span>
+                    <button
+                      onClick={() => onOpenModule("evidence")}
+                      className="shrink-0 text-xs text-accent hover:underline"
+                    >
+                      Upload →
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          {/* 9. Missing Information */}
+          {d.missingInformation.length > 0 && (
+            <div className="card-elev p-3">
+              <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Missing Information
+              </div>
+              <ul className="mt-1.5 grid gap-1">
+                {d.missingInformation.map((mi, i) => (
+                  <li key={i} className="flex items-center justify-between gap-2 text-sm">
+                    <span className="min-w-0 flex-1">{mi.item}</span>
+                    <span
+                      className={`shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-semibold ${
+                        mi.severity === "Critical"
+                          ? "bg-destructive/10 text-destructive"
+                          : mi.severity === "Important"
+                            ? "bg-warning/15 text-warning-foreground"
+                            : "bg-secondary/60 text-muted-foreground"
+                      }`}
+                    >
+                      {mi.severity}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* 10. County-Specific Protest Readiness */}
+          {preFilingItems ? (
+            <div className="card-elev p-3">
+              <div className="flex items-center justify-between">
+                <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  County-Specific Protest Readiness
+                </div>
+                <span
+                  className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                    isPreFilingBlocked(preFilingItems)
+                      ? "bg-warning/15 text-warning-foreground"
+                      : "bg-success/15 text-success"
+                  }`}
+                >
+                  {isPreFilingBlocked(preFilingItems)
+                    ? "Additional Filing Information Required"
+                    : "Ready to File"}
+                </span>
+              </div>
+              <div className="mt-2 grid gap-1 sm:grid-cols-2">
+                {preFilingItems.map((item) => (
+                  <div key={item.label} className="flex items-center justify-between gap-2 text-xs">
+                    <span className="text-muted-foreground">{item.label}</span>
+                    <span
+                      className={item.status === "confirmed" ? "text-success" : "text-destructive"}
+                    >
+                      {item.status === "confirmed" ? (item.value ?? "Confirmed") : "Missing"}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="card-elev p-3 text-sm text-muted-foreground">
+              Start a protest to see filing readiness for your county.
+            </div>
+          )}
+
+          {/* 19-23. Protest Defense Readiness — first version: AI-generated
+              property-specific Q&A + a real, deterministically-scored
+              readiness gauge (see getDefenseReadinessScore). Read-only in
+              this version — editing an answer or reassessing after new
+              evidence is a follow-up. */}
+          {d.defenseQA.length > 0 && (
+            <div>
+              <div className="mb-1.5 flex items-center justify-between">
+                <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Protest Defense Readiness
+                </div>
+                {defenseScore != null && (
+                  <span className="text-sm font-bold" style={{ color: scoreColor(defenseScore) }}>
+                    {defenseScore}/100
+                  </span>
+                )}
+              </div>
+              <div className="grid gap-2">
+                {d.defenseQA.map((qa, i) => (
+                  <DefenseQARow key={i} qa={qa} onOpenModule={onOpenModule} />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* 11 & 32. Next Action + single primary CTA */}
+          {d.nextAction && <AiVerdictLine icon={ArrowRight} text={d.nextAction} color={m.color} />}
+          <div className="flex justify-center">
+            {cta ? (
+              <button onClick={cta.onClick} className="btn-accent">
+                {cta.label}
+              </button>
+            ) : (
+              <Link to="/dashboard/properties" className="btn-accent">
+                Complete Missing Information
+              </Link>
+            )}
           </div>
         </div>
       );

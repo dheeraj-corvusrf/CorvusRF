@@ -33,6 +33,40 @@ export type ModuleAnalysisInput = {
     marketValue: number | null;
     similarity: number;
   }[];
+  // Everything below is only for "executive" — real outputs Modules 2/3/8/9
+  // already computed (never regenerated), so Module 10 can actually
+  // reconcile them instead of writing a recommendation blind to the rest of
+  // the report. See loadModule()'s executive branch in ai-report.tsx and the
+  // sequencing effect that waits for strategy + evidence to resolve first.
+  topStrategies?: {
+    name: string;
+    primaryReason: string;
+    strengthScore: number;
+    whySelected: string;
+    existingEvidence: string[];
+    missingEvidence: string[];
+  }[];
+  evidenceReadiness?: {
+    criticalMissing: string[];
+    importantMissing: string[];
+    uploadedCount: number;
+  };
+  compsIndicated?: {
+    min: number;
+    median: number;
+    max: number;
+    gapPct: number | null;
+    confidencePct: number | null;
+  } | null;
+  financialSummary?: {
+    savings: number;
+    basis: "comps" | "formula";
+    reductionPct: number | null;
+  } | null;
+  // Only present once a real protest case exists for this property (see
+  // getPreFilingCheck() in pre-filing-check.ts) — omitted, not fabricated,
+  // when no case has been started yet.
+  preFilingStatus?: { missingBlocking: string[] } | null;
 };
 
 export type BatchModuleId =
@@ -74,7 +108,37 @@ export type ModuleResultMap = {
   evidence: {
     items: { item: string; importance: "High" | "Low"; availability: "High" | "Low" }[];
   };
-  executive: { recommendation: string; basis: string; nextStep: string };
+  // Recommendation/basis/nextStep kept for backward compatibility with any
+  // stale cached shape — the real UI (ai-report.tsx's "executive" cases)
+  // reads the richer fields below now. See MODULE_SPECS.executive in
+  // supabase/functions/ai-report-modules/index.ts for the full schema this
+  // mirrors.
+  executive: {
+    recommendedAction:
+      | "Proceed with Protest"
+      | "Proceed with Protest After Completing Recommended Evidence"
+      | "Additional Information Needed Before Proceeding"
+      | "Limited Protest Opportunity Based on Available Information";
+    recommendationExplanation: string;
+    primaryStrategyExplanation: string | null;
+    secondaryStrategyExplanation: string | null;
+    majorFindings: { finding: string; whyItMatters: string; relatedModule: string | null }[];
+    missingInformation: { item: string; severity: "Critical" | "Important" | "Supporting" }[];
+    recommendedProtestValue: number | null;
+    recommendedProtestValueBasis: string;
+    nextAction: string;
+    // Only populated when the AI genuinely notices the fed-in signals
+    // disagree (e.g. a strong strategy score against missing critical
+    // evidence) — per the instruction to flag conflicts, not silently pick
+    // a side. Absent, never fabricated, when nothing actually conflicts.
+    conflictNote: string | null;
+    defenseQA: {
+      question: string;
+      suggestedAnswer: string;
+      status: "Supported" | "Partially Supported" | "Evidence Needed" | "User Input Needed";
+      relatedModule: string | null;
+    }[];
+  };
 };
 
 // Fetches exactly one module's analysis per call — the caller only invokes this when
