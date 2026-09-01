@@ -23,6 +23,7 @@ import {
   ShieldCheck,
   Wrench,
   RefreshCw,
+  ArrowDown,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -140,7 +141,7 @@ const CONFETTI_ORIGIN_RIGHT_X_PCT = 88;
 const CONFETTI_ORIGIN_RIGHT_Y_PCT = 45;
 
 // Real comps-derived signal fed into Module 2's prompt (see loadModule() below) —
-// median/min/max of the same real comparable market values CompsMap/CompsScatter
+// median/min/max of the same real comparable market values CompsMap/CompsValueScatter
 // already render, not a new fetch or an invented figure.
 function buildCompsSummary(compsData: CompsResult | null) {
   const values = (compsData?.comps ?? [])
@@ -1284,10 +1285,7 @@ function ModuleVisual({
           <span className="text-xs text-muted-foreground">comparable properties found nearby</span>
         </div>
         <div className="mt-1.5">
-          <CompsScatter
-            comps={compsMap.data.comps}
-            subjectValue={compsMap.data.subject?.marketValue ?? null}
-          />
+          <CompsValueScatter subject={compsMap.data.subject} comps={stats.ranked} />
         </div>
         {stats.limitedData ? (
           <div className="mt-1.5 rounded-md bg-warning/15 px-2 py-1 text-[11px] text-warning-foreground">
@@ -1295,42 +1293,33 @@ function ModuleVisual({
           </div>
         ) : (
           stats.indicated && (
-            <div className="mt-1.5 grid grid-cols-3 gap-1.5">
-              <div className="rounded-md bg-success/10 px-2 py-1">
-                <div className="text-[8px] uppercase tracking-wide text-success">
-                  Indicated Range
+            <>
+              <div className="mt-1.5 grid grid-cols-2 gap-1.5">
+                <div className="rounded-md bg-success/10 px-2 py-1">
+                  <div className="text-[8px] uppercase tracking-wide text-success">
+                    Market Value Range
+                  </div>
+                  <div className="truncate text-[11px] font-semibold text-success">
+                    {compactCurrency(stats.indicated.min)}–{compactCurrency(stats.indicated.max)}
+                  </div>
                 </div>
-                <div className="truncate text-[11px] font-semibold text-success">
-                  {compactCurrency(stats.indicated.min)}–{compactCurrency(stats.indicated.max)}
-                </div>
+                {stats.subjectValue != null && (
+                  <div className="rounded-md bg-destructive/10 px-2 py-1">
+                    <div className="text-[8px] uppercase tracking-wide text-destructive">
+                      CAD Value
+                    </div>
+                    <div className="truncate text-[11px] font-semibold text-destructive">
+                      {compactCurrency(stats.subjectValue)}
+                    </div>
+                  </div>
+                )}
               </div>
-              {stats.subjectValue != null && (
-                <div className="rounded-md bg-destructive/10 px-2 py-1">
-                  <div className="text-[8px] uppercase tracking-wide text-destructive">
-                    CAD Value
-                  </div>
-                  <div className="truncate text-[11px] font-semibold text-destructive">
-                    {compactCurrency(stats.subjectValue)}
-                  </div>
-                </div>
-              )}
               {stats.valuationGapPct != null && (
-                <div className="rounded-md bg-secondary/60 px-2 py-1">
-                  <div className="text-[8px] uppercase tracking-wide text-muted-foreground">
-                    Valuation Gap
-                  </div>
-                  <div
-                    className="truncate text-[11px] font-semibold"
-                    style={{
-                      color: scoreColor(100 - Math.min(100, Math.abs(stats.valuationGapPct))),
-                    }}
-                  >
-                    {stats.valuationGapPct > 0 ? "+" : ""}
-                    {stats.valuationGapPct}%
-                  </div>
+                <div className="mt-1 flex justify-center">
+                  <ArrowDown className={`h-3.5 w-3.5 ${m.color.text}`} />
                 </div>
               )}
-            </div>
+            </>
           )
         )}
       </div>
@@ -1515,38 +1504,95 @@ function compactCurrency(n: number): string {
   return currency(n);
 }
 
-function CompsScatter({
+// Real 2-D scatter — Value Per Acre (Y) vs Land Size (X), the honest
+// per-unit substitute for a "$/SF vs. building size" plot: no building-SF
+// field exists anywhere in this pipeline (see valuePerAcre() below), but
+// legalAcreage and marketValue are both real CAD fields every comp already
+// carries. The subject renders as a larger, labeled accent dot among the
+// comps (muted) so where the subject sits in the market reads at a glance,
+// same visual language as CompsMap's subject/comp marker distinction.
+function CompsValueScatter({
+  subject,
   comps,
-  subjectValue,
 }: {
-  comps: { marketValue: number | null }[];
-  subjectValue: number | null;
+  subject: CompProperty | null;
+  comps: RankedComp[];
 }) {
+  const subjectPoint =
+    subject?.legalAcreage && valuePerAcre(subject.marketValue, subject.legalAcreage) != null
+      ? {
+          x: subject.legalAcreage,
+          y: valuePerAcre(subject.marketValue, subject.legalAcreage) as number,
+        }
+      : null;
   const points = comps
-    .filter((c): c is { marketValue: number } => c.marketValue != null)
-    .map((c) => ({ x: c.marketValue, y: 0 }));
-  if (points.length === 0) return null;
-  const values = points.map((p) => p.x).concat(subjectValue != null ? [subjectValue] : []);
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const pad = (max - min) * 0.2 || max * 0.1 || 1000;
+    .slice(0, 10)
+    .map((c) => ({ x: c.legalAcreage ?? null, y: valuePerAcre(c.marketValue, c.legalAcreage) }))
+    .filter((p): p is { x: number; y: number } => p.x != null && p.y != null);
+
+  if (points.length === 0 && !subjectPoint) return null;
+
+  const allX = points.map((p) => p.x).concat(subjectPoint ? [subjectPoint.x] : []);
+  const allY = points.map((p) => p.y).concat(subjectPoint ? [subjectPoint.y] : []);
+  const xMin = Math.min(...allX);
+  const xMax = Math.max(...allX);
+  const yMin = Math.min(...allY);
+  const yMax = Math.max(...allY);
+  const xPad = (xMax - xMin) * 0.2 || xMax * 0.2 || 1;
+  const yPad = (yMax - yMin) * 0.2 || yMax * 0.2 || 1;
+
   return (
     <div>
-      <ResponsiveContainer width="100%" height={44}>
-        <ScatterChart margin={{ top: 4, right: 8, bottom: 4, left: 8 }}>
-          <XAxis type="number" dataKey="x" domain={[min - pad, max + pad]} hide />
-          <YAxis type="number" dataKey="y" domain={[-1, 1]} hide />
-          <Scatter data={points} fill="var(--muted-foreground)" />
-          {subjectValue != null && (
-            <Scatter data={[{ x: subjectValue, y: 0 }]} fill="var(--accent)" shape="diamond" />
-          )}
-        </ScatterChart>
-      </ResponsiveContainer>
-      <div className="flex items-center justify-between text-[10px] text-muted-foreground">
-        <span>{compactCurrency(min)}</span>
-        <span>◆ subject vs comps</span>
-        <span>{compactCurrency(max)}</span>
+      <div className="flex items-stretch gap-1">
+        <div className="flex flex-col justify-between py-2 text-[8px] uppercase tracking-wide text-muted-foreground">
+          <span>High</span>
+          <span>Low</span>
+        </div>
+        <div className="min-w-0 flex-1">
+          <ResponsiveContainer width="100%" height={92}>
+            <ScatterChart margin={{ top: 16, right: 12, bottom: 2, left: 0 }}>
+              <XAxis type="number" dataKey="x" domain={[xMin - xPad, xMax + xPad]} hide />
+              <YAxis type="number" dataKey="y" domain={[yMin - yPad, yMax + yPad]} hide />
+              {points.length > 0 && (
+                <Scatter data={points} fill="var(--success)" fillOpacity={0.55} />
+              )}
+              {subjectPoint && (
+                <Scatter
+                  data={[subjectPoint]}
+                  shape={(props: { cx?: number; cy?: number }) => (
+                    <g>
+                      <circle
+                        cx={props.cx}
+                        cy={props.cy}
+                        r={6}
+                        fill="var(--accent)"
+                        stroke="var(--card)"
+                        strokeWidth={2}
+                      />
+                      <text
+                        x={props.cx}
+                        y={(props.cy ?? 0) - 10}
+                        textAnchor="middle"
+                        fontSize={9}
+                        fontWeight={700}
+                        fill="var(--accent)"
+                      >
+                        Subject
+                      </text>
+                    </g>
+                  )}
+                />
+              )}
+            </ScatterChart>
+          </ResponsiveContainer>
+          <div className="flex items-center justify-between text-[8px] uppercase tracking-wide text-muted-foreground">
+            <span>Small</span>
+            <span>Land Size</span>
+            <span>Large</span>
+          </div>
+        </div>
       </div>
+      <div className="mt-0.5 text-center text-[9px] text-muted-foreground">Value Per Acre</div>
     </div>
   );
 }
@@ -2139,7 +2185,7 @@ function InsightBanner({ text, color }: { text: string; color: IconColor }) {
 // property's own coordinates — already loaded for every visitor via the
 // comps fetch (see loadCompsMap() in Report()), not a second API call.
 // Only renders when that data exists (TrueProdigy-backed counties only,
-// same real-data gate CompsMap/CompsScatter already use); Site Condition
+// same real-data gate CompsMap/CompsValueScatter already use); Site Condition
 // falls back to just the checklist rows everywhere else. Esri World
 // Imagery is a free, no-API-key satellite tile source, attributed per its
 // terms the same way CompsMap already attributes OpenStreetMap.
