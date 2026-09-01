@@ -77,7 +77,16 @@ export function Modal({
           </TooltipTrigger>
           <TooltipContent>Close</TooltipContent>
         </Tooltip>
-        <div className="p-6 pr-12 max-h-[90vh] overflow-auto">{children}</div>
+        {/* overflow-x-hidden (not overflow-auto on both axes) is deliberate —
+            modal content should always wrap/truncate to fit, never force a
+            left-right scrollbar (a real regression this fixed: several
+            shared row components — icon + AI-generated text in a flex row —
+            were missing min-w-0 on the text child, so long text pushed the
+            row, and the whole modal, wider instead of wrapping). This is a
+            safety net on top of that real fix, not a substitute for it —
+            content that still overflows horizontally now clips instead of
+            becoming scrollable, which is a much more visible bug to catch. */}
+        <div className="p-6 pr-12 max-h-[90vh] overflow-y-auto overflow-x-hidden">{children}</div>
       </div>
     </div>,
     document.body,

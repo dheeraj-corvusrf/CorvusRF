@@ -2205,8 +2205,10 @@ function EvidenceQuadrant({ items }: { items: ModuleResultMap["evidence"]["items
         </div>
       </div>
       {focus.length > 0 && (
-        <div className="mt-1.5 flex items-center justify-between gap-2 rounded-md bg-destructive/10 px-2.5 py-1.5 text-xs font-semibold text-destructive">
-          <span className="truncate">Focus Here First: {focus.map((i) => i.item).join(", ")}</span>
+        <div className="mt-1.5 min-w-0 flex items-center justify-between gap-2 rounded-md bg-destructive/10 px-2.5 py-1.5 text-xs font-semibold text-destructive">
+          <span className="min-w-0 flex-1 truncate">
+            Focus Here First: {focus.map((i) => i.item).join(", ")}
+          </span>
           <ArrowRight className="h-3.5 w-3.5 shrink-0" />
         </div>
       )}
@@ -2404,7 +2406,7 @@ function InsightBanner({ text, color }: { text: string; color: IconColor }) {
     <div
       className={`flex items-center justify-between gap-2 px-5 py-2.5 text-sm font-semibold ${color.bg} ${color.text}`}
     >
-      <span className="truncate">{text}</span>
+      <span className="min-w-0 flex-1 truncate">{text}</span>
       <ArrowRight className="h-4 w-4 shrink-0" />
     </div>
   );
@@ -3872,8 +3874,8 @@ function ModulePreviewContent({
       return (
         <div className="mt-4 grid gap-3">
           {focus.length > 0 && (
-            <div className="flex items-center justify-between gap-2 rounded-md bg-destructive/10 px-3 py-2 text-sm font-semibold text-destructive">
-              <span className="truncate">
+            <div className="min-w-0 flex items-center justify-between gap-2 rounded-md bg-destructive/10 px-3 py-2 text-sm font-semibold text-destructive">
+              <span className="min-w-0 flex-1 truncate">
                 Focus Here First: {focus.map((i) => i.item).join(", ")}
               </span>
               <ArrowRight className="h-4 w-4 shrink-0" />
@@ -4144,9 +4146,9 @@ function AiVerdictLine({
   color: IconColor;
 }) {
   return (
-    <div className={`flex items-start gap-2.5 rounded-lg p-3 ${color.bg}`}>
+    <div className={`min-w-0 flex items-start gap-2.5 rounded-lg p-3 ${color.bg}`}>
       <Icon className={`mt-0.5 h-4 w-4 shrink-0 ${color.text}`} />
-      <p className="text-sm font-medium leading-snug">{text}</p>
+      <p className="min-w-0 flex-1 text-sm font-medium leading-snug">{text}</p>
     </div>
   );
 }
@@ -4165,9 +4167,9 @@ function Chip({ children, icon }: { children: React.ReactNode; icon?: boolean })
 // a paragraph into one scannable line.
 function FactBullet({ icon: Icon, children }: { icon: LucideIcon; children: React.ReactNode }) {
   return (
-    <div className="flex items-start gap-2 text-xs text-muted-foreground">
+    <div className="min-w-0 flex items-start gap-2 text-xs text-muted-foreground">
       <Icon className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-      <span>{children}</span>
+      <span className="min-w-0 flex-1">{children}</span>
     </div>
   );
 }
@@ -4183,14 +4185,14 @@ function ChecklistSteps({ items, color }: { items: string[]; color: IconColor })
   return (
     <div className="grid">
       {items.map((c, i) => (
-        <div key={i} className="flex gap-3">
-          <div className="flex flex-col items-center">
+        <div key={i} className="min-w-0 flex gap-3">
+          <div className="flex shrink-0 flex-col items-center">
             <span className={`grid h-6 w-6 shrink-0 place-items-center rounded-full ${color.bg}`}>
               <CheckCircle2 className={`h-4 w-4 ${color.text}`} />
             </span>
             {i < items.length - 1 && <div className="my-0.5 w-px flex-1 bg-border" />}
           </div>
-          <p className="pb-3 text-xs text-muted-foreground">{c}</p>
+          <p className="min-w-0 flex-1 pb-3 text-xs text-muted-foreground">{c}</p>
         </div>
       ))}
     </div>
@@ -4213,13 +4215,13 @@ function PriorityRow({
         ? { bg: "bg-warning/15", text: "text-warning-foreground", label: "High Priority" }
         : { bg: "bg-secondary/60", text: "text-muted-foreground", label: null };
   return (
-    <div className={`flex items-center gap-3 rounded-lg p-3 ${tone.bg}`}>
+    <div className={`min-w-0 flex items-center gap-3 rounded-lg p-3 ${tone.bg}`}>
       {tone.label && (
         <span className={`shrink-0 text-[10px] font-bold uppercase ${tone.text}`}>
           {tone.label}
         </span>
       )}
-      <span className="text-sm">{item}</span>
+      <span className="min-w-0 flex-1 text-sm">{item}</span>
     </div>
   );
 }
@@ -4248,9 +4250,9 @@ const ZONING_STATUS = {
 function ZoningBadge({ matches }: { matches: keyof typeof ZONING_STATUS }) {
   const { Icon, color, bg, label } = ZONING_STATUS[matches];
   return (
-    <div className={`flex items-center gap-3 rounded-lg p-4 ${bg}`}>
+    <div className={`min-w-0 flex items-center gap-3 rounded-lg p-4 ${bg}`}>
       <Icon className={`h-8 w-8 shrink-0 ${color}`} />
-      <div className={`font-serif text-lg font-semibold ${color}`}>{label}</div>
+      <div className={`min-w-0 flex-1 font-serif text-lg font-semibold ${color}`}>{label}</div>
     </div>
   );
 }
