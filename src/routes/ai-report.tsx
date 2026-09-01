@@ -38,6 +38,7 @@ import {
   LabelList,
   ScatterChart,
   Scatter,
+  ReferenceLine,
 } from "recharts";
 import {
   readIntake,
@@ -65,7 +66,12 @@ import {
   type StrategyEntry,
 } from "@/lib/ai-report-modules";
 import { getComps, type CompsResult, type CompProperty } from "@/lib/cad-comps";
-import { computeComparableStats, type RankedComp } from "@/lib/comps-analysis";
+import { getCadRecordUrl, isDirectCadRecordUrl } from "@/lib/cad-record-url";
+import {
+  computeComparableStats,
+  type RankedComp,
+  type ComparableStats,
+} from "@/lib/comps-analysis";
 import { estimateSavings } from "@/lib/savings-estimate";
 import {
   classifyPropertyCategory,
@@ -402,8 +408,25 @@ function Report() {
       // Grounds the Market Value module's guidance in the real comps already
       // fetched for this property (median/range/count) instead of generic
       // advice — same real signal, same helper, as the Strategy module above.
+      // Also sends the real top-5-by-similarity comps (same computation the
+      // modal itself renders — see computeComparableStats in
+      // comps-analysis.ts) so recommendedUse can name specific real
+      // properties instead of speaking only in generalities.
       if (id === "comps") {
         input.compsSummary = buildCompsSummary(compsMap.data);
+        const stats = computeComparableStats(
+          compsMap.data?.subject ?? null,
+          compsMap.data?.comps ?? [],
+          state.totalValue,
+        );
+        if (stats.ranked.length > 0) {
+          input.topComps = stats.ranked.slice(0, 5).map((c) => ({
+            address: c.address || `Property #${c.pid}`,
+            distanceMi: c.distanceMi,
+            marketValue: c.marketValue,
+            similarity: c.similarity,
+          }));
+        }
       }
 
       // Improvement Condition reads uploaded evidence (photos/repair estimates/
@@ -642,6 +665,17 @@ function Report() {
     const strategyState = moduleData.strategy;
     const fire = () => {
       for (const id of SEQUENCED_AFTER_STRATEGY) {
+        // "comps" specifically also wants compsMap.data already populated
+        // (see loadModule()'s own comps branch, which sends real topComps
+        // for the Recommended Protest Use field) — loadCompsMap() right
+        // above is fire-and-forget, so without this check "comps" could
+        // fire in the very same tick as loadCompsMap() itself, well before
+        // that fetch resolves (confirmed live: compsMap.data was still null
+        // at the exact moment this ran). compsMap.loading is in the
+        // dependency array below specifically so this effect re-runs once
+        // that fetch actually settles, giving "comps" a second real chance
+        // to fire with real data instead of silently going out ungrounded.
+        if (id === "comps" && compsMap.loading) continue;
         const m = MODULES.find((mm) => mm.id === id);
         if (m && (m.n <= FREE_MODULE_COUNT || hasFullAccess)) loadModule(m.id);
       }
@@ -653,11 +687,18 @@ function Report() {
     const t = setTimeout(fire, 6000);
     return () => clearTimeout(t);
     // Same rationale as the effect above for omitting loadModule/loadCompsMap;
-    // moduleData.strategy's data/error are read explicitly instead of the
-    // whole moduleData map so this only re-fires on Module 2's own state
-    // transitions, not every other module's load.
+    // moduleData.strategy's data/error (plus compsMap.loading, for the
+    // "comps" race described above) are read explicitly instead of the
+    // whole moduleData/compsMap objects so this only re-fires on those
+    // specific state transitions, not every other module's load.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.totalValue, hasFullAccess, moduleData.strategy?.data, moduleData.strategy?.error]);
+  }, [
+    state.totalValue,
+    hasFullAccess,
+    moduleData.strategy?.data,
+    moduleData.strategy?.error,
+    compsMap.loading,
+  ]);
 
   function openModule(m: Module) {
     if (hasFullAccess || m.n <= FREE_MODULE_COUNT) {
@@ -1510,6 +1551,186 @@ function CompsScatter({
   );
 }
 
+// Real-count selection funnel — "N Properties Reviewed → N Qualified → N
+// Best Comps Selected," matching the spec's own recommended visual flow
+// (comps.length → usable.length → min(5, usable.length), all straight from
+// computeComparableStats in comps-analysis.ts — no AI estimate involved).
+function ComparableSelectionFunnel({
+  reviewed,
+  qualified,
+  selected,
+}: {
+  reviewed: number;
+  qualified: number;
+  selected: number;
+}) {
+  const stages = [
+    { label: "Properties Reviewed", value: reviewed },
+    { label: "Qualified", value: qualified },
+    { label: "Best Comps Selected", value: selected },
+  ];
+  return (
+    <div className="flex items-center justify-between gap-1.5 rounded-lg bg-secondary/40 p-3 text-center">
+      {stages.map((s, i) => (
+        <Fragment key={s.label}>
+          <div className="min-w-0">
+            <div className="text-lg font-bold">{s.value}</div>
+            <div className="text-[9px] uppercase tracking-wide text-muted-foreground">
+              {s.label}
+            </div>
+          </div>
+          {i < stages.length - 1 && (
+            <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+          )}
+        </Fragment>
+      ))}
+    </div>
+  );
+}
+
+// Real per-signal deltas already computed inside similarityScore() — value
+// % diff, distance, land-size % diff, property-type match — surfaced as
+// "how each top comp differs from the subject" instead of staying buried
+// inside one opaque similarity number. Deliberately NOT a dollar-per-SF
+// adjustment: no building-size field exists anywhere in this pipeline (see
+// comps-analysis.ts), so this only ever shows real percentage/distance
+// deltas, never a fabricated adjustment value.
+function ComparableAdjustments({ subject, comps }: { subject: CompProperty; comps: RankedComp[] }) {
+  if (comps.length === 0) return null;
+  return (
+    <div className="grid gap-2">
+      {comps.map((c) => {
+        const valueDiffPct =
+          subject.marketValue && c.marketValue
+            ? Math.round(((c.marketValue - subject.marketValue) / subject.marketValue) * 100)
+            : null;
+        const landDiffPct =
+          subject.legalAcreage && c.legalAcreage
+            ? Math.round(((c.legalAcreage - subject.legalAcreage) / subject.legalAcreage) * 100)
+            : null;
+        const sameType = subject.propType && c.propType ? subject.propType === c.propType : null;
+        return (
+          <div key={c.pid} className="rounded-lg border border-border p-3 text-xs">
+            <div className="truncate font-semibold">{c.address || `Property #${c.pid}`}</div>
+            <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-muted-foreground">
+              <span>
+                Value:{" "}
+                {valueDiffPct != null ? (
+                  <span className={valueDiffPct >= 0 ? "text-success" : "text-destructive"}>
+                    {valueDiffPct > 0 ? "+" : ""}
+                    {valueDiffPct}%
+                  </span>
+                ) : (
+                  "—"
+                )}
+              </span>
+              <span>Distance: {c.distanceMi.toFixed(2)} mi</span>
+              <span>
+                Land size:{" "}
+                {landDiffPct != null
+                  ? `${landDiffPct > 0 ? "+" : ""}${landDiffPct}%`
+                  : "not on file"}
+              </span>
+              <span>
+                Property type: {sameType == null ? "not on file" : sameType ? "same" : "different"}
+              </span>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// Subject's CAD value vs. each top comp's assessed value — the real
+// "does the subject look high?" comparison at a glance. Relabeled from the
+// spec's own "$/SF" framing to plain assessed value, since no building-SF
+// field exists anywhere in this pipeline (real $/acre is already surfaced
+// per-row in ComparableTable, where land size is on file).
+function ComparableValueChart({
+  subjectValue,
+  comps,
+  median,
+}: {
+  subjectValue: number | null;
+  comps: RankedComp[];
+  median: number | null;
+}) {
+  // Truncated to a fixed short length (not left to Recharts' own tick
+  // wrapping) — a full street address at this axis width wrapped into 2-3
+  // ugly lines per bar; a short, consistent label reads far better than a
+  // literal-but-cramped one here, and the full address is already the row
+  // label in ComparableTable right above this chart.
+  const shortLabel = (s: string) => (s.length > 13 ? `${s.slice(0, 12)}…` : s);
+  const data = [
+    ...(subjectValue != null
+      ? [{ name: "Subject (CAD)", value: subjectValue, isSubject: true }]
+      : []),
+    ...comps
+      .filter((c): c is RankedComp & { marketValue: number } => c.marketValue != null)
+      .map((c) => ({
+        name: shortLabel(c.address ? c.address.split(",")[0] : `Property #${c.pid}`),
+        value: c.marketValue,
+        isSubject: false,
+      })),
+  ];
+  if (data.length === 0) return null;
+  return (
+    <div>
+      <ResponsiveContainer width="100%" height={Math.max(140, data.length * 32)}>
+        <BarChart data={data} layout="vertical" margin={{ top: 4, right: 24, bottom: 4, left: 4 }}>
+          <XAxis type="number" tickFormatter={compactCurrency} tick={{ fontSize: 10 }} />
+          <YAxis type="category" dataKey="name" width={110} tick={{ fontSize: 10 }} interval={0} />
+          {median != null && (
+            <ReferenceLine
+              x={median}
+              stroke="var(--muted-foreground)"
+              strokeDasharray="4 3"
+              label={{
+                value: "Median",
+                position: "top",
+                fontSize: 9,
+                fill: "var(--muted-foreground)",
+              }}
+            />
+          )}
+          <Bar dataKey="value" radius={[0, 4, 4, 0]}>
+            {data.map((d, i) => (
+              <Cell key={i} fill={d.isSubject ? "var(--destructive)" : "var(--success)"} />
+            ))}
+            <LabelList dataKey="value" position="right" formatter={compactCurrency} fontSize={10} />
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+// Real, deterministic explanation of the confidence score — the same two
+// inputs computeComparableStats() itself blends (usable comp count, value
+// spread), phrased in a sentence — never AI-written, matching the
+// SupportingDataGrid/SourcesList convention already used for Module 1.
+function comparableConfidenceReasoning(stats: ComparableStats): string | null {
+  if (stats.confidencePct == null || stats.indicated == null) return null;
+  const count = stats.ranked.filter((c) => c.marketValue != null).length;
+  const spreadPct =
+    stats.indicated.median > 0
+      ? Math.round(((stats.indicated.max - stats.indicated.min) / stats.indicated.median) * 100)
+      : null;
+  const countPhrase = `${count} comparable ${count === 1 ? "property" : "properties"} with a real assessed value`;
+  const spreadPhrase =
+    spreadPct != null
+      ? spreadPct <= 20
+        ? "a tight value range"
+        : spreadPct <= 50
+          ? "a moderate value range"
+          : "a wide value range"
+      : null;
+  return spreadPhrase
+    ? `${countPhrase}, within ${spreadPhrase} (±${spreadPct}%), support this indicated value.`
+    : `${countPhrase} support this indicated value.`;
+}
+
 // A real deed date (see CompProperty.lastTransferDt), never a sale price —
 // formatted plainly so it can't be mistaken for one.
 function formatTransferDate(v?: string | null): string | null {
@@ -1535,7 +1756,7 @@ function valuePerAcre(marketValue?: number | null, acreage?: number | null): num
 // Assessed Value / $ per Acre / Distance / Similarity, all real fields (see
 // comps-analysis.ts). Each row expands on click (not hover, so it works on
 // touch too) rather than a tooltip, same pattern as Module 2's StrategyDetail.
-function ComparableTable({ ranked }: { ranked: RankedComp[] }) {
+function ComparableTable({ ranked, cad }: { ranked: RankedComp[]; cad?: string }) {
   const [expandedPid, setExpandedPid] = useState<number | null>(null);
   if (ranked.length === 0) return null;
   return (
@@ -1600,7 +1821,28 @@ function ComparableTable({ ranked }: { ranked: RankedComp[] }) {
                           {c.appraisedValue != null ? currency(c.appraisedValue) : "—"}
                         </div>
                         {c.zoning && <div>Zoning: {c.zoning}</div>}
-                        <div>Source: {c.pid ? `CAD record #${c.pid}` : "CAD public record"}</div>
+                        <div>
+                          Source:{" "}
+                          {(() => {
+                            const url = cad
+                              ? getCadRecordUrl({ cad, accountNumber: String(c.pid) })
+                              : null;
+                            if (!url) return c.pid ? `CAD record #${c.pid}` : "CAD public record";
+                            return (
+                              <a
+                                href={url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={(e) => e.stopPropagation()}
+                                className="text-accent underline underline-offset-2"
+                              >
+                                {isDirectCadRecordUrl(cad!)
+                                  ? `View CAD record #${c.pid}`
+                                  : `Search ${cad} for #${c.pid}`}
+                              </a>
+                            );
+                          })()}
+                        </div>
                       </div>
                     </td>
                   </tr>
@@ -2808,65 +3050,121 @@ function ModulePreviewContent({
     const d = moduleState?.data as ModuleResultMap["comps"] | undefined;
     const map = compsMap.data;
     const stats = computeComparableStats(map?.subject ?? null, map?.comps ?? [], state.totalValue);
+    // Same real top-5-by-similarity subset used for the indicated value
+    // itself (see TOP_N_FOR_INDICATED_VALUE in comps-analysis.ts) — reused
+    // for the adjustments panel and value chart too, so every "top comps"
+    // view in this module means the same actual properties.
+    const usable = stats.ranked.filter((c) => c.marketValue != null);
+    const topRanked = usable.slice(0, 5);
+    const confidenceReasoning = comparableConfidenceReasoning(stats);
     return (
-      <div className="mt-4">
-        {stats.limitedData ? (
-          <div className="mb-3 rounded-lg bg-warning/15 p-3 text-sm text-warning-foreground">
+      <div className="mt-4 grid gap-4">
+        {stats.limitedData && (
+          <div className="rounded-lg bg-warning/15 p-3 text-sm text-warning-foreground">
             <span className="font-semibold">Limited Comparable Data.</span> Fewer than 3 comparable
             properties with a usable assessed value were found in this subdivision — the system may
             continue using other appraisal methods (see Protest Strategy) rather than relying on
             this alone.
           </div>
-        ) : (
-          stats.indicated && (
-            <div className="mb-3 grid grid-cols-3 gap-2">
-              <div className="rounded-lg bg-success/10 p-3">
-                <div className="text-[10px] font-semibold uppercase tracking-wide text-success">
-                  Indicated Value Range
-                </div>
-                <div className="mt-0.5 text-lg font-bold text-success">
-                  {compactCurrency(stats.indicated.min)}–{compactCurrency(stats.indicated.max)}
-                </div>
-              </div>
-              {stats.subjectValue != null && (
-                <div className="rounded-lg bg-destructive/10 p-3">
-                  <div className="text-[10px] font-semibold uppercase tracking-wide text-destructive">
-                    CAD Value
-                  </div>
-                  <div className="mt-0.5 text-lg font-bold text-destructive">
-                    {compactCurrency(stats.subjectValue)}
-                  </div>
-                </div>
-              )}
-              <div className="rounded-lg bg-secondary/60 p-3">
-                <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                  Valuation Gap
-                </div>
-                <div className="mt-0.5 text-lg font-bold">
-                  {stats.valuationGapPct != null
-                    ? `${stats.valuationGapPct > 0 ? "+" : ""}${stats.valuationGapPct}%`
-                    : "—"}
-                </div>
-                {stats.confidencePct != null && (
-                  <div className="mt-1 text-[10px] text-muted-foreground">
-                    Comparable confidence: {stats.confidencePct}%
-                  </div>
-                )}
-              </div>
-            </div>
-          )
         )}
         {compsMap.loading && (
           <div className="h-[280px] animate-pulse rounded-lg border border-border bg-secondary/40" />
         )}
         {map?.subject && map.comps.length > 0 && (
           <>
-            <div className="text-sm font-medium">
-              {map.comps.length} nearby properties in the same subdivision
+            {/* 1. How AI selected these comps — real counts only. */}
+            <ComparableSelectionFunnel
+              reviewed={map.comps.length}
+              qualified={usable.length}
+              selected={topRanked.length}
+            />
+
+            {/* 2. Map — richer popups (distance + relevance) via the same
+                ranked comps everything else here uses. */}
+            <div>
+              <div className="mb-1.5 text-sm font-medium">
+                {map.comps.length} nearby properties in the same subdivision
+              </div>
+              <CompsMap subject={map.subject} comps={stats.ranked} />
             </div>
-            <CompsMap subject={map.subject} comps={map.comps} />
-            <ComparableTable ranked={stats.ranked} />
-            <div className="mt-3 grid gap-2 rounded-lg bg-secondary/40 p-3 text-xs text-muted-foreground sm:grid-cols-2">
+
+            {/* 3. Comparable table — every ranked comp, "View Source" per row. */}
+            <ComparableTable ranked={stats.ranked} cad={state.cad} />
+
+            {/* 4. Adjustments — real per-signal deltas for the top comps. */}
+            {topRanked.length > 0 && (
+              <div>
+                <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Adjustments — How the Top Comps Differ
+                </div>
+                <ComparableAdjustments subject={map.subject} comps={topRanked} />
+              </div>
+            )}
+
+            {/* 5. Value comparison chart. */}
+            {(stats.subjectValue != null || topRanked.length > 0) && (
+              <div>
+                <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Assessed Value Comparison
+                </div>
+                <ComparableValueChart
+                  subjectValue={stats.subjectValue}
+                  comps={topRanked}
+                  median={stats.indicated?.median ?? null}
+                />
+              </div>
+            )}
+
+            {/* 6. Indicated Value / CAD Value / Gap. */}
+            {stats.indicated && (
+              <div className="grid grid-cols-3 gap-2">
+                <div className="rounded-lg bg-success/10 p-3">
+                  <div className="text-[10px] font-semibold uppercase tracking-wide text-success">
+                    Indicated Value Range
+                  </div>
+                  <div className="mt-0.5 text-lg font-bold text-success">
+                    {compactCurrency(stats.indicated.min)}–{compactCurrency(stats.indicated.max)}
+                  </div>
+                </div>
+                {stats.subjectValue != null && (
+                  <div className="rounded-lg bg-destructive/10 p-3">
+                    <div className="text-[10px] font-semibold uppercase tracking-wide text-destructive">
+                      CAD Value
+                    </div>
+                    <div className="mt-0.5 text-lg font-bold text-destructive">
+                      {compactCurrency(stats.subjectValue)}
+                    </div>
+                  </div>
+                )}
+                <div className="rounded-lg bg-secondary/60 p-3">
+                  <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    Valuation Gap
+                  </div>
+                  <div className="mt-0.5 text-lg font-bold">
+                    {stats.valuationGapPct != null
+                      ? `${stats.valuationGapPct > 0 ? "+" : ""}${stats.valuationGapPct}%`
+                      : "—"}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* 7. Confidence — real percentage + real, deterministic reasoning. */}
+            {stats.confidencePct != null && (
+              <div className="card-elev p-4">
+                <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  <ShieldCheck className="h-3.5 w-3.5" />
+                  Comparable Confidence
+                </div>
+                <MiniMeter value={stats.confidencePct} label="Comparable confidence" />
+                {confidenceReasoning && (
+                  <p className="mt-2 text-xs text-muted-foreground">{confidenceReasoning}</p>
+                )}
+              </div>
+            )}
+
+            {/* 8. Methodology + Sources. */}
+            <div className="grid gap-2 rounded-lg bg-secondary/40 p-3 text-xs text-muted-foreground sm:grid-cols-2">
               <div>
                 <div className="font-semibold text-foreground">Methodology</div>
                 <p className="mt-0.5">
@@ -2886,7 +3184,7 @@ function ModulePreviewContent({
               </div>
             </div>
             {state.deeds && state.deeds.length > 0 && (
-              <div className="mt-3">
+              <div>
                 <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                   This Property's Deed History
                 </div>
@@ -2927,25 +3225,33 @@ function ModulePreviewContent({
             )}
           </>
         )}
+
+        {/* 9. AI guidance + checklist + Recommended Protest Use — the one
+            genuinely AI-generated part of this module, grounded in the
+            real topComps sent from loadModule() above. */}
         {loading ? (
-          <p className="mt-3 text-sm text-muted-foreground">AI is generating this analysis…</p>
+          <p className="text-sm text-muted-foreground">AI is generating this analysis…</p>
         ) : error ? (
-          <div className="mt-3">
-            <ErrorWithRetry message={error} onRetry={onRetry} />
-          </div>
+          <ErrorWithRetry message={error} onRetry={onRetry} />
         ) : d ? (
-          <>
-            <div className="mt-3">
-              <AiVerdictLine icon={m.icon} text={d.guidance} color={m.color} />
-            </div>
-            <div className="mt-3 flex flex-wrap gap-2">
+          <div className="grid gap-3">
+            <AiVerdictLine icon={m.icon} text={d.guidance} color={m.color} />
+            <div className="flex flex-wrap gap-2">
               {d.checklist.map((c, i) => (
                 <Chip key={i} icon>
                   {c}
                 </Chip>
               ))}
             </div>
-          </>
+            {d.recommendedUse && (
+              <div>
+                <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Recommended Protest Use
+                </div>
+                <AiVerdictLine icon={ArrowRight} text={d.recommendedUse} color={m.color} />
+              </div>
+            )}
+          </div>
         ) : null}
       </div>
     );

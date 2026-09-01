@@ -23,6 +23,16 @@ export type ModuleAnalysisInput = {
   // zoning so their guidance stays consistent with — and prioritized by — the
   // Strategy module's ranking. See loadModule()'s sequencing in ai-report.tsx.
   priorityContext?: { strategy: string; score: number }[];
+  // Only for "comps" — the real top-5-by-similarity comps
+  // computeComparableStats() already ranked client-side (see
+  // comps-analysis.ts), so the module's recommendedUse field can name
+  // specific real properties. See loadModule()'s comps branch.
+  topComps?: {
+    address: string;
+    distanceMi: number;
+    marketValue: number | null;
+    similarity: number;
+  }[];
 };
 
 export type BatchModuleId =
@@ -53,7 +63,7 @@ export type ModuleResultMap = {
     strategies: StrategyEntry[];
     topStrategySummary: string;
   };
-  comps: { guidance: string; checklist: string[] };
+  comps: { guidance: string; checklist: string[]; recommendedUse: string };
   site: { guidance: string; checklist: string[]; priorityScore: number };
   improvement: { guidance: string; checklist: string[]; priorityScore: number };
   zoning: {

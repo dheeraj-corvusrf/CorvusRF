@@ -51,6 +51,17 @@ type ModulesInput = {
   // zoning so their guidance stays consistent with — and prioritized by — the
   // Strategy module's ranking. See loadModule()'s sequencing in ai-report.tsx.
   priorityContext?: { strategy: string; score: number }[];
+  // Only for moduleId "comps" — the real top-5-by-similarity comps
+  // computeComparableStats() already ranked client-side (see
+  // comps-analysis.ts), so recommendedUse below can name specific real
+  // properties instead of speaking only in generalities. Every field here
+  // is a real CAD-record value; nothing invented server-side.
+  topComps?: {
+    address: string;
+    distanceMi: number;
+    marketValue: number | null;
+    similarity: number;
+  }[];
   // Question-mode fields (see Deno.serve below) — when `question` is set, this
   // request is a Q&A follow-up, not a module-analysis request.
   question?: string;
@@ -205,9 +216,28 @@ const MODULE_SPECS: Record<string, ModuleSpec> = {
   },
   comps: {
     instruction:
-      "Give guidance on comparable-sale and equity-comp evidence relevant to this property type and county.",
-    schema: `{"guidance": "<ONE short sentence, max ~18 words — a headline, the checklist below carries the detail>", "checklist": ["<short item>", ...]}`,
-    parse: (p) => ({ guidance: str(p.guidance, 160), checklist: checklist(p.checklist) }),
+      "Give guidance on comparable-property and equity-comp evidence relevant to this property " +
+      "type and county (Texas is a non-disclosure state — never call anything a 'sale' or imply " +
+      "a sale price exists; these are assessed-value comparables). If real top comparable " +
+      "properties were given above, also recommend how to use them in the protest: which ones to " +
+      "lean on primarily and why (real similarity/distance/value differences only), and any real " +
+      "weakness in the comp set to address (e.g. few comps, wide value spread) — never invent a " +
+      "property, address, or number not given.",
+    schema:
+      `{"guidance": "<ONE short sentence, max ~18 words — a headline, the checklist below carries ` +
+      `the detail>", "checklist": ["<short item>", ...], "recommendedUse": "<ONE to two short ` +
+      `sentences, max ~30 words total — omit/empty string entirely if no real top comps were given ` +
+      `above>"}`,
+    parse: (p) => ({
+      guidance: str(p.guidance, 160),
+      checklist: checklist(p.checklist),
+      // 320, not the ~200 chars "30 words" implies — confirmed live the
+      // model's real two-sentence output regularly ran a bit over its own
+      // word-count instruction, and a hard character slice mid-sentence
+      // read as a broken/cut-off UI, not just "a bit long." Generous
+      // headroom over the target is safer here than a tight truncation.
+      recommendedUse: str(p.recommendedUse, 320),
+    }),
   },
   site: {
     instruction:
@@ -325,6 +355,20 @@ function buildRecord(input: ModulesInput): string {
       `The Protest Strategy module already ranked this property's valuation arguments (0-100 ` +
         `strength scores): ${input.priorityContext.map((p) => `${p.strategy} ${p.score}`).join(", ")}. ` +
         `Weight your analysis and guidance accordingly.`,
+    );
+  }
+  if (input.topComps && input.topComps.length > 0) {
+    lines.push(
+      `Real top comparable properties, ranked by similarity (use these exact ones by address — ` +
+        `never invent a different comparable):\n` +
+        input.topComps
+          .map(
+            (c, i) =>
+              `${i + 1}. ${c.address} — ${c.distanceMi.toFixed(1)} mi, ` +
+              `${c.marketValue != null ? `$${c.marketValue.toLocaleString()} assessed value` : "value not on file"}, ` +
+              `${c.similarity}/100 similarity`,
+          )
+          .join("\n"),
     );
   }
 

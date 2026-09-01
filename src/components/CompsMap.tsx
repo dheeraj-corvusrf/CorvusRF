@@ -9,6 +9,13 @@ export type CompProperty = {
   longitude: number;
   marketValue: number | null;
   ownerName: string | null;
+  // Optional — only present when the caller passes ai-report.tsx's own
+  // already-ranked RankedComp[] (see computeComparableStats in
+  // comps-analysis.ts) instead of the raw comps array. Real numbers either
+  // way, never computed inside this component — this file stays a plain
+  // presentational map.
+  distanceMi?: number;
+  similarity?: number;
 };
 
 // Leaflet touches `window` as soon as its module is evaluated (confirmed live via
@@ -144,6 +151,16 @@ function CompsMapInner({
                 <>
                   <br />
                   {currency(c.marketValue)}
+                </>
+              )}
+              {(c.distanceMi != null || c.similarity != null) && (
+                <>
+                  <br />
+                  <span className="text-xs text-muted-foreground">
+                    {c.distanceMi != null && `${c.distanceMi.toFixed(2)} mi`}
+                    {c.distanceMi != null && c.similarity != null && " · "}
+                    {c.similarity != null && `${c.similarity}/100 relevance`}
+                  </span>
                 </>
               )}
               {c.ownerName && (
