@@ -14,10 +14,13 @@ test("pricing page renders all 3 tiers side by side with the correct prices", as
   await expect(page.getByRole("link", { name: "Start a free review" })).toBeVisible();
 
   // All three cards render together — no toggle to switch between them.
+  // .first() since each price now legitimately appears twice on the page —
+  // once in the "Pricing at a glance" comparison table, once in the picker
+  // card's own per-bracket row below it — not a bug, both are real UI.
   await expect(page.getByRole("heading", { name: "Owner-Managed" })).toBeVisible();
-  await expect(page.getByText("$99/mo", { exact: true })).toBeVisible();
+  await expect(page.getByText("$99/mo", { exact: true }).first()).toBeVisible();
   await expect(page.getByRole("heading", { name: "CorvusPT-Managed" })).toBeVisible();
-  await expect(page.getByText("$199/mo", { exact: true })).toBeVisible();
+  await expect(page.getByText("$199/mo", { exact: true }).first()).toBeVisible();
 
   // The $25M+ Custom card links out to Contact Us instead of Subscribing.
   // Scoped to <main> — nav and footer both also have a "Contact Us" link.
