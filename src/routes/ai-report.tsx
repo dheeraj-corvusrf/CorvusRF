@@ -1585,6 +1585,61 @@ function subjectDotShapeCompact(props: { cx?: number; cy?: number }) {
   );
 }
 
+// Right-aligned "Subject / Property" label for Tier 3's distance chart,
+// where the subject sits at x=0 — the chart's own left edge — so a
+// centered label above the dot (like subjectDotShape) would clip against
+// the axis border. Text runs rightward from the dot instead.
+function subjectDotShapeAtOrigin(props: { cx?: number; cy?: number }) {
+  const cx = props.cx ?? 0;
+  const cy = props.cy ?? 0;
+  return (
+    <g>
+      <circle cx={cx} cy={cy} r={9} fill={SUBJECT_DOT_COLOR} stroke="var(--card)" strokeWidth={2} />
+      <text
+        x={cx + 11}
+        y={cy - 3}
+        textAnchor="start"
+        fontSize={9}
+        fontWeight={700}
+        fill={SUBJECT_DOT_COLOR}
+      >
+        Subject
+      </text>
+      <text
+        x={cx + 11}
+        y={cy + 7}
+        textAnchor="start"
+        fontSize={9}
+        fontWeight={700}
+        fill={SUBJECT_DOT_COLOR}
+      >
+        Property
+      </text>
+    </g>
+  );
+}
+
+// Best real value available for a comp — tries marketValue first, then
+// appraisedValue, then landValue+improvementValue summed, all real CAD
+// fields on the same row. TrueProdigy is known-inconsistent about which of
+// these it actually populates for a given county/property (some rows carry
+// an appraised or land+improvement figure but a null marketValue) — this
+// widens which comps the CARD's own chart can plot without changing
+// computeComparableStats()'s stricter marketValue-only definition, which
+// still drives the actual $ figures (Market Value Range, Valuation Gap,
+// "Limited Comparable Data") since those feed the real protest argument.
+function bestAvailableValue(c: {
+  marketValue: number | null;
+  appraisedValue?: number | null;
+  landValue?: number | null;
+  improvementValue?: number | null;
+}): number | null {
+  if (c.marketValue != null) return c.marketValue;
+  if (c.appraisedValue != null) return c.appraisedValue;
+  if (c.landValue != null && c.improvementValue != null) return c.landValue + c.improvementValue;
+  return null;
+}
+
 function CompsValueScatter({
   subject,
   subjectValue,
@@ -1602,22 +1657,26 @@ function CompsValueScatter({
   subjectValue: number | null;
   comps: RankedComp[];
 }) {
+  const subjectBestValue = subjectValue ?? (subject ? bestAvailableValue(subject) : null);
   const subjectPoint2D =
-    subject?.legalAcreage && valuePerAcre(subjectValue, subject.legalAcreage) != null
+    subject?.legalAcreage && valuePerAcre(subjectBestValue, subject.legalAcreage) != null
       ? {
           x: subject.legalAcreage,
-          y: valuePerAcre(subjectValue, subject.legalAcreage) as number,
+          y: valuePerAcre(subjectBestValue, subject.legalAcreage) as number,
         }
       : null;
   const points2D = comps
     .slice(0, 10)
-    .map((c) => ({ x: c.legalAcreage ?? null, y: valuePerAcre(c.marketValue, c.legalAcreage) }))
+    .map((c) => ({
+      x: c.legalAcreage ?? null,
+      y: valuePerAcre(bestAvailableValue(c), c.legalAcreage),
+    }))
     .filter((p): p is { x: number; y: number } => p.x != null && p.y != null);
 
-  // legalAcreage isn't populated for every CAD row the way marketValue is —
-  // a real 2-D plot needs both dimensions on the subject AND at least one
-  // comp, or it's just an empty box. When there isn't enough of it, fall
-  // back to a 1-D value-only scatter (marketValue alone, present far more
+  // legalAcreage isn't populated for every CAD row the way value fields
+  // are — a real 2-D plot needs both dimensions on the subject AND at
+  // least one comp, or it's just an empty box. When there isn't enough of
+  // it, fall back to a 1-D value-only scatter (present far more
   // consistently) rather than rendering nothing.
   if (subjectPoint2D && points2D.length > 0) {
     const allX = points2D.map((p) => p.x).concat([subjectPoint2D.x]);
@@ -1664,36 +1723,85 @@ function CompsValueScatter({
     );
   }
 
-  // Fallback: 1-D, value-only scatter (no land-size axis) — still real data,
-  // just less of it plotted.
+  // Fallback tier 2: 1-D, value-only scatter (no land-size axis) — still
+  // real data (marketValue, or appraisedValue, or landValue+improvementValue
+  // — see bestAvailableValue above), just less of it plotted.
   const valuePoints = comps
     .slice(0, 10)
-    .filter((c): c is RankedComp & { marketValue: number } => c.marketValue != null)
-    .map((c) => ({ x: c.marketValue, y: 0 }));
-  if (valuePoints.length === 0 && subjectValue == null) return null;
+    .map((c) => bestAvailableValue(c))
+    .filter((v): v is number => v != null)
+    .map((v) => ({ x: v, y: 0 }));
+  // Requires BOTH the subject and at least one comp to have a real value —
+  // a subject-only dot with nothing to compare it against isn't a
+  // meaningful plot (same requirement Tier 1 already applies). When comps
+  // have no usable value at all, fall through to Tier 3 instead, which
+  // always has real multi-point data to show.
+  if (valuePoints.length > 0 && subjectBestValue != null) {
+    const allValues = valuePoints
+      .map((p) => p.x)
+      .concat(subjectBestValue != null ? [subjectBestValue] : []);
+    const vMin = Math.min(...allValues);
+    const vMax = Math.max(...allValues);
+    const vPad = (vMax - vMin) * 0.2 || vMax * 0.1 || 1000;
 
-  const allValues = valuePoints.map((p) => p.x).concat(subjectValue != null ? [subjectValue] : []);
-  const vMin = Math.min(...allValues);
-  const vMax = Math.max(...allValues);
-  const vPad = (vMax - vMin) * 0.2 || vMax * 0.1 || 1000;
+    return (
+      <div>
+        <ResponsiveContainer width="100%" height={64}>
+          <ScatterChart margin={{ top: 18, right: 12, bottom: 4, left: 12 }}>
+            <XAxis type="number" dataKey="x" domain={[vMin - vPad, vMax + vPad]} hide />
+            <YAxis type="number" dataKey="y" domain={[-1, 1]} hide />
+            {valuePoints.length > 0 && <Scatter data={valuePoints} shape={compDotShape} />}
+            {subjectBestValue != null && (
+              <Scatter data={[{ x: subjectBestValue, y: 0 }]} shape={subjectDotShapeCompact} />
+            )}
+          </ScatterChart>
+        </ResponsiveContainer>
+        <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+          <span>{compactCurrency(vMin)}</span>
+          <span>Assessed Value</span>
+          <span>{compactCurrency(vMax)}</span>
+        </div>
+      </div>
+    );
+  }
+
+  // Fallback tier 3: no usable value field at all on the subject or any
+  // comp (rare, but real — some TrueProdigy rows carry no value data
+  // whatsoever). distanceMi and similarity are always real, always present
+  // on every RankedComp regardless of value data (plain haversine distance
+  // + similarityScore(), see comps-analysis.ts) — this tier can't go blank
+  // as long as at least one comp was found, so it's the guaranteed floor
+  // for "always show something meaningful."
+  if (comps.length === 0) return null;
+  const distancePoints = comps.slice(0, 10).map((c) => ({ x: c.distanceMi, y: c.similarity }));
+  const maxDistance = Math.max(...distancePoints.map((p) => p.x), 0.1);
 
   return (
     <div>
-      <ResponsiveContainer width="100%" height={64}>
-        <ScatterChart margin={{ top: 18, right: 12, bottom: 4, left: 12 }}>
-          <XAxis type="number" dataKey="x" domain={[vMin - vPad, vMax + vPad]} hide />
-          <YAxis type="number" dataKey="y" domain={[-1, 1]} hide />
-          {valuePoints.length > 0 && <Scatter data={valuePoints} shape={compDotShape} />}
-          {subjectValue != null && (
-            <Scatter data={[{ x: subjectValue, y: 0 }]} shape={subjectDotShapeCompact} />
-          )}
-        </ScatterChart>
-      </ResponsiveContainer>
-      <div className="flex items-center justify-between text-[10px] text-muted-foreground">
-        <span>{compactCurrency(vMin)}</span>
-        <span>Assessed Value</span>
-        <span>{compactCurrency(vMax)}</span>
+      <div className="flex items-stretch gap-1">
+        <div className="flex flex-col justify-between py-2 text-[8px] font-medium uppercase tracking-wide text-muted-foreground">
+          <span>High</span>
+          <span>Low</span>
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="border-b border-l border-border">
+            <ResponsiveContainer width="100%" height={104}>
+              <ScatterChart margin={{ top: 12, right: 14, bottom: 4, left: 4 }}>
+                <XAxis type="number" dataKey="x" domain={[0, maxDistance * 1.15]} hide />
+                <YAxis type="number" dataKey="y" domain={[0, 100]} hide />
+                <Scatter data={distancePoints} shape={compDotShape} />
+                <Scatter data={[{ x: 0, y: 100 }]} shape={subjectDotShapeAtOrigin} />
+              </ScatterChart>
+            </ResponsiveContainer>
+          </div>
+          <div className="mt-0.5 flex items-center justify-between text-[8px] font-medium uppercase tracking-wide text-muted-foreground">
+            <span>Near</span>
+            <span>Distance</span>
+            <span>Far</span>
+          </div>
+        </div>
       </div>
+      <div className="mt-0.5 text-center text-[9px] text-muted-foreground">Similarity</div>
     </div>
   );
 }
