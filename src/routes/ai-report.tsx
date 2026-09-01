@@ -1511,6 +1511,34 @@ function compactCurrency(n: number): string {
 // carries. The subject renders as a larger, labeled accent dot among the
 // comps (muted) so where the subject sits in the market reads at a glance,
 // same visual language as CompsMap's subject/comp marker distinction.
+// Subject dot shape shared by both the 2-D and 1-D fallback charts below —
+// a larger accent-colored, labeled marker so the subject reads as visually
+// distinct from the comps regardless of which chart is showing.
+function subjectDotShape(props: { cx?: number; cy?: number }) {
+  return (
+    <g>
+      <circle
+        cx={props.cx}
+        cy={props.cy}
+        r={6}
+        fill="var(--accent)"
+        stroke="var(--card)"
+        strokeWidth={2}
+      />
+      <text
+        x={props.cx}
+        y={(props.cy ?? 0) - 10}
+        textAnchor="middle"
+        fontSize={9}
+        fontWeight={700}
+        fill="var(--accent)"
+      >
+        Subject
+      </text>
+    </g>
+  );
+}
+
 function CompsValueScatter({
   subject,
   comps,
@@ -1518,81 +1546,94 @@ function CompsValueScatter({
   subject: CompProperty | null;
   comps: RankedComp[];
 }) {
-  const subjectPoint =
+  const subjectPoint2D =
     subject?.legalAcreage && valuePerAcre(subject.marketValue, subject.legalAcreage) != null
       ? {
           x: subject.legalAcreage,
           y: valuePerAcre(subject.marketValue, subject.legalAcreage) as number,
         }
       : null;
-  const points = comps
+  const points2D = comps
     .slice(0, 10)
     .map((c) => ({ x: c.legalAcreage ?? null, y: valuePerAcre(c.marketValue, c.legalAcreage) }))
     .filter((p): p is { x: number; y: number } => p.x != null && p.y != null);
 
-  if (points.length === 0 && !subjectPoint) return null;
+  // legalAcreage isn't populated for every CAD row the way marketValue is —
+  // a real 2-D plot needs both dimensions on the subject AND at least one
+  // comp, or it's just an empty box. When there isn't enough of it, fall
+  // back to a 1-D value-only scatter (marketValue alone, present far more
+  // consistently) rather than rendering nothing.
+  if (subjectPoint2D && points2D.length > 0) {
+    const allX = points2D.map((p) => p.x).concat([subjectPoint2D.x]);
+    const allY = points2D.map((p) => p.y).concat([subjectPoint2D.y]);
+    const xMin = Math.min(...allX);
+    const xMax = Math.max(...allX);
+    const yMin = Math.min(...allY);
+    const yMax = Math.max(...allY);
+    const xPad = (xMax - xMin) * 0.2 || xMax * 0.2 || 1;
+    const yPad = (yMax - yMin) * 0.2 || yMax * 0.2 || 1;
 
-  const allX = points.map((p) => p.x).concat(subjectPoint ? [subjectPoint.x] : []);
-  const allY = points.map((p) => p.y).concat(subjectPoint ? [subjectPoint.y] : []);
-  const xMin = Math.min(...allX);
-  const xMax = Math.max(...allX);
-  const yMin = Math.min(...allY);
-  const yMax = Math.max(...allY);
-  const xPad = (xMax - xMin) * 0.2 || xMax * 0.2 || 1;
-  const yPad = (yMax - yMin) * 0.2 || yMax * 0.2 || 1;
+    return (
+      <div>
+        <div className="flex items-stretch gap-1">
+          <div className="flex flex-col justify-between py-2 text-[8px] uppercase tracking-wide text-muted-foreground">
+            <span>High</span>
+            <span>Low</span>
+          </div>
+          <div className="min-w-0 flex-1">
+            <ResponsiveContainer width="100%" height={92}>
+              <ScatterChart margin={{ top: 16, right: 12, bottom: 2, left: 0 }}>
+                <XAxis type="number" dataKey="x" domain={[xMin - xPad, xMax + xPad]} hide />
+                <YAxis type="number" dataKey="y" domain={[yMin - yPad, yMax + yPad]} hide />
+                <Scatter data={points2D} fill="var(--success)" fillOpacity={0.55} />
+                <Scatter data={[subjectPoint2D]} shape={subjectDotShape} />
+              </ScatterChart>
+            </ResponsiveContainer>
+            <div className="flex items-center justify-between text-[8px] uppercase tracking-wide text-muted-foreground">
+              <span>Small</span>
+              <span>Land Size</span>
+              <span>Large</span>
+            </div>
+          </div>
+        </div>
+        <div className="mt-0.5 text-center text-[9px] text-muted-foreground">Value Per Acre</div>
+      </div>
+    );
+  }
+
+  // Fallback: 1-D, value-only scatter (no land-size axis) — still real data,
+  // just less of it plotted.
+  const subjectValue = subject?.marketValue ?? null;
+  const valuePoints = comps
+    .slice(0, 10)
+    .filter((c): c is RankedComp & { marketValue: number } => c.marketValue != null)
+    .map((c) => ({ x: c.marketValue, y: 0 }));
+  if (valuePoints.length === 0 && subjectValue == null) return null;
+
+  const allValues = valuePoints.map((p) => p.x).concat(subjectValue != null ? [subjectValue] : []);
+  const vMin = Math.min(...allValues);
+  const vMax = Math.max(...allValues);
+  const vPad = (vMax - vMin) * 0.2 || vMax * 0.1 || 1000;
 
   return (
     <div>
-      <div className="flex items-stretch gap-1">
-        <div className="flex flex-col justify-between py-2 text-[8px] uppercase tracking-wide text-muted-foreground">
-          <span>High</span>
-          <span>Low</span>
-        </div>
-        <div className="min-w-0 flex-1">
-          <ResponsiveContainer width="100%" height={92}>
-            <ScatterChart margin={{ top: 16, right: 12, bottom: 2, left: 0 }}>
-              <XAxis type="number" dataKey="x" domain={[xMin - xPad, xMax + xPad]} hide />
-              <YAxis type="number" dataKey="y" domain={[yMin - yPad, yMax + yPad]} hide />
-              {points.length > 0 && (
-                <Scatter data={points} fill="var(--success)" fillOpacity={0.55} />
-              )}
-              {subjectPoint && (
-                <Scatter
-                  data={[subjectPoint]}
-                  shape={(props: { cx?: number; cy?: number }) => (
-                    <g>
-                      <circle
-                        cx={props.cx}
-                        cy={props.cy}
-                        r={6}
-                        fill="var(--accent)"
-                        stroke="var(--card)"
-                        strokeWidth={2}
-                      />
-                      <text
-                        x={props.cx}
-                        y={(props.cy ?? 0) - 10}
-                        textAnchor="middle"
-                        fontSize={9}
-                        fontWeight={700}
-                        fill="var(--accent)"
-                      >
-                        Subject
-                      </text>
-                    </g>
-                  )}
-                />
-              )}
-            </ScatterChart>
-          </ResponsiveContainer>
-          <div className="flex items-center justify-between text-[8px] uppercase tracking-wide text-muted-foreground">
-            <span>Small</span>
-            <span>Land Size</span>
-            <span>Large</span>
-          </div>
-        </div>
+      <ResponsiveContainer width="100%" height={60}>
+        <ScatterChart margin={{ top: 16, right: 12, bottom: 4, left: 12 }}>
+          <XAxis type="number" dataKey="x" domain={[vMin - vPad, vMax + vPad]} hide />
+          <YAxis type="number" dataKey="y" domain={[-1, 1]} hide />
+          {valuePoints.length > 0 && (
+            <Scatter data={valuePoints} fill="var(--success)" fillOpacity={0.55} />
+          )}
+          {subjectValue != null && (
+            <Scatter data={[{ x: subjectValue, y: 0 }]} shape={subjectDotShape} />
+          )}
+        </ScatterChart>
+      </ResponsiveContainer>
+      <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+        <span>{compactCurrency(vMin)}</span>
+        <span>Assessed Value</span>
+        <span>{compactCurrency(vMax)}</span>
       </div>
-      <div className="mt-0.5 text-center text-[9px] text-muted-foreground">Value Per Acre</div>
     </div>
   );
 }
