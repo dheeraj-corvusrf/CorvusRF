@@ -1294,29 +1294,29 @@ function ModuleVisual({
         ) : (
           stats.indicated && (
             <>
-              <div className="mt-1.5 grid grid-cols-2 gap-1.5">
-                <div className="rounded-md bg-success/10 px-2 py-1">
-                  <div className="text-[8px] uppercase tracking-wide text-success">
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                <div className="rounded-lg bg-success/10 px-2 py-2 text-center">
+                  <div className="text-[9px] font-medium uppercase tracking-wide text-success">
                     Market Value Range
                   </div>
-                  <div className="truncate text-[11px] font-semibold text-success">
+                  <div className="mt-0.5 truncate text-sm font-bold text-success">
                     {compactCurrency(stats.indicated.min)}–{compactCurrency(stats.indicated.max)}
                   </div>
                 </div>
                 {stats.subjectValue != null && (
-                  <div className="rounded-md bg-destructive/10 px-2 py-1">
-                    <div className="text-[8px] uppercase tracking-wide text-destructive">
+                  <div className="rounded-lg bg-destructive/10 px-2 py-2 text-center">
+                    <div className="text-[9px] font-medium uppercase tracking-wide text-destructive">
                       CAD Value
                     </div>
-                    <div className="truncate text-[11px] font-semibold text-destructive">
+                    <div className="mt-0.5 truncate text-sm font-bold text-destructive">
                       {compactCurrency(stats.subjectValue)}
                     </div>
                   </div>
                 )}
               </div>
               {stats.valuationGapPct != null && (
-                <div className="mt-1 flex justify-center">
-                  <ArrowDown className={`h-3.5 w-3.5 ${m.color.text}`} />
+                <div className="mt-1.5 flex justify-center">
+                  <ArrowDown className={`h-4 w-4 ${m.color.text}`} />
                 </div>
               )}
             </>
@@ -1514,24 +1514,66 @@ function compactCurrency(n: number): string {
 // Subject dot shape shared by both the 2-D and 1-D fallback charts below —
 // a larger accent-colored, labeled marker so the subject reads as visually
 // distinct from the comps regardless of which chart is showing.
+// Teal, reused straight from the Market Value module's own assigned icon
+// color (ICON_COLORS[2] in icon-colors.ts) — comps read as "this module's
+// color," not an invented chart palette.
+const COMPS_DOT_COLOR = "#0d9488";
+// Sky blue, also an existing app tone (ICON_COLORS[6], already live on the
+// Income Value module) reused here as a "this one is you" highlight —
+// deliberately distinct from the comps' teal so the subject reads at a
+// glance, without inventing a color the app doesn't already use elsewhere.
+const SUBJECT_DOT_COLOR = "#0284c7";
+
+function compDotShape(props: { cx?: number; cy?: number }) {
+  return <circle cx={props.cx} cy={props.cy} r={5} fill={COMPS_DOT_COLOR} fillOpacity={0.65} />;
+}
+
+// Two-line "Subject / Property" label for the full 2-D plot, where there's
+// room above the dot for it.
 function subjectDotShape(props: { cx?: number; cy?: number }) {
+  const cx = props.cx ?? 0;
+  const cy = props.cy ?? 0;
   return (
     <g>
-      <circle
-        cx={props.cx}
-        cy={props.cy}
-        r={6}
-        fill="var(--accent)"
-        stroke="var(--card)"
-        strokeWidth={2}
-      />
+      <circle cx={cx} cy={cy} r={9} fill={SUBJECT_DOT_COLOR} stroke="var(--card)" strokeWidth={2} />
       <text
-        x={props.cx}
-        y={(props.cy ?? 0) - 10}
+        x={cx}
+        y={cy - 20}
         textAnchor="middle"
         fontSize={9}
         fontWeight={700}
-        fill="var(--accent)"
+        fill={SUBJECT_DOT_COLOR}
+      >
+        Subject
+      </text>
+      <text
+        x={cx}
+        y={cy - 11}
+        textAnchor="middle"
+        fontSize={9}
+        fontWeight={700}
+        fill={SUBJECT_DOT_COLOR}
+      >
+        Property
+      </text>
+    </g>
+  );
+}
+
+// Compact single-line "Subject" label for the shorter 1-D fallback chart.
+function subjectDotShapeCompact(props: { cx?: number; cy?: number }) {
+  const cx = props.cx ?? 0;
+  const cy = props.cy ?? 0;
+  return (
+    <g>
+      <circle cx={cx} cy={cy} r={7} fill={SUBJECT_DOT_COLOR} stroke="var(--card)" strokeWidth={2} />
+      <text
+        x={cx}
+        y={cy - 11}
+        textAnchor="middle"
+        fontSize={9}
+        fontWeight={700}
+        fill={SUBJECT_DOT_COLOR}
       >
         Subject
       </text>
@@ -1576,20 +1618,27 @@ function CompsValueScatter({
     return (
       <div>
         <div className="flex items-stretch gap-1">
-          <div className="flex flex-col justify-between py-2 text-[8px] uppercase tracking-wide text-muted-foreground">
+          <div className="flex flex-col justify-between py-2 text-[8px] font-medium uppercase tracking-wide text-muted-foreground">
             <span>High</span>
             <span>Low</span>
           </div>
           <div className="min-w-0 flex-1">
-            <ResponsiveContainer width="100%" height={92}>
-              <ScatterChart margin={{ top: 16, right: 12, bottom: 2, left: 0 }}>
-                <XAxis type="number" dataKey="x" domain={[xMin - xPad, xMax + xPad]} hide />
-                <YAxis type="number" dataKey="y" domain={[yMin - yPad, yMax + yPad]} hide />
-                <Scatter data={points2D} fill="var(--success)" fillOpacity={0.55} />
-                <Scatter data={[subjectPoint2D]} shape={subjectDotShape} />
-              </ScatterChart>
-            </ResponsiveContainer>
-            <div className="flex items-center justify-between text-[8px] uppercase tracking-wide text-muted-foreground">
+            <div className="border-b border-l border-border">
+              <ResponsiveContainer width="100%" height={104}>
+                <ScatterChart margin={{ top: 30, right: 14, bottom: 4, left: 4 }}>
+                  <XAxis type="number" dataKey="x" domain={[xMin - xPad, xMax + xPad]} hide />
+                  <YAxis type="number" dataKey="y" domain={[yMin - yPad, yMax + yPad]} hide />
+                  <ReferenceLine
+                    y={subjectPoint2D.y}
+                    stroke="var(--border)"
+                    strokeDasharray="3 3"
+                  />
+                  <Scatter data={points2D} shape={compDotShape} />
+                  <Scatter data={[subjectPoint2D]} shape={subjectDotShape} />
+                </ScatterChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="mt-0.5 flex items-center justify-between text-[8px] font-medium uppercase tracking-wide text-muted-foreground">
               <span>Small</span>
               <span>Land Size</span>
               <span>Large</span>
@@ -1617,15 +1666,13 @@ function CompsValueScatter({
 
   return (
     <div>
-      <ResponsiveContainer width="100%" height={60}>
-        <ScatterChart margin={{ top: 16, right: 12, bottom: 4, left: 12 }}>
+      <ResponsiveContainer width="100%" height={64}>
+        <ScatterChart margin={{ top: 18, right: 12, bottom: 4, left: 12 }}>
           <XAxis type="number" dataKey="x" domain={[vMin - vPad, vMax + vPad]} hide />
           <YAxis type="number" dataKey="y" domain={[-1, 1]} hide />
-          {valuePoints.length > 0 && (
-            <Scatter data={valuePoints} fill="var(--success)" fillOpacity={0.55} />
-          )}
+          {valuePoints.length > 0 && <Scatter data={valuePoints} shape={compDotShape} />}
           {subjectValue != null && (
-            <Scatter data={[{ x: subjectValue, y: 0 }]} shape={subjectDotShape} />
+            <Scatter data={[{ x: subjectValue, y: 0 }]} shape={subjectDotShapeCompact} />
           )}
         </ScatterChart>
       </ResponsiveContainer>
