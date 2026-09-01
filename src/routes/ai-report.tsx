@@ -3434,24 +3434,25 @@ function ModulePreviewContent({
               </div>
             )}
 
-            {/* 8. Methodology + Sources. */}
-            <div className="grid gap-2 rounded-lg bg-secondary/40 p-3 text-xs text-muted-foreground sm:grid-cols-2">
-              <div>
-                <div className="font-semibold text-foreground">Methodology</div>
-                <p className="mt-0.5">
-                  Comps are properties sharing this property's own CAD subdivision code — a real
-                  grouping the county itself uses. Similarity blends assessed-value proximity,
-                  distance, land-size proximity, and property-type match into one 0-100 score; the
-                  indicated range uses the top 5 by similarity.
-                </p>
+            {/* 8. Methodology + Sources — real, static facts (not AI prose),
+                so this is short icon-led bullets rather than paragraphs. */}
+            <div className="grid gap-3 rounded-lg bg-secondary/40 p-3 sm:grid-cols-2">
+              <div className="grid gap-1.5">
+                <div className="text-xs font-semibold text-foreground">Methodology</div>
+                <FactBullet icon={Building2}>Same CAD subdivision as this property</FactBullet>
+                <FactBullet icon={Percent}>
+                  0–100 similarity: value, distance, land size, type
+                </FactBullet>
+                <FactBullet icon={Target}>Indicated range uses the top 5 by similarity</FactBullet>
               </div>
-              <div>
-                <div className="font-semibold text-foreground">Sources</div>
-                <p className="mt-0.5">
-                  {state.cad ?? "County appraisal district"} public property records. Texas does not
-                  require sale prices to be publicly disclosed, so "Last Transfer" reflects a real
-                  deed date only — never a sale price.
-                </p>
+              <div className="grid gap-1.5">
+                <div className="text-xs font-semibold text-foreground">Sources</div>
+                <FactBullet icon={FileText}>
+                  {state.cad ?? "County appraisal district"} public records
+                </FactBullet>
+                <FactBullet icon={ShieldCheck}>
+                  No sale prices — Texas law; deed dates only
+                </FactBullet>
               </div>
             </div>
             {state.deeds && state.deeds.length > 0 && (
@@ -3507,13 +3508,7 @@ function ModulePreviewContent({
         ) : d ? (
           <div className="grid gap-3">
             <AiVerdictLine icon={m.icon} text={d.guidance} color={m.color} />
-            <div className="flex flex-wrap gap-2">
-              {d.checklist.map((c, i) => (
-                <Chip key={i} icon>
-                  {c}
-                </Chip>
-              ))}
-            </div>
+            <ChecklistSteps items={d.checklist} color={m.color} />
             {d.recommendedUse && (
               <div>
                 <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -4116,6 +4111,43 @@ function Chip({ children, icon }: { children: React.ReactNode; icon?: boolean })
       {icon && <CheckCircle2 className="h-3.5 w-3.5 text-success" />}
       {children}
     </span>
+  );
+}
+
+// Short icon-led fact row — for real, static/deterministic facts (a
+// methodology or sources note), not AI prose. Turns what would otherwise be
+// a paragraph into one scannable line.
+function FactBullet({ icon: Icon, children }: { icon: LucideIcon; children: React.ReactNode }) {
+  return (
+    <div className="flex items-start gap-2 text-xs text-muted-foreground">
+      <Icon className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+      <span>{children}</span>
+    </div>
+  );
+}
+
+// Connected vertical checklist — replaces stuffing full-sentence AI
+// checklist items into rounded-full Chip "pills" (a tag-shaped component
+// asked to hold a paragraph, which just wraps into a bulky block). Each
+// item still gets its real full text — the checklist can't be shortened
+// without losing what it's telling the user to do — but reads as an actual
+// step list instead of a wall of stacked pills.
+function ChecklistSteps({ items, color }: { items: string[]; color: IconColor }) {
+  if (items.length === 0) return null;
+  return (
+    <div className="grid">
+      {items.map((c, i) => (
+        <div key={i} className="flex gap-3">
+          <div className="flex flex-col items-center">
+            <span className={`grid h-6 w-6 shrink-0 place-items-center rounded-full ${color.bg}`}>
+              <CheckCircle2 className={`h-4 w-4 ${color.text}`} />
+            </span>
+            {i < items.length - 1 && <div className="my-0.5 w-px flex-1 bg-border" />}
+          </div>
+          <p className="pb-3 text-xs text-muted-foreground">{c}</p>
+        </div>
+      ))}
+    </div>
   );
 }
 
