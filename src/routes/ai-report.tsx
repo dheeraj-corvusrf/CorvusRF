@@ -88,6 +88,7 @@ import { CaseDetailModal } from "@/components/CaseDetailModal";
 import { AnimatedNumber } from "@/components/AnimatedNumber";
 import { ValueHistorySection } from "@/components/ValueHistorySection";
 import { Modal } from "@/components/Modal";
+import { CelebrationConfetti } from "@/components/CelebrationConfetti";
 
 type ModuleAsyncState = {
   data: unknown;
@@ -114,6 +115,14 @@ export const Route = createFileRoute("/ai-report")({
 // paid subscription — there is no sign-in-only tier and no per-user "pick any
 // 3" quota; which modules are free is fixed by module number, not user choice.
 const FREE_MODULE_COUNT = 3;
+
+// Fixed spot the savings-banner confetti burst always originates from — near
+// where the number/icon actually sit, not tied to wherever the cursor
+// happened to enter (see triggerCelebration in Report() below). Percentages
+// of the banner's own box, so it stays roughly "at the number" across both
+// the wide desktop layout and the narrower mobile one.
+const CONFETTI_ORIGIN_X_PCT = 15;
+const CONFETTI_ORIGIN_Y_PCT = 60;
 
 // Real comps-derived signal fed into Module 2's prompt (see loadModule() below) —
 // median/min/max of the same real comparable market values CompsMap/CompsScatter
@@ -581,6 +590,28 @@ function Report() {
   // property can produce a 6+ digit savings figure on any screen size.
   const savingsDigits = useMemo(() => currency(estimated.savings).length, [estimated.savings]);
 
+  // One-shot confetti celebration, fired by hovering the savings number (see
+  // triggerCelebration below and the <p onMouseEnter=...> in the banner) —
+  // always bursts from the same fixed spot near the number (not wherever the
+  // cursor happened to land — tried cursor-position tracking first, but per
+  // explicit feedback the blast should be the same every time, just confined
+  // to the banner), confined to the banner itself via its own
+  // overflow-hidden, not the whole page. celebrationKey forces a fresh
+  // <CelebrationConfetti> mount (and therefore a newly randomized burst) on
+  // every hover rather than reusing the first hover's layout; celebrating
+  // itself just controls whether it's mounted at all.
+  const [celebrating, setCelebrating] = useState(false);
+  const [celebrationKey, setCelebrationKey] = useState(0);
+  function triggerCelebration() {
+    // Checked here (at trigger time), not baked into a top-level constant —
+    // matches how the rest of this app gates decorative motion in CSS via
+    // `@media (prefers-reduced-motion: no-preference)` rather than a JS
+    // capability flag computed once and never revisited.
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+    setCelebrationKey((k) => k + 1);
+    setCelebrating(true);
+  }
+
   // Eager-loads real data for the module overview grid below (real scores,
   // checklists, etc. instead of generic teaser text) as soon as the property
   // is known. Free-preview modules (1-3) load for everyone; the rest only
@@ -687,9 +718,39 @@ function Report() {
       {/* Analysis banner — the savings figure is the whole point of this page for
           most visitors, so it gets a hero-scale treatment (was the same text-lg
           size as the "AI analysis completed" label above it, easy to skim past)
-          rather than reading as one more line of body copy. */}
-      <section className="mt-6 card-elev overflow-hidden bg-primary text-primary-foreground">
-        <div className="flex flex-wrap items-start justify-between gap-6 p-5 sm:p-8">
+          rather than reading as one more line of body copy. Hovering the number
+          fires a one-shot confetti celebration (see triggerCelebration below and
+          CelebrationConfetti.tsx) — the same "Congratulations" hover effect
+          Outlook shows, since a real tax-savings figure is worth celebrating,
+          not just displaying. */}
+      <section className="relative mt-6 card-elev overflow-hidden bg-primary text-primary-foreground">
+        {/* Ambient glow behind the number — a flat solid-navy card read as
+            plain/static for what's meant to be the page's one exciting moment.
+            Radial, off-center toward where the number actually sits (not
+            centered on the whole banner, which would mostly glow behind empty
+            space on a wide screen), and z-0'd behind the real content below. */}
+        {!analyzing && (
+          <div
+            className="savings-glow pointer-events-none absolute -left-24 -top-24 z-0 h-96 w-96 rounded-full"
+            style={{
+              background:
+                "radial-gradient(circle, color-mix(in oklch, var(--accent) 55%, transparent) 0%, transparent 70%)",
+            }}
+          />
+        )}
+        {/* Confined to this banner (its own overflow-hidden above clips it) —
+            always the same fixed origin near the number, not wherever the
+            cursor happened to enter. z-20, above both the z-0 glow and the
+            z-10 content, so it's never hidden behind either. */}
+        {celebrating && (
+          <CelebrationConfetti
+            key={celebrationKey}
+            originXPct={CONFETTI_ORIGIN_X_PCT}
+            originYPct={CONFETTI_ORIGIN_Y_PCT}
+            onDone={() => setCelebrating(false)}
+          />
+        )}
+        <div className="relative z-10 flex flex-wrap items-start justify-between gap-6 p-5 sm:p-8">
           <div className="min-w-0">
             <p className="text-sm text-primary-foreground/80">
               {analyzing ? "AI is analyzing your property..." : "AI analysis completed."}
@@ -711,7 +772,8 @@ function Report() {
                     Common case (the vast majority of real properties) still
                     gets the full hero size below. */}
                 <p
-                  className={`mt-1 flex items-center gap-2 font-serif font-bold leading-none text-accent ${
+                  onMouseEnter={triggerCelebration}
+                  className={`mt-1 flex w-fit items-center gap-2 font-serif font-bold leading-none text-accent ${
                     savingsDigits <= 7
                       ? "text-6xl sm:text-7xl lg:text-8xl"
                       : savingsDigits <= 9
@@ -743,7 +805,7 @@ function Report() {
           </div>
         </div>
         {user && (
-          <div className="border-t border-primary-foreground/20 px-5 pb-5 pt-3 print:hidden sm:px-8 sm:pb-8">
+          <div className="relative z-10 border-t border-primary-foreground/20 px-5 pb-5 pt-3 print:hidden sm:px-8 sm:pb-8">
             {existingProtest ? (
               <div className="flex items-center gap-3">
                 <span className="badge-soft">
