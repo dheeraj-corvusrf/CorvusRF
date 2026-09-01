@@ -1,9 +1,15 @@
 import { useEffect, useState } from "react";
 import type { ChangeEvent, FormEvent } from "react";
+import { useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
-import type { PropertyRecord } from "@/lib/properties";
-import type { ProtestRecord } from "@/lib/protests";
-import { currency } from "@/lib/intake-store";
+import { buildAiReportIntakePatch, type PropertyRecord } from "@/lib/properties";
+import { acknowledgeGuidance, type ProtestRecord } from "@/lib/protests";
+import { currency, updateIntake } from "@/lib/intake-store";
+import {
+  getPreFilingCheck,
+  isPreFilingBlocked,
+  type PreFilingCheckItem,
+} from "@/lib/pre-filing-check";
 import {
   getCase,
   generateCasePrep,
@@ -19,7 +25,11 @@ import {
   getCaseResults,
   type ProtestCase,
 } from "@/lib/protest-case";
-import { uploadDocument } from "@/lib/documents";
+import {
+  uploadDocument,
+  PROTEST_EVIDENCE_DOCUMENT_TYPE,
+  FILING_PROOF_DOCUMENT_TYPE,
+} from "@/lib/documents";
 import { getAuthorization, type AuthorizationRecord } from "@/lib/protest-authorizations";
 import {
   getNoticeOfProtestDefaults,
@@ -59,6 +69,7 @@ export function CaseDetailModal({
   const [caseData, setCaseData] = useState<ProtestCase | null>(null);
   const [loading, setLoading] = useState(true);
   const [current, setCurrent] = useState<ProtestRecord>(protest);
+  const [acknowledging, setAcknowledging] = useState(false);
 
   function load() {
     setLoading(true);
@@ -69,6 +80,24 @@ export function CaseDetailModal({
   }
 
   useEffect(load, [protest.id]);
+
+  async function handleAcknowledgeGuidance() {
+    setAcknowledging(true);
+    try {
+      await acknowledgeGuidance(protest.id);
+      setCurrent((prev) => ({ ...prev, corvusGuidanceAckAt: new Date().toISOString() }));
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not continue — please try again.");
+    } finally {
+      setAcknowledging(false);
+    }
+  }
+
+  // Gates entry into a not-yet-filed case until the customer acknowledges
+  // Corvus's guidance notice — once past "requested", a case never shows
+  // this again (see the corvusGuidanceAckAt comment in protests.ts).
+  const needsGuidanceAck = current.status === "requested" && !current.corvusGuidanceAckAt;
+  const preFilingItems = getPreFilingCheck(property, current);
 
   return (
     <Modal onClose={onClose} wide>
@@ -82,6 +111,11 @@ export function CaseDetailModal({
           <Skeleton className="h-4 w-48" />
           <Skeleton className="h-16 w-full" />
         </div>
+      ) : needsGuidanceAck ? (
+        <CorvusGuidanceGate
+          onAcknowledge={handleAcknowledgeGuidance}
+          acknowledging={acknowledging}
+        />
       ) : (
         <>
           <CasePlanSection
@@ -90,7 +124,10 @@ export function CaseDetailModal({
             protestId={protest.id}
             caseData={caseData}
             onReload={load}
+            hideEvidenceChecklist
           />
+
+          {current.status === "requested" && <PreFilingCheckSection items={preFilingItems} />}
 
           <DocumentsSection
             userId={userId}
@@ -98,7 +135,10 @@ export function CaseDetailModal({
             property={property}
             strategyRecommendation={caseData?.strategyRecommendation ?? null}
             onUpdate={(patch) => setCurrent((prev) => ({ ...prev, ...patch }))}
+            filingBlocked={current.status === "requested" && isPreFilingBlocked(preFilingItems)}
           />
+
+          <EvidenceModuleLink property={property} />
 
           <CaseProgress
             protest={current}
@@ -118,6 +158,117 @@ export function CaseDetailModal({
   );
 }
 
+// One-time consent screen gating entry into a not-yet-filed case — exact
+// copy per the product spec this was built from. An acknowledgment, not a
+// legal document, so a checkbox + button is enough (no signature capture,
+// unlike the real Service Agreement in ProtestAuthorizationFlow.tsx).
+function CorvusGuidanceGate({
+  onAcknowledge,
+  acknowledging,
+}: {
+  onAcknowledge: () => void;
+  acknowledging: boolean;
+}) {
+  const [checked, setChecked] = useState(false);
+  return (
+    <div className="mt-4 grid gap-4">
+      <div className="card-elev p-4">
+        <h4 className="text-sm font-semibold">AI Guidance & Filing Notice</h4>
+        <div className="mt-2 grid gap-2 text-sm text-muted-foreground">
+          <p>
+            Corvus is an AI assistant designed to guide you through the property protest process and
+            help prepare and complete the required forms and documents.
+          </p>
+          <p>
+            By proceeding, you authorize Corvus to assist with completing forms and preparing filing
+            materials on your behalf.
+          </p>
+          <p>
+            You are responsible for reviewing and verifying all information before signing, filing,
+            or submitting any document.
+          </p>
+          <p>
+            Corvus does not replace your responsibility to verify the accuracy of the information or
+            comply with county requirements.
+          </p>
+        </div>
+      </div>
+      <label className="flex items-start gap-2 text-sm">
+        <input
+          type="checkbox"
+          checked={checked}
+          onChange={(e) => setChecked(e.target.checked)}
+          className="mt-0.5"
+        />
+        I have read and understand this notice.
+      </label>
+      <button
+        onClick={onAcknowledge}
+        disabled={!checked || acknowledging}
+        className="btn-accent w-fit text-sm disabled:opacity-60"
+      >
+        {acknowledging ? "Continuing…" : "Continue to Case"}
+      </button>
+    </div>
+  );
+}
+
+// Deterministic "Ready to File" list — see src/lib/pre-filing-check.ts for
+// what each row actually checks (real data only, never a fabricated
+// per-county answer).
+function PreFilingCheckSection({ items }: { items: PreFilingCheckItem[] }) {
+  return (
+    <div className="mt-4 card-elev p-4">
+      <h4 className="text-sm font-semibold">Pre-Filing Check</h4>
+      <div className="mt-2 grid gap-1.5 sm:grid-cols-2">
+        {items.map((item) => (
+          <div key={item.label} className="flex items-center justify-between gap-2 text-sm">
+            <span className="text-muted-foreground">{item.label}</span>
+            <span
+              className={
+                item.status === "confirmed" ? "text-success" : "font-semibold text-destructive"
+              }
+            >
+              {item.status === "confirmed" ? (item.value ?? "Confirmed") : "Missing"}
+            </span>
+          </div>
+        ))}
+      </div>
+      {isPreFilingBlocked(items) && (
+        <p className="mt-3 text-xs text-destructive">
+          Add the missing information above on your Properties page before filing.
+        </p>
+      )}
+    </div>
+  );
+}
+
+// "Upload Evidence — Go to Module 8" — per the spec, this case view shows no
+// separate evidence checklist of its own; the AI Report's own Module 8 (with
+// its upload widget, see ai-report.tsx's "evidence" case) is the one real
+// evidence workspace, reached via the same deep-link pattern the dashboard's
+// "Open AI Report" button already uses.
+function EvidenceModuleLink({ property }: { property: PropertyRecord }) {
+  const navigate = useNavigate();
+  return (
+    <div className="mt-5 border-t border-border pt-5">
+      <h4 className="text-sm font-semibold">Evidence</h4>
+      <p className="text-xs text-muted-foreground">
+        Upload and manage this case's evidence in Module 8 of your AI Report.
+      </p>
+      <button
+        onClick={() => {
+          updateIntake(buildAiReportIntakePatch(property));
+          navigate({ to: "/ai-report", search: { openModule: "evidence" } });
+        }}
+        className="btn-outline mt-2 text-sm"
+      >
+        Upload Evidence — Go to Module 8
+      </button>
+    </div>
+  );
+}
+
 // Real Texas Comptroller forms (Form 50-132, Form 50-162 — see
 // src/lib/protest-documents.ts), pre-filled from data already on this case.
 // Neither is auto-signed; both need review + a real signature before filing.
@@ -134,12 +285,19 @@ export function CasePlanSection({
   protestId,
   caseData,
   onReload,
+  // The customer-facing CaseDetailModal hides this section's own evidence
+  // checklist/upload — per the spec, "Upload Evidence" leads to Module 8's
+  // real evidence workspace instead, not a second checklist here. Defaults
+  // to false (shown) so AdminCaseProgressModal, which doesn't pass this
+  // prop, keeps today's behavior unchanged — staff still need it.
+  hideEvidenceChecklist = false,
 }: {
   userId: string;
   property: PropertyRecord;
   protestId: string;
   caseData: ProtestCase | null;
   onReload: () => void;
+  hideEvidenceChecklist?: boolean;
 }) {
   const [generating, setGenerating] = useState(false);
   const [uploadingItemId, setUploadingItemId] = useState<string | null>(null);
@@ -167,7 +325,7 @@ export function CasePlanSection({
       // one at a time keeps storage writes and the resulting toast/error in a
       // predictable order rather than racing.
       for (const file of files) {
-        const doc = await uploadDocument(userId, property.id, file, "Protest Evidence");
+        const doc = await uploadDocument(userId, property.id, file, PROTEST_EVIDENCE_DOCUMENT_TYPE);
         await linkEvidenceDocument(itemId, doc.id);
       }
       onReload();
@@ -229,69 +387,71 @@ export function CasePlanSection({
         )}
       </section>
 
-      <section>
-        <div className="flex items-center justify-between">
-          <h4 className="text-sm font-semibold">Evidence Checklist</h4>
-          {totalCount > 0 && (
-            <span className="text-xs text-muted-foreground">
-              {uploadedCount} of {totalCount} uploaded
-            </span>
-          )}
-        </div>
-        {totalCount > 0 ? (
-          <div className="mt-2 grid gap-2">
-            {caseData!.evidenceItems.map((item, i) => (
-              <div
-                key={item.id}
-                className="min-w-0 grid gap-1.5 rounded-md border border-border p-2.5 text-sm list-item-enter transition-colors hover:bg-secondary/30"
-                style={{ animationDelay: `${Math.min(i * 50, 400)}ms` }}
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <span className="min-w-0 flex-1 truncate">{item.label}</span>
-                  <label
-                    className={`shrink-0 btn-outline text-xs py-1 cursor-pointer ${
-                      uploadingItemId === item.id ? "opacity-60 pointer-events-none" : ""
-                    }`}
-                  >
-                    {uploadingItemId === item.id
-                      ? "Uploading…"
-                      : item.documents.length > 0
-                        ? "Add another file"
-                        : "Upload"}
-                    <input
-                      type="file"
-                      multiple
-                      className="hidden"
-                      accept=".pdf,image/*"
-                      onChange={(e) => handleUpload(item.id, e)}
-                    />
-                  </label>
+      {!hideEvidenceChecklist && (
+        <section>
+          <div className="flex items-center justify-between">
+            <h4 className="text-sm font-semibold">Evidence Checklist</h4>
+            {totalCount > 0 && (
+              <span className="text-xs text-muted-foreground">
+                {uploadedCount} of {totalCount} uploaded
+              </span>
+            )}
+          </div>
+          {totalCount > 0 ? (
+            <div className="mt-2 grid gap-2">
+              {caseData!.evidenceItems.map((item, i) => (
+                <div
+                  key={item.id}
+                  className="min-w-0 grid gap-1.5 rounded-md border border-border p-2.5 text-sm list-item-enter transition-colors hover:bg-secondary/30"
+                  style={{ animationDelay: `${Math.min(i * 50, 400)}ms` }}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                    <label
+                      className={`shrink-0 btn-outline text-xs py-1 cursor-pointer ${
+                        uploadingItemId === item.id ? "opacity-60 pointer-events-none" : ""
+                      }`}
+                    >
+                      {uploadingItemId === item.id
+                        ? "Uploading…"
+                        : item.documents.length > 0
+                          ? "Add another file"
+                          : "Upload"}
+                      <input
+                        type="file"
+                        multiple
+                        className="hidden"
+                        accept=".pdf,image/*"
+                        onChange={(e) => handleUpload(item.id, e)}
+                      />
+                    </label>
+                  </div>
+                  {item.documents.length > 0 && (
+                    <ul className="grid gap-0.5">
+                      {item.documents.map((doc) => (
+                        <li key={doc.id} className="truncate text-xs text-success">
+                          ✓ {doc.fileName}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
-                {item.documents.length > 0 && (
-                  <ul className="grid gap-0.5">
-                    {item.documents.map((doc) => (
-                      <li key={doc.id} className="truncate text-xs text-success">
-                        ✓ {doc.fileName}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="mt-1 flex items-center gap-2">
-            <span className="text-sm text-muted-foreground">Not available yet.</span>
-            <button
-              onClick={handleGenerate}
-              disabled={generating}
-              className="text-xs text-accent hover:underline disabled:opacity-60"
-            >
-              {generating ? "Retrying…" : "Retry"}
-            </button>
-          </div>
-        )}
-      </section>
+              ))}
+            </div>
+          ) : (
+            <div className="mt-1 flex items-center gap-2">
+              <span className="text-sm text-muted-foreground">Not available yet.</span>
+              <button
+                onClick={handleGenerate}
+                disabled={generating}
+                className="text-xs text-accent hover:underline disabled:opacity-60"
+              >
+                {generating ? "Retrying…" : "Retry"}
+              </button>
+            </div>
+          )}
+        </section>
+      )}
     </div>
   );
 }
@@ -307,6 +467,11 @@ export function DocumentsSection({
   // hide signing entirely, keeping Save Progress/Download available for
   // staff to help prep the form without ever touching the signature step.
   allowSigning = true,
+  // From CaseDetailModal's Pre-Filing Check — disables the Notice of Protest
+  // button while core identity/deadline data is missing. Defaults to false
+  // so AdminCaseProgressModal (which never shows the Pre-Filing Check) keeps
+  // its own button always enabled, same as before this prop existed.
+  filingBlocked = false,
 }: {
   userId: string;
   protest: ProtestRecord;
@@ -314,6 +479,7 @@ export function DocumentsSection({
   strategyRecommendation: string | null;
   onUpdate: (patch: Partial<ProtestRecord>) => void;
   allowSigning?: boolean;
+  filingBlocked?: boolean;
 }) {
   const [authorization, setAuthorization] = useState<AuthorizationRecord | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -324,12 +490,22 @@ export function DocumentsSection({
   const [signingOpen, setSigningOpen] = useState(false);
   const [signature, setSignature] = useState<SignatureValue | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // Whether the Notice of Protest has actually been signed in-app — tracked
+  // separately from protest.status so "signed" and "confirmed filed with
+  // the county" can be two different moments (see the "Have you filed?"
+  // prompt below). Re-checked whenever a sign completes, not just on mount.
+  const [noticeSignedAt, setNoticeSignedAt] = useState<string | null>(null);
+  const [confirmingFiled, setConfirmingFiled] = useState(false);
+  const [filingProofFile, setFilingProofFile] = useState<File | null>(null);
 
   useEffect(() => {
     getAuthorization(protest.id)
       .then(setAuthorization)
       .catch((err) => console.error(err))
       .finally(() => setAuthLoading(false));
+    getSubmission(protest.id, "notice_of_protest")
+      .then((existing) => setNoticeSignedAt(existing?.signedAt ?? null))
+      .catch((err) => console.error("Could not check Notice of Protest signing status:", err));
   }, [protest.id]);
 
   const formType: FormType | null =
@@ -464,22 +640,43 @@ export function DocumentsSection({
         editingForm === "protest" ? "Signed Notice of Protest" : "Signed Appointment of Agent",
       );
       await signAndSubmit(userId, protest.id, formType, resolvedValues, signature, doc.id);
-      if (editingForm === "protest") {
-        await markFiled(protest.id);
-        onUpdate({ status: "filed" });
-      }
+      // Signing in-app isn't the same as actually delivering it to the
+      // county — status stays whatever it was; see the persistent "Have you
+      // filed?" prompt below, which is what actually marks this Filed, once
+      // the customer confirms it for real (with optional proof).
+      if (editingForm === "protest") setNoticeSignedAt(signedAt.toISOString());
       downloadPdf(bytes, fileName);
       setSigningOpen(false);
       setSignature(null);
       toast.success(
         editingForm === "protest"
-          ? "Signed and saved — this case is now marked Filed. Download or deliver this PDF to your appraisal district to complete filing."
+          ? "Signed and saved. Download or deliver this PDF to your appraisal district, then confirm below once it's filed."
           : "Signed and saved.",
       );
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not sign this document.");
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  // Persistent, not a one-off post-sign toast — a user who signs, closes the
+  // editor, and comes back later still sees this until they actually answer
+  // it. Never shown to staff (allowSigning=false in AdminCaseProgressModal):
+  // whether the county has the filing is the customer's own thing to confirm.
+  async function handleConfirmFiled() {
+    setConfirmingFiled(true);
+    try {
+      if (filingProofFile) {
+        await uploadDocument(userId, property.id, filingProofFile, FILING_PROOF_DOCUMENT_TYPE);
+      }
+      await markFiled(protest.id);
+      onUpdate({ status: "filed" });
+      toast.success("Case marked Filed.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not update this case.");
+    } finally {
+      setConfirmingFiled(false);
     }
   }
 
@@ -491,22 +688,63 @@ export function DocumentsSection({
         in-app, then download.
       </p>
       <div className="mt-2 flex flex-wrap gap-2">
-        <button onClick={openProtestEditor} className="btn-outline text-xs py-1.5">
-          Review Notice of Protest (Form 50-132)
-        </button>
         <button
-          onClick={openAgentEditor}
-          disabled={authLoading || !authorization}
+          onClick={openProtestEditor}
+          disabled={filingBlocked}
           className="btn-outline text-xs py-1.5 disabled:opacity-60"
-          title={
-            !authLoading && !authorization
-              ? "No signed authorization on file for this case yet"
-              : undefined
-          }
+          title={filingBlocked ? "Resolve the Pre-Filing Check above first" : undefined}
         >
-          Review Appointment of Agent (Form 50-162)
+          File Protest (Notice of Protest, Form 50-132)
         </button>
+        {protest.status !== "requested" && (
+          <button
+            onClick={openAgentEditor}
+            disabled={authLoading || !authorization}
+            className="btn-outline text-xs py-1.5 disabled:opacity-60"
+            title={
+              !authLoading && !authorization
+                ? "No signed authorization on file for this case yet"
+                : undefined
+            }
+          >
+            Complete Agent Representation Form (Optional)
+          </button>
+        )}
       </div>
+
+      {allowSigning && noticeSignedAt && protest.status === "requested" && (
+        <div className="mt-4 card-elev p-4">
+          <h5 className="text-sm font-semibold">
+            Have you completed and submitted your property protest?
+          </h5>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Optionally attach proof of filing — a confirmation number, portal screenshot, email, or
+            mailing receipt.
+          </p>
+          <input
+            type="file"
+            accept="image/*,.pdf"
+            onChange={(e) => setFilingProofFile(e.target.files?.[0] ?? null)}
+            className="mt-2 block text-xs"
+          />
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              onClick={handleConfirmFiled}
+              disabled={confirmingFiled}
+              className="btn-accent text-xs py-1.5 disabled:opacity-60"
+            >
+              {confirmingFiled ? "Saving…" : "Yes — Protest Filed"}
+            </button>
+            <button
+              disabled={confirmingFiled}
+              className="btn-outline text-xs py-1.5 disabled:opacity-60"
+              title="No action needed — come back once it's filed"
+            >
+              Not Yet
+            </button>
+          </div>
+        </div>
+      )}
 
       {editingForm && (
         <PdfFormEditor

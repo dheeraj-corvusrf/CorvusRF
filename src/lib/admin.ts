@@ -390,6 +390,11 @@ export function toProtestRecord(record: AdminProtestRecord): ProtestRecord {
     escalationPath: record.escalationPath,
     closedAt: record.closedAt,
     taxYear: record.protestFilingYear,
+    // The admin panel's AdminCaseProgressModal never shows CorvusGuidanceGate
+    // (that's a customer-only onboarding step to a case they're managing
+    // themselves) — stubbed to null like the other fields this adapter
+    // doesn't carry, same convention as the comment above already documents.
+    corvusGuidanceAckAt: null,
   };
 }
 

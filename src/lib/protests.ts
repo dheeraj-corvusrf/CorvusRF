@@ -32,6 +32,10 @@ export type ProtestRecord = {
   escalationPath: EscalationPath | null;
   closedAt: string | null;
   taxYear: number | null;
+  // When the customer acknowledged Corvus's "AI Guidance & Filing Notice" —
+  // null until then, never reset once set. See CorvusGuidanceGate in
+  // CaseDetailModal.tsx, which gates entry into a not-yet-filed case on this.
+  corvusGuidanceAckAt: string | null;
 };
 
 type ProtestRow = {
@@ -51,10 +55,11 @@ type ProtestRow = {
   escalation_path: EscalationPath | null;
   closed_at: string | null;
   tax_year: number | null;
+  corvus_guidance_ack_at: string | null;
 };
 
 const SELECT_COLUMNS =
-  "id, property_id, status, notes, requested_at, updated_at, original_value, settlement_offer_value, settlement_offer_received_at, hearing_date, arb_decision, arb_decision_date, final_value, escalation_path, closed_at, tax_year";
+  "id, property_id, status, notes, requested_at, updated_at, original_value, settlement_offer_value, settlement_offer_received_at, hearing_date, arb_decision, arb_decision_date, final_value, escalation_path, closed_at, tax_year, corvus_guidance_ack_at";
 
 function fromRow(row: ProtestRow): ProtestRecord {
   return {
@@ -74,6 +79,7 @@ function fromRow(row: ProtestRow): ProtestRecord {
     escalationPath: row.escalation_path,
     closedAt: row.closed_at,
     taxYear: row.tax_year,
+    corvusGuidanceAckAt: row.corvus_guidance_ack_at,
   };
 }
 
@@ -86,7 +92,12 @@ function fromRow(row: ProtestRow): ProtestRecord {
 export async function requestProtest(
   userId: string,
   propertyId: string,
-  details?: { address?: string; userEmail?: string; originalValue?: number | null; taxYear?: number | null },
+  details?: {
+    address?: string;
+    userEmail?: string;
+    originalValue?: number | null;
+    taxYear?: number | null;
+  },
 ): Promise<ProtestRecord> {
   const { data, error } = await supabase
     .from("protests")
@@ -114,6 +125,18 @@ export async function requestProtest(
   }).catch((err) => console.error("Protest request staff notification failed:", err));
 
   return created;
+}
+
+// Records that the customer has acknowledged Corvus's "AI Guidance & Filing
+// Notice" for this case — see CorvusGuidanceGate in CaseDetailModal.tsx. A
+// one-way write (no "un-acknowledge"); the gate only ever checks whether this
+// is null, never re-shown once set.
+export async function acknowledgeGuidance(protestId: string): Promise<void> {
+  const { error } = await supabase
+    .from("protests")
+    .update({ corvus_guidance_ack_at: new Date().toISOString() })
+    .eq("id", protestId);
+  if (error) throw error;
 }
 
 export async function listProtests(userId: string): Promise<ProtestRecord[]> {

@@ -1,6 +1,7 @@
 import { supabase } from "./supabase";
 import { computeAndStoreHealthScore } from "./property-scores";
 import type { CadValueHistoryEntry } from "./cad-lookup";
+import type { IntakeState } from "./intake-store";
 
 export type PropertyRecord = {
   id: string;
@@ -66,7 +67,9 @@ function fromRow(row: PropertyRow): PropertyRecord {
     estimatedSavings: row.estimated_savings,
     savingsBasis: row.savings_basis,
     createdAt: row.created_at,
-    valueHistory: row.value_history ? row.value_history.map((s) => JSON.parse(s) as CadValueHistoryEntry) : null,
+    valueHistory: row.value_history
+      ? row.value_history.map((s) => JSON.parse(s) as CadValueHistoryEntry)
+      : null,
   };
 }
 
@@ -215,4 +218,28 @@ export async function markPropertyPaid(id: string): Promise<PropertyRecord> {
     .single();
   if (error) throw error;
   return fromRow(data as PropertyRow);
+}
+
+// Shared "load this saved property's real fields into the guest-flow intake
+// store" patch — every jump into /ai-report for an already-saved property
+// (the dashboard's "Open AI Report", and CaseDetailModal's "Upload Evidence
+// — Go to Module 8") needs the exact same fields, so this stays in one place
+// instead of drifting across call sites. Callers still own the actual
+// updateIntake()/navigate() calls — this only builds the patch object, since
+// updateIntake lives in intake-store.ts and navigate is a route-bound hook,
+// neither of which belongs in this file.
+export function buildAiReportIntakePatch(p: PropertyRecord): Partial<IntakeState> {
+  return {
+    address: p.address,
+    cad: p.cad ?? undefined,
+    accountNumber: p.accountNumber ?? undefined,
+    ownerName: p.ownerName ?? undefined,
+    propertyType: p.propertyType ?? undefined,
+    landValue: p.landValue ?? undefined,
+    improvementValue: p.improvementValue ?? undefined,
+    totalValue: p.totalValue ?? undefined,
+    taxYear: p.taxYear ?? undefined,
+    valueHistory: p.valueHistory ?? undefined,
+    confirmed: true,
+  };
 }

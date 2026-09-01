@@ -54,6 +54,7 @@ describe("toProtestRecord", () => {
       escalationPath: null,
       closedAt: null,
       taxYear: 2024,
+      corvusGuidanceAckAt: null,
     });
   });
 

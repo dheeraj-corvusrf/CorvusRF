@@ -88,6 +88,7 @@ import {
   listDocuments,
   getDocumentUrl,
   EVIDENCE_DOCUMENT_TYPE,
+  PROTEST_EVIDENCE_DOCUMENT_TYPE,
   type DocumentRecord,
 } from "@/lib/documents";
 import { ProtestAuthorizationFlow } from "@/components/ProtestAuthorizationFlow";
@@ -113,6 +114,12 @@ export const Route = createFileRoute("/ai-report")({
         content: "AI analysis of your Texas commercial or residential property.",
       },
     ],
+  }),
+  // Lets a deep link (CaseDetailModal's "Upload Evidence — Go to Module 8"
+  // button) auto-open a specific module's modal on load, same
+  // validateSearch pattern sign-in.tsx already uses for its own `redirect`.
+  validateSearch: (search: Record<string, unknown>): { openModule?: string } => ({
+    openModule: typeof search.openModule === "string" ? search.openModule : undefined,
   }),
   component: Report,
 });
@@ -154,11 +161,19 @@ function buildValueTrend(valueHistory: IntakeState["valueHistory"]) {
 function Report() {
   const nav = useNavigate();
   const { user } = useAuth();
+  const { openModule: deepLinkModuleId } = Route.useSearch();
   const [state, setState] = useState<IntakeState>({ previewsUsed: [] });
   const [analyzing, setAnalyzing] = useState(true);
   const [openId, setOpenId] = useState<string | null>(null);
   const [showWall, setShowWall] = useState(false);
   const [hasFullAccess, setHasFullAccess] = useState(false);
+  // Set once the billing check below has actually resolved (true either way —
+  // real access or not; also true immediately when there's no signed-in user
+  // to check) — a deep link (?openModule=evidence, from CaseDetailModal's
+  // "Upload Evidence" button) must wait for this before deciding real vs.
+  // paywalled, or a paying customer would see a flash of the paywall before
+  // hasFullAccess catches up.
+  const [billingChecked, setBillingChecked] = useState(false);
   // AI content for every module (health + the 8 batch modules) is fetched lazily —
   // only when the user clicks "Unlock preview" on that specific module, via
   // loadModule() below — rather than all up front, so tokens are only spent on
@@ -223,6 +238,7 @@ function Report() {
             (d) =>
               d.propertyId === resolvedProperty.id &&
               (d.documentType === EVIDENCE_DOCUMENT_TYPE ||
+                d.documentType === PROTEST_EVIDENCE_DOCUMENT_TYPE ||
                 d.documentType?.startsWith("Strategy Evidence: ")),
           ),
         ),
@@ -278,7 +294,16 @@ function Report() {
   // (see StrategyDetail in ModulePreviewBody) with which strategy they satisfy;
   // omitted, it falls back to the original Improvement Condition document type so
   // that module's existing upload flow is unchanged.
-  async function handleUploadEvidence(files: File[], strategyId?: string) {
+  async function handleUploadEvidence(
+    files: File[],
+    strategyId?: string,
+    // Explicit override for a caller that isn't Module 2 (strategyId) or
+    // Module 5 (the EVIDENCE_DOCUMENT_TYPE default below) — Module 8's own
+    // upload widget passes PROTEST_EVIDENCE_DOCUMENT_TYPE here so its files
+    // are tagged the same as CaseDetailModal's evidence-checklist uploads,
+    // not lumped in with Improvement Condition's.
+    documentTypeOverride?: string,
+  ) {
     if (!user) return;
     const property = await ensureProperty();
     if (!property) {
@@ -291,7 +316,9 @@ function Report() {
       return;
     }
     const toUpload = files.slice(0, room);
-    const documentType = strategyId ? `Strategy Evidence: ${strategyId}` : EVIDENCE_DOCUMENT_TYPE;
+    const documentType =
+      documentTypeOverride ??
+      (strategyId ? `Strategy Evidence: ${strategyId}` : EVIDENCE_DOCUMENT_TYPE);
     setUploadingEvidence(true);
     try {
       const uploaded: DocumentRecord[] = [];
@@ -529,7 +556,10 @@ function Report() {
   }
 
   useEffect(() => {
-    if (!user) return;
+    if (!user) {
+      setBillingChecked(true);
+      return;
+    }
     getMyBilling(user.id)
       .then(({ plan }) =>
         setHasFullAccess(
@@ -540,8 +570,22 @@ function Report() {
             plan === "beta",
         ),
       )
-      .catch(() => setHasFullAccess(false));
+      .catch(() => setHasFullAccess(false))
+      .finally(() => setBillingChecked(true));
   }, [user]);
+
+  // Auto-opens a module for a deep link (CaseDetailModal's "Upload Evidence —
+  // Go to Module 8" button, ?openModule=evidence) — waits for billingChecked
+  // so a paying customer never sees a flash of the paywall first, and only
+  // ever fires once (openId stays whatever the user does with it after).
+  const [deepLinkHandled, setDeepLinkHandled] = useState(false);
+  useEffect(() => {
+    if (!deepLinkModuleId || deepLinkHandled || !billingChecked) return;
+    const target = MODULES.find((m) => m.id === deepLinkModuleId);
+    if (target) openModule(target);
+    setDeepLinkHandled(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deepLinkModuleId, deepLinkHandled, billingChecked, hasFullAccess]);
 
   // The exact same estimateSavings() call the intake savings screen uses (see
   // savings-estimate.ts) — comps tier first, then the formula tier (base rate +
@@ -3222,7 +3266,7 @@ function ModulePreviewContent({
   allowEvidenceUpload: boolean;
   evidenceDocs: DocumentRecord[];
   uploadingEvidence: boolean;
-  onUploadEvidence: (files: File[], strategyId?: string) => void;
+  onUploadEvidence: (files: File[], strategyId?: string, documentTypeOverride?: string) => void;
   onForceReload: () => void;
   onAnswerStrategy: (strategyId: string, answer: string) => void;
   onAskQuestion: (moduleId: string, question: string) => Promise<string>;
@@ -3816,6 +3860,15 @@ function ModulePreviewContent({
     case "evidence": {
       const d = moduleState.data as ModuleResultMap["evidence"];
       const focus = d.items.filter((i) => i.importance === "High" && i.availability === "Low");
+      // Real protest-case evidence — same PROTEST_EVIDENCE_DOCUMENT_TYPE tag
+      // CaseDetailModal's own evidence-checklist upload uses, so a file
+      // uploaded from either path shows up here together. This is the one
+      // upload widget Module 8 gets in Phase 1 — plain upload + list, no AI
+      // classification/status per file yet (see the plan this was built
+      // from for that roadmap).
+      const protestEvidenceDocs = evidenceDocs.filter(
+        (doc) => doc.documentType === PROTEST_EVIDENCE_DOCUMENT_TYPE,
+      );
       return (
         <div className="mt-4 grid gap-3">
           {focus.length > 0 && (
@@ -3836,6 +3889,40 @@ function ModulePreviewContent({
               />
             ))}
           </div>
+          {allowEvidenceUpload && (
+            <div className="border-t border-border/60 pt-4 print:hidden">
+              <div className="text-sm font-medium">Upload Evidence</div>
+              <p className="text-xs text-muted-foreground">
+                Add documents to this property's protest evidence — the same files show up in your
+                case's evidence workspace.
+              </p>
+              {protestEvidenceDocs.length > 0 && (
+                <ul className="mt-2 grid gap-1 text-xs text-muted-foreground">
+                  {protestEvidenceDocs.map((doc) => (
+                    <li key={doc.id}>{doc.fileName}</li>
+                  ))}
+                </ul>
+              )}
+              <label
+                className={`mt-3 inline-flex btn-outline text-sm cursor-pointer ${uploadingEvidence ? "pointer-events-none opacity-60" : ""}`}
+              >
+                {uploadingEvidence ? "Uploading…" : "Upload Evidence"}
+                <input
+                  type="file"
+                  accept="image/*,.pdf"
+                  multiple
+                  className="hidden"
+                  disabled={uploadingEvidence}
+                  onChange={(e) => {
+                    const selected = e.target.files ? Array.from(e.target.files) : [];
+                    e.target.value = "";
+                    if (selected.length > 0)
+                      onUploadEvidence(selected, undefined, PROTEST_EVIDENCE_DOCUMENT_TYPE);
+                  }}
+                />
+              </label>
+            </div>
+          )}
         </div>
       );
     }
