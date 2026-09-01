@@ -747,11 +747,15 @@ header .container-page {
   }
 }
 
-/* Slow ambient glow breathing behind the AI Report savings banner's hero
-   number (see CelebrationConfetti.tsx and the "savings-glow" element in
-   ai-report.tsx) — same idea as the homepage hero's sun-glow-pulse, just a
-   second instance since Tailwind's arbitrary-value opacity/scale utilities
-   can't express a looping animation on their own. */
+/* Ambient glow breathing behind the AI Report savings banner's hero number
+   (see CelebrationConfetti.tsx and the ".savings-glow"/".savings-glow-warm"
+   elements in ai-report.tsx) — two blobs now, not one: emerald top-left
+   (savings-glow) plus a warm gold one bottom-right (savings-glow-warm, its
+   own offset timing via animation-delay so they don't breathe in lockstep),
+   replacing a flat solid-navy card with something that actually feels alive.
+   Same idea as the homepage hero's sun-glow-pulse — a second/third instance
+   since Tailwind's arbitrary-value opacity/scale utilities can't express a
+   looping animation on their own. */
 @keyframes savings-glow-pulse {
   0%,
   100% {
@@ -767,25 +771,57 @@ header .container-page {
   .savings-glow {
     animation: savings-glow-pulse 5s ease-in-out infinite;
   }
+  .savings-glow-warm {
+    animation: savings-glow-pulse 6s ease-in-out 1.5s infinite;
+  }
 }
 
-/* Hover-triggered celebration confetti on the AI Report savings banner (see
-   CelebrationConfetti.tsx) — a burst of real paper-like flecks exploding
-   outward from wherever the cursor entered, then falling with gravity,
-   confined to the dark banner itself (its own `overflow-hidden` from
-   ai-report.tsx clips anything that would otherwise spill past its edges)
-   rather than the whole viewport — a contained "bomb blast" in the blue/navy
-   savings card, not a page-wide effect. Each piece fades to fully
-   transparent by the end of its own animation (100% opacity: 0) so pieces
-   dissolve away instead of visibly piling up wherever they land — confirmed
-   live this matters even for pieces that never reach the container's clip
-   edge. One-shot per hover (the component unmounts itself once every piece
-   has finished — see its own onDone timer), not a continuous loop.
-   Positioning/layout below is unconditional (harmless with zero pieces if
-   motion is off); only the actual burst/fall is gated, and
-   CelebrationConfetti.tsx additionally never mounts at all for a
-   reduced-motion user in the first place — belt-and-suspenders for anyone
-   whose OS-level media query and JS check somehow disagree. */
+/* Slow diagonal light sweep across the whole savings banner — a soft bright
+   band drifting through and fading, like light catching a premium card's
+   surface. One more layer (besides the two glow blobs above and the
+   confetti loop below) making the banner read as an intentionally
+   celebratory surface rather than a flat color fill. */
+@keyframes savings-sheen-sweep {
+  0% {
+    transform: translateX(-40%) skewX(-12deg);
+    opacity: 0;
+  }
+  15%,
+  35% {
+    opacity: 0.5;
+  }
+  55% {
+    opacity: 0;
+  }
+  100% {
+    transform: translateX(220%) skewX(-12deg);
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .savings-sheen {
+    animation: savings-sheen-sweep 6s ease-in-out infinite;
+  }
+}
+
+/* Continuous celebration confetti on the AI Report savings banner (see
+   CelebrationConfetti.tsx) — bursts of real paper-like flecks and emoji
+   exploding outward from a fixed spot, then falling with gravity, confined
+   to the dark banner itself (its own `overflow-hidden` from ai-report.tsx
+   clips anything that would otherwise spill past its edges) rather than the
+   whole viewport — a contained "bomb blast" in the banner, not a page-wide
+   effect. Each piece fades to fully transparent by the end of its own
+   animation (100% opacity: 0) so pieces dissolve away instead of visibly
+   piling up wherever they land. Loops continuously the whole time the
+   report is showing a completed analysis — not hover-triggered (an earlier
+   version was; moved to always-on per explicit feedback that it shouldn't
+   depend on the cursor at all) — see CelebrationConfetti.tsx's own internal
+   interval for how a fresh burst keeps regenerating. Positioning/layout
+   below is unconditional (harmless with zero pieces if motion is off); only
+   the actual burst/fall is gated, and CelebrationConfetti.tsx additionally
+   never starts its loop at all for a reduced-motion user in the first place
+   — belt-and-suspenders for anyone whose OS-level media query and JS check
+   somehow disagree. */
 .celebration-confetti {
   position: absolute;
   inset: 0;

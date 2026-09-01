@@ -6,7 +6,12 @@ import { AnimatedSteps } from "@/components/AnimatedSteps";
 import { CircularSearchLoader } from "@/components/CircularSearchLoader";
 import { ValueHistorySection } from "@/components/ValueHistorySection";
 import { MapPinPicker } from "@/components/MapPinPicker";
-import { getCadRecordUrl, isDirectCadRecordUrl } from "@/lib/cad-record-url";
+import {
+  getCadRecordUrl,
+  isDirectCadRecordUrl,
+  SUPPORTED_COUNTY_NAMES,
+} from "@/lib/cad-record-url";
+import { Modal } from "@/components/Modal";
 import {
   readIntake,
   updateIntake,
@@ -53,6 +58,35 @@ type Step =
   | "classifying"
   | "residential-blocked";
 
+// Only called after cadLookup() itself already returned matched:false —
+// cadLookup has no way to say WHY (a genuinely unsupported county vs. a
+// supported county with no record for this exact address look identical to
+// it, since it just tries all 12 supported counties' data and finds
+// nothing). This is a separate, independent check: reverse-geocode the
+// typed address via Nominatim (same public API AddressAutocomplete.tsx
+// already calls) to find its real county, then compare that against
+// SUPPORTED_COUNTY_NAMES. Best-effort only — a network failure or an
+// address Nominatim can't resolve just means no popup, not an error the
+// user sees; the existing "notfound" card is the honest fallback either way.
+async function resolveCountyName(address: string): Promise<string | null> {
+  try {
+    const params = new URLSearchParams({
+      format: "jsonv2",
+      addressdetails: "1",
+      countrycodes: "us",
+      q: address,
+      limit: "1",
+    });
+    const res = await fetch(`https://nominatim.openstreetmap.org/search?${params}`);
+    if (!res.ok) return null;
+    const data = (await res.json()) as Array<{ address?: { county?: string } }>;
+    const county = data[0]?.address?.county;
+    return county ? county.replace(/\s*County$/i, "").trim() : null;
+  } catch {
+    return null;
+  }
+}
+
 function Intake() {
   const nav = useNavigate();
   const { user } = useAuth();
@@ -82,6 +116,12 @@ function Intake() {
   // address, each with a completely different legal owner. Never silently
   // guessed; the user picks which one via the "multiple" step below.
   const [multipleOptions, setMultipleOptions] = useState<CadRecord[]>([]);
+  // Set only when a "notfound" address independently resolves (via
+  // resolveCountyName in runValidation) to a real Texas county that isn't
+  // one of the 12 this app covers — pops the modal below on top of the
+  // existing "notfound" card, distinguishing "we don't cover this county at
+  // all" from "supported county, just no record for this exact address."
+  const [unsupportedCounty, setUnsupportedCounty] = useState<string | null>(null);
   // Bumped on every new lookup and by cancelValidation() — an in-flight
   // request checks this before ever touching state, so hitting Cancel (or
   // starting a second search) can't have a stale response silently repaint
@@ -207,6 +247,7 @@ function Intake() {
     setAlreadySaved(null);
     setNearby([]);
     setMultipleOptions([]);
+    setUnsupportedCounty(null);
     try {
       const res = await cadLookup(addr);
       if (requestIdRef.current !== requestId) return;
@@ -218,6 +259,15 @@ function Intake() {
       if (!res.matched) {
         setNearby(res.nearby);
         setStep("notfound");
+        // Fired after the inline "notfound" card is already showing, not
+        // awaited before it — this is a genuinely separate question ("was
+        // this address even in a county we cover?"), and the existing card
+        // is the correct fallback regardless of how this resolves or how
+        // long it takes.
+        resolveCountyName(addr).then((county) => {
+          if (requestIdRef.current !== requestId) return;
+          if (county && !SUPPORTED_COUNTY_NAMES.has(county)) setUnsupportedCounty(county);
+        });
         return;
       }
       await applyCadRecord(res.record, requestId);
@@ -284,9 +334,40 @@ function Intake() {
 
   const { isDragging, dropHandlers } = useFileDrop(onFile);
 
+  // Real link to this property's official county record, shown right on the
+  // main single-match confirm screen below — previously this was only
+  // reachable from the "multiple accounts found" step, so a normal search
+  // (the vast majority of them) never surfaced it at all. state.cad is
+  // optional (still unset before a real match resolves), unlike
+  // CadRecord.cad's required string — guarded here rather than widening
+  // that shared type just for this one optional-at-first caller.
+  const confirmCadRecordUrl = state.cad
+    ? getCadRecordUrl({ cad: state.cad, accountNumber: state.accountNumber ?? null })
+    : null;
+
   return (
     <div className={`container-page py-12 ${step === "confirm" ? "max-w-5xl" : "max-w-3xl"}`}>
       <Stepper step={step} />
+
+      {unsupportedCounty && (
+        <Modal onClose={() => setUnsupportedCounty(null)}>
+          <h2 className="font-serif text-xl font-semibold">
+            We don't cover {unsupportedCounty} County yet
+          </h2>
+          <p className="mt-2 text-sm text-muted-foreground">
+            CorvusPT.ai currently supports properties in{" "}
+            {[...SUPPORTED_COUNTY_NAMES].slice(0, -1).join(", ")}, and{" "}
+            {[...SUPPORTED_COUNTY_NAMES].slice(-1)} counties. We're adding more counties over time —
+            try a different address, or check back soon.
+          </p>
+          <button
+            onClick={() => setUnsupportedCounty(null)}
+            className="btn-primary btn-primary-hover mt-5"
+          >
+            Got it
+          </button>
+        </Modal>
+      )}
 
       {step === "address" && (
         <section className="mt-8 card-elev p-6">
@@ -835,6 +916,19 @@ function Intake() {
             <button onClick={() => setStep("address")} className="btn-outline">
               Edit Address
             </button>
+            {confirmCadRecordUrl && (
+              <a
+                href={confirmCadRecordUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn-outline inline-flex items-center gap-1.5"
+              >
+                <ExternalLink className="h-3.5 w-3.5" />
+                {isDirectCadRecordUrl(state.cad ?? "")
+                  ? "View Official CAD Record"
+                  : `Search on ${state.cad}`}
+              </a>
+            )}
             <label
               className={`btn-outline cursor-pointer ${isDragging ? "ring-2 ring-accent" : ""}`}
               {...dropHandlers}

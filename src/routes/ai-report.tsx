@@ -116,13 +116,22 @@ export const Route = createFileRoute("/ai-report")({
 // 3" quota; which modules are free is fixed by module number, not user choice.
 const FREE_MODULE_COUNT = 3;
 
-// Fixed spot the savings-banner confetti burst always originates from — near
-// where the number/icon actually sit, not tied to wherever the cursor
-// happened to enter (see triggerCelebration in Report() below). Percentages
-// of the banner's own box, so it stays roughly "at the number" across both
-// the wide desktop layout and the narrower mobile one.
+// Fixed spots the savings-banner confetti bursts always originate from — not
+// tied to wherever the cursor happened to enter (this ran on hover in an
+// earlier version). Percentages of the banner's own box, so each stays
+// roughly in the same place across both the wide desktop layout and the
+// narrower mobile one. Three origins — near the number on the left, a
+// second "cracker" burst on the right side, and a third in the middle — so
+// the celebration reads as coming from across the whole banner rather than
+// one or two spots. Each CelebrationConfetti instance runs on its own
+// independently randomized schedule (see that component), so the three
+// don't burst/fade in visible lockstep with each other.
 const CONFETTI_ORIGIN_X_PCT = 15;
 const CONFETTI_ORIGIN_Y_PCT = 60;
+const CONFETTI_ORIGIN_CENTER_X_PCT = 50;
+const CONFETTI_ORIGIN_CENTER_Y_PCT = 55;
+const CONFETTI_ORIGIN_RIGHT_X_PCT = 88;
+const CONFETTI_ORIGIN_RIGHT_Y_PCT = 45;
 
 // Real comps-derived signal fed into Module 2's prompt (see loadModule() below) —
 // median/min/max of the same real comparable market values CompsMap/CompsScatter
@@ -590,28 +599,6 @@ function Report() {
   // property can produce a 6+ digit savings figure on any screen size.
   const savingsDigits = useMemo(() => currency(estimated.savings).length, [estimated.savings]);
 
-  // One-shot confetti celebration, fired by hovering the savings number (see
-  // triggerCelebration below and the <p onMouseEnter=...> in the banner) —
-  // always bursts from the same fixed spot near the number (not wherever the
-  // cursor happened to land — tried cursor-position tracking first, but per
-  // explicit feedback the blast should be the same every time, just confined
-  // to the banner), confined to the banner itself via its own
-  // overflow-hidden, not the whole page. celebrationKey forces a fresh
-  // <CelebrationConfetti> mount (and therefore a newly randomized burst) on
-  // every hover rather than reusing the first hover's layout; celebrating
-  // itself just controls whether it's mounted at all.
-  const [celebrating, setCelebrating] = useState(false);
-  const [celebrationKey, setCelebrationKey] = useState(0);
-  function triggerCelebration() {
-    // Checked here (at trigger time), not baked into a top-level constant —
-    // matches how the rest of this app gates decorative motion in CSS via
-    // `@media (prefers-reduced-motion: no-preference)` rather than a JS
-    // capability flag computed once and never revisited.
-    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
-    setCelebrationKey((k) => k + 1);
-    setCelebrating(true);
-  }
-
   // Eager-loads real data for the module overview grid below (real scores,
   // checklists, etc. instead of generic teaser text) as soon as the property
   // is known. Free-preview modules (1-3) load for everyone; the rest only
@@ -718,38 +705,71 @@ function Report() {
       {/* Analysis banner — the savings figure is the whole point of this page for
           most visitors, so it gets a hero-scale treatment (was the same text-lg
           size as the "AI analysis completed" label above it, easy to skim past)
-          rather than reading as one more line of body copy. Hovering the number
-          fires a one-shot confetti celebration (see triggerCelebration below and
-          CelebrationConfetti.tsx) — the same "Congratulations" hover effect
-          Outlook shows, since a real tax-savings figure is worth celebrating,
-          not just displaying. */}
-      <section className="relative mt-6 card-elev overflow-hidden bg-primary text-primary-foreground">
-        {/* Ambient glow behind the number — a flat solid-navy card read as
-            plain/static for what's meant to be the page's one exciting moment.
-            Radial, off-center toward where the number actually sits (not
-            centered on the whole banner, which would mostly glow behind empty
-            space on a wide screen), and z-0'd behind the real content below. */}
+          rather than reading as one more line of body copy. Two confetti
+          "cracker" bursts run continuously (see CelebrationConfetti.tsx) the
+          whole time a completed analysis is showing — not hover-triggered, an
+          earlier version was but per explicit feedback it should run on its
+          own regardless of the cursor. */}
+      <section className="relative mt-6 card-elev overflow-hidden text-primary-foreground">
+        {/* Richer than a flat bg-primary fill — a diagonal gradient with a
+            faint accent-green undertone, so the banner reads as an
+            intentionally celebratory surface even before any motion kicks in. */}
+        <div
+          className="absolute inset-0"
+          style={{
+            background:
+              "linear-gradient(135deg, var(--primary) 0%, color-mix(in oklch, var(--primary) 82%, var(--accent) 18%) 50%, var(--primary) 100%)",
+          }}
+        />
+        {/* Two ambient glow blobs — a flat solid-navy card read as plain/
+            static for what's meant to be the page's one exciting moment.
+            Emerald top-left near the number, warm gold bottom-right (offset
+            pulse timing via the CSS itself), both z-0'd behind the real
+            content below. */}
         {!analyzing && (
-          <div
-            className="savings-glow pointer-events-none absolute -left-24 -top-24 z-0 h-96 w-96 rounded-full"
-            style={{
-              background:
-                "radial-gradient(circle, color-mix(in oklch, var(--accent) 55%, transparent) 0%, transparent 70%)",
-            }}
-          />
+          <>
+            <div
+              className="savings-glow pointer-events-none absolute -left-24 -top-24 z-0 h-96 w-96 rounded-full"
+              style={{
+                background:
+                  "radial-gradient(circle, color-mix(in oklch, var(--accent) 55%, transparent) 0%, transparent 70%)",
+              }}
+            />
+            <div
+              className="savings-glow-warm pointer-events-none absolute -bottom-24 -right-24 z-0 h-96 w-96 rounded-full"
+              style={{
+                background:
+                  "radial-gradient(circle, color-mix(in oklch, var(--warning) 50%, transparent) 0%, transparent 70%)",
+              }}
+            />
+            {/* Slow diagonal light sweep across the whole banner surface —
+                see the savings-sheen-sweep keyframe in styles.css. */}
+            <div className="savings-sheen pointer-events-none absolute -inset-y-12 left-0 z-0 w-1/3 bg-white/10" />
+          </>
         )}
-        {/* Confined to this banner (its own overflow-hidden above clips it) —
-            always the same fixed origin near the number, not wherever the
-            cursor happened to enter. z-20, above both the z-0 glow and the
-            z-10 content, so it's never hidden behind either. */}
-        {celebrating && (
-          <CelebrationConfetti
-            key={celebrationKey}
-            originXPct={CONFETTI_ORIGIN_X_PCT}
-            originYPct={CONFETTI_ORIGIN_Y_PCT}
-            onDone={() => setCelebrating(false)}
-          />
-        )}
+        {/* Confined to this banner (its own overflow-hidden above clips
+            them) — three fixed origins (left near the number, center, and a
+            "cracker" burst on the right), each looping continuously the
+            whole time a completed analysis is showing (see `active` below)
+            on its OWN independently randomized schedule (see
+            CelebrationConfetti's internal timer), independent of the cursor
+            entirely. z-20, above both the z-0 glow layers and the z-10
+            content, so they're never hidden behind either. */}
+        <CelebrationConfetti
+          active={!analyzing}
+          originXPct={CONFETTI_ORIGIN_X_PCT}
+          originYPct={CONFETTI_ORIGIN_Y_PCT}
+        />
+        <CelebrationConfetti
+          active={!analyzing}
+          originXPct={CONFETTI_ORIGIN_CENTER_X_PCT}
+          originYPct={CONFETTI_ORIGIN_CENTER_Y_PCT}
+        />
+        <CelebrationConfetti
+          active={!analyzing}
+          originXPct={CONFETTI_ORIGIN_RIGHT_X_PCT}
+          originYPct={CONFETTI_ORIGIN_RIGHT_Y_PCT}
+        />
         <div className="relative z-10 flex flex-wrap items-start justify-between gap-6 p-5 sm:p-8">
           <div className="min-w-0">
             <p className="text-sm text-primary-foreground/80">
@@ -772,7 +792,6 @@ function Report() {
                     Common case (the vast majority of real properties) still
                     gets the full hero size below. */}
                 <p
-                  onMouseEnter={triggerCelebration}
                   className={`mt-1 flex w-fit items-center gap-2 font-serif font-bold leading-none text-accent ${
                     savingsDigits <= 7
                       ? "text-6xl sm:text-7xl lg:text-8xl"
