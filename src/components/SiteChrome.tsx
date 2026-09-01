@@ -264,9 +264,13 @@ export function SiteFooter() {
         </span>
         {/* Matches supabase/functions/cad-lookup/index.ts's countyQueriesInOrder
             (Collin, Montgomery, Denton, Harris, Tarrant, Fort Bend, Williamson,
-            Grayson, Travis, Bexar, Dallas) — the real counties with a live data
-            source, not an aspirational "all 254" claim. */}
-        <span>Serving 11 Texas counties.</span>
+            Grayson, Travis, Bexar, Dallas, Kaufman) — the real counties with a
+            live data source, not an aspirational "all 254" claim. Update both
+            this list and the count if that array ever changes. */}
+        <span>
+          Serving 12 Texas counties for Beta phase — Collin, Montgomery, Denton, Harris, Tarrant,
+          Fort Bend, Williamson, Grayson, Travis, Bexar, Dallas, and Kaufman.
+        </span>
       </div>
     </footer>
   );
