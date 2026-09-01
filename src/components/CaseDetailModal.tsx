@@ -27,8 +27,10 @@ import {
 } from "@/lib/protest-case";
 import {
   uploadDocument,
+  listDocuments,
   PROTEST_EVIDENCE_DOCUMENT_TYPE,
   FILING_PROOF_DOCUMENT_TYPE,
+  type DocumentRecord,
 } from "@/lib/documents";
 import { getAuthorization, type AuthorizationRecord } from "@/lib/protest-authorizations";
 import {
@@ -138,7 +140,7 @@ export function CaseDetailModal({
             filingBlocked={current.status === "requested" && isPreFilingBlocked(preFilingItems)}
           />
 
-          <EvidenceModuleLink property={property} />
+          <EvidenceModuleLink userId={userId} property={property} />
 
           <CaseProgress
             protest={current}
@@ -248,23 +250,86 @@ function PreFilingCheckSection({ items }: { items: PreFilingCheckItem[] }) {
 // its upload widget, see ai-report.tsx's "evidence" case) is the one real
 // evidence workspace, reached via the same deep-link pattern the dashboard's
 // "Open AI Report" button already uses.
-function EvidenceModuleLink({ property }: { property: PropertyRecord }) {
+function EvidenceModuleLink({ userId, property }: { userId: string; property: PropertyRecord }) {
   const navigate = useNavigate();
+  const [docs, setDocs] = useState<DocumentRecord[]>([]);
+  const [loadingDocs, setLoadingDocs] = useState(true);
+  const [uploading, setUploading] = useState(false);
+
+  function loadDocs() {
+    listDocuments(userId)
+      .then((all) =>
+        setDocs(
+          all.filter(
+            (d) =>
+              d.propertyId === property.id && d.documentType === PROTEST_EVIDENCE_DOCUMENT_TYPE,
+          ),
+        ),
+      )
+      .catch((err) => console.error("Could not load this property's evidence:", err))
+      .finally(() => setLoadingDocs(false));
+  }
+
+  useEffect(loadDocs, [userId, property.id]);
+
+  async function handleUpload(e: ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = "";
+    if (files.length === 0) return;
+    setUploading(true);
+    try {
+      for (const file of files) {
+        await uploadDocument(userId, property.id, file, PROTEST_EVIDENCE_DOCUMENT_TYPE);
+      }
+      loadDocs();
+      toast.success(files.length === 1 ? "Evidence uploaded." : `${files.length} files uploaded.`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not upload this file.");
+    } finally {
+      setUploading(false);
+    }
+  }
+
   return (
     <div className="mt-5 border-t border-border pt-5">
       <h4 className="text-sm font-semibold">Evidence</h4>
       <p className="text-xs text-muted-foreground">
-        Upload and manage this case's evidence in Module 8 of your AI Report.
+        Upload documents here, or manage this case's full evidence workspace in Module 8 of your AI
+        Report — either way, the same files show up in both places.
       </p>
-      <button
-        onClick={() => {
-          updateIntake(buildAiReportIntakePatch(property));
-          navigate({ to: "/ai-report", search: { openModule: "evidence" } });
-        }}
-        className="btn-outline mt-2 text-sm"
-      >
-        Upload Evidence — Go to Module 8
-      </button>
+      {!loadingDocs && docs.length > 0 && (
+        <ul className="mt-2 grid gap-0.5">
+          {docs.map((doc) => (
+            <li key={doc.id} className="truncate text-xs text-success">
+              ✓ {doc.fileName}
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="mt-2 flex flex-wrap gap-2">
+        <label
+          className={`btn-outline text-sm cursor-pointer ${uploading ? "pointer-events-none opacity-60" : ""}`}
+        >
+          {uploading ? "Uploading…" : "Upload Evidence"}
+          <input
+            type="file"
+            multiple
+            accept=".pdf,image/*"
+            className="hidden"
+            disabled={uploading}
+            onChange={handleUpload}
+          />
+        </label>
+        <button
+          onClick={() => {
+            updateIntake(buildAiReportIntakePatch(property));
+            navigate({ to: "/ai-report", search: { openModule: "evidence" } });
+          }}
+          className="btn-outline text-sm"
+        >
+          Go to Module 8
+        </button>
+      </div>
     </div>
   );
 }
