@@ -67,7 +67,12 @@
 :root {
   --radius: 0.75rem;
   /* Deep Texas navy + emerald green accent (matches the PT door's green in hub/hub.css) */
-  --background: oklch(0.995 0.003 90);
+  /* Faded green instead of plain white — same hue as --accent (163) at a
+     much lower chroma/higher lightness, so every page reads as this app's
+     green rather than neutral gray, while staying light enough that white
+     cards/popovers (still oklch(1 0 0) below) clearly pop against it and
+     text contrast is unaffected. */
+  --background: oklch(0.98 0.01 155);
   --foreground: oklch(0.2 0.04 250);
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.2 0.04 250);
