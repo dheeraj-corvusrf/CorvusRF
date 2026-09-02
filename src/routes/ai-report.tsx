@@ -1606,14 +1606,22 @@ function ModuleVisual({
               value range (comps math) — same 3-tile layout as the
               reference this card was matched to, all real numbers. */}
           <div className="grid grid-cols-3 gap-1.5">
-            <div className="rounded-md bg-destructive/10 px-1 py-1.5 text-center">
-              <div className="text-[7px] uppercase tracking-wide text-destructive">
+            <div
+              className={`rounded-md px-1 py-1.5 text-center ${summary.overvaluationRange ? "bg-destructive/10" : "bg-secondary/40"}`}
+            >
+              <div
+                className={`text-[7px] uppercase tracking-wide ${summary.overvaluationRange ? "text-destructive" : "text-muted-foreground"}`}
+              >
                 Overvaluation
               </div>
-              <div className="truncate text-[11px] font-bold text-destructive">
+              <div
+                className={`truncate text-[11px] font-bold ${summary.overvaluationRange ? "text-destructive" : "text-muted-foreground"}`}
+              >
                 {summary.overvaluationRange
                   ? `${compactCurrency(summary.overvaluationRange.minDollar)}–${compactCurrency(summary.overvaluationRange.maxDollar)}`
-                  : "—"}
+                  : summary.indicatedValueRange
+                    ? "Not Indicated"
+                    : "Insufficient Data"}
               </div>
               {summary.overvaluationRange && (
                 <div className="text-[8px] text-destructive/80">
@@ -1632,12 +1640,20 @@ function ModuleVisual({
                 </div>
               )}
             </div>
-            <div className="rounded-md bg-success/10 px-1 py-1.5 text-center">
-              <div className="text-[7px] uppercase tracking-wide text-success">Value Range</div>
-              <div className="truncate text-[11px] font-bold text-success">
+            <div
+              className={`rounded-md px-1 py-1.5 text-center ${summary.indicatedValueRange ? "bg-success/10" : "bg-secondary/40"}`}
+            >
+              <div
+                className={`text-[7px] uppercase tracking-wide ${summary.indicatedValueRange ? "text-success" : "text-muted-foreground"}`}
+              >
+                Value Range
+              </div>
+              <div
+                className={`truncate text-[11px] font-bold ${summary.indicatedValueRange ? "text-success" : "text-muted-foreground"}`}
+              >
                 {summary.indicatedValueRange
                   ? `${compactCurrency(summary.indicatedValueRange.min)}–${compactCurrency(summary.indicatedValueRange.max)}`
-                  : "—"}
+                  : "Insufficient Data"}
               </div>
               {summary.currentCadValue != null && (
                 <div className="truncate text-[8px] text-muted-foreground">
@@ -1646,6 +1662,12 @@ function ModuleVisual({
               )}
             </div>
           </div>
+          {!summary.indicatedValueRange && (
+            <p className="text-[9px] text-muted-foreground">
+              No comparable properties with a usable market value were found for this property yet —
+              comps math above can&apos;t run without at least one.
+            </p>
+          )}
 
           {/* Key Supporting Factors — real AI findings, short titles only. */}
           {d.majorFindings.length > 0 && (
