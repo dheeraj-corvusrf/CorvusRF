@@ -20,6 +20,17 @@ export type ExecutiveSummary = {
   // phrasing, since it's genuinely comps math, not an AI guess.
   indicatedValueRange: { min: number; max: number } | null;
   potentialValueReduction: number | null;
+  // Real best-case/worst-case overvaluation band — subject value minus the
+  // top of the comps range (least overvalued) to subject value minus the
+  // bottom (most overvalued). Only populated when the subject genuinely
+  // sits above the whole comps range (not just the median); null — not a
+  // fabricated range — otherwise.
+  overvaluationRange: {
+    minDollar: number;
+    maxDollar: number;
+    minPct: number;
+    maxPct: number;
+  } | null;
   estimatedAnnualSavings: number | null;
   overallConfidencePct: number | null;
   evidenceReadiness: ReadinessLevel;
@@ -39,6 +50,19 @@ export function getExecutiveSummary(
   const potentialValueReduction =
     stats?.indicated && stats.subjectValue != null
       ? Math.max(0, Math.round(stats.subjectValue - stats.indicated.median))
+      : null;
+  const overvaluationRange =
+    stats?.indicated && stats.subjectValue != null && stats.subjectValue > stats.indicated.max
+      ? {
+          minDollar: Math.round(stats.subjectValue - stats.indicated.max),
+          maxDollar: Math.round(stats.subjectValue - stats.indicated.min),
+          minPct: Math.round(
+            ((stats.subjectValue - stats.indicated.max) / stats.subjectValue) * 100,
+          ),
+          maxPct: Math.round(
+            ((stats.subjectValue - stats.indicated.min) / stats.subjectValue) * 100,
+          ),
+        }
       : null;
 
   // Same >0 threshold moduleInsight()'s own "comps" case already uses for
@@ -92,6 +116,7 @@ export function getExecutiveSummary(
     currentCadValue,
     indicatedValueRange,
     potentialValueReduction,
+    overvaluationRange,
     estimatedAnnualSavings: estimatedSavings,
     overallConfidencePct,
     evidenceReadiness,

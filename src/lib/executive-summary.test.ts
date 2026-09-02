@@ -62,6 +62,23 @@ describe("getExecutiveSummary", () => {
     expect(s.estimatedAnnualSavings).toBe(16200);
   });
 
+  it("computes a real overvaluation dollar/percent range when subject is above the whole comps range", () => {
+    // subjectValue 5.9M vs indicated 4.8M-5.2M — same numbers as the
+    // reference design this was built to match ($700K-$1.1M, 12%-19%).
+    const s = getExecutiveSummary(stats(), 0, [], null);
+    expect(s.overvaluationRange).toEqual({
+      minDollar: 700_000,
+      maxDollar: 1_100_000,
+      minPct: 12,
+      maxPct: 19,
+    });
+  });
+
+  it("returns null overvaluationRange when the subject isn't above the whole comps range", () => {
+    const s = getExecutiveSummary(stats({ subjectValue: 5_100_000 }), 0, [], null);
+    expect(s.overvaluationRange).toBeNull();
+  });
+
   it("rates evidence readiness Strong with zero critical gaps, Limited with 2+", () => {
     const items = [
       { item: "A", importance: "High" as const, availability: "High" as const },

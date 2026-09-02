@@ -1586,6 +1586,7 @@ function ModuleVisual({
     case "executive": {
       const d = moduleState.data as ModuleResultMap["executive"];
       const evidenceData = moduleData.evidence?.data as ModuleResultMap["evidence"] | undefined;
+      const strategyData = moduleData.strategy?.data as ModuleResultMap["strategy"] | undefined;
       const execStats = computeComparableStats(
         compsMap.data?.subject ?? null,
         compsMap.data?.comps ?? [],
@@ -1597,26 +1598,87 @@ function ModuleVisual({
         evidenceData?.items ?? [],
         null,
       );
+      const defenseScore = getDefenseReadinessScore(d.defenseQA);
       return (
-        <div className="grid gap-2 text-center">
-          <span
-            className={`mx-auto rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide ${
-              summary.protestOpportunity === "Potentially Overvalued"
-                ? "bg-destructive/10 text-destructive"
-                : summary.protestOpportunity === "Insufficient Data"
-                  ? "bg-secondary/60 text-muted-foreground"
-                  : "bg-warning/15 text-warning-foreground"
-            }`}
-          >
-            {summary.protestOpportunity}
-          </span>
-          {summary.overallConfidencePct != null && (
-            <SpeedometerGauge value={summary.overallConfidencePct} size="sm" />
-          )}
-          <div className="-mt-2 text-[10px] uppercase tracking-wide text-muted-foreground">
-            Case Confidence
+        <div className="grid gap-2">
+          {/* Real Executive Summary tiles — overvaluation range (comps
+              math), primary strategy name (Module 2's own top pick), market
+              value range (comps math) — same 3-tile layout as the
+              reference this card was matched to, all real numbers. */}
+          <div className="grid grid-cols-3 gap-1.5">
+            <div className="rounded-md bg-destructive/10 px-1 py-1.5 text-center">
+              <div className="text-[7px] uppercase tracking-wide text-destructive">
+                Overvaluation
+              </div>
+              <div className="truncate text-[11px] font-bold text-destructive">
+                {summary.overvaluationRange
+                  ? `${compactCurrency(summary.overvaluationRange.minDollar)}–${compactCurrency(summary.overvaluationRange.maxDollar)}`
+                  : "—"}
+              </div>
+              {summary.overvaluationRange && (
+                <div className="text-[8px] text-destructive/80">
+                  ({summary.overvaluationRange.minPct}%–{summary.overvaluationRange.maxPct}%)
+                </div>
+              )}
+            </div>
+            <div className="rounded-md bg-accent/10 px-1 py-1.5 text-center">
+              <div className="text-[7px] uppercase tracking-wide text-accent">Primary Strategy</div>
+              <div className="truncate text-[10px] font-bold">
+                {strategyData?.strategies[0]?.name ?? "—"}
+              </div>
+              {strategyData?.strategies[0] && (
+                <div className="text-[8px] text-muted-foreground">
+                  {strategyData.strategies[0].strengthScore >= 70 ? "Strongest" : "Best available"}
+                </div>
+              )}
+            </div>
+            <div className="rounded-md bg-success/10 px-1 py-1.5 text-center">
+              <div className="text-[7px] uppercase tracking-wide text-success">Value Range</div>
+              <div className="truncate text-[11px] font-bold text-success">
+                {summary.indicatedValueRange
+                  ? `${compactCurrency(summary.indicatedValueRange.min)}–${compactCurrency(summary.indicatedValueRange.max)}`
+                  : "—"}
+              </div>
+              {summary.currentCadValue != null && (
+                <div className="truncate text-[8px] text-muted-foreground">
+                  vs CAD {compactCurrency(summary.currentCadValue)}
+                </div>
+              )}
+            </div>
           </div>
-          <div className="font-serif text-sm font-bold leading-snug">{d.recommendedAction}</div>
+
+          {/* Key Supporting Factors — real AI findings, short titles only. */}
+          {d.majorFindings.length > 0 && (
+            <div className="grid gap-0.5">
+              {d.majorFindings.slice(0, 4).map((f, i) => (
+                <div key={i} className="flex items-center gap-1.5">
+                  <CheckCircle2 className="h-3 w-3 shrink-0 text-success" />
+                  <span className="min-w-0 flex-1 truncate text-[10px]">{f.finding}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Overall Case Assessment + Protest Defense Readiness gauges,
+              side by side — same pairing as the reference. */}
+          <div className="grid grid-cols-2 items-end gap-2">
+            {summary.overallConfidencePct != null && (
+              <div className="flex flex-col items-center">
+                <SpeedometerGauge value={summary.overallConfidencePct} size="sm" />
+                <div className="-mt-1 text-center text-[8px] uppercase tracking-wide text-muted-foreground">
+                  Case Assessment
+                </div>
+              </div>
+            )}
+            {defenseScore != null && (
+              <div className="flex flex-col items-center">
+                <SpeedometerGauge value={defenseScore} size="sm" />
+                <div className="-mt-1 text-center text-[8px] uppercase tracking-wide text-muted-foreground">
+                  Defense Readiness
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       );
     }
