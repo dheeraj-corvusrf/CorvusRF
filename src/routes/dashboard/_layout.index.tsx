@@ -507,17 +507,6 @@ function Overview() {
             </div>
           )}
 
-          {properties.length > 0 && (
-            <div className="card-elev p-5 min-w-0">
-              <h3 className="text-base font-bold">Top Protest Opportunities</h3>
-              <TopOpportunities
-                properties={properties}
-                healthScores={healthScores}
-                onOpenReport={openAiReport}
-              />
-            </div>
-          )}
-
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <div className="card-elev p-5 min-w-0">
               <h3 className="text-base font-bold">Cases & AI Recommendations</h3>
@@ -760,58 +749,6 @@ function PortfolioAxisTick(
         </tspan>
       ))}
     </text>
-  );
-}
-
-// Ranks properties by their AI "Protest Opportunity" score (the same score shown
-// per-property on /dashboard/properties as AiScoreBadge) so a multi-property owner
-// sees which properties look like the strongest opportunities first, instead of
-// reviewing each one individually. Properties with no score yet (backfilling in the
-// background — see useHealthScoreBackfill) simply don't appear until one exists.
-function TopOpportunities({
-  properties,
-  healthScores,
-  onOpenReport,
-}: {
-  properties: PropertyRecord[];
-  healthScores: Record<string, PropertyAiScore>;
-  onOpenReport: (p: PropertyRecord) => void;
-}) {
-  const ranked = properties
-    .filter((p) => healthScores[p.id])
-    .sort((a, b) => healthScores[b.id].score - healthScores[a.id].score)
-    .slice(0, 5);
-
-  if (ranked.length === 0) {
-    return (
-      <p className="mt-2 text-sm text-muted-foreground">
-        No scored properties yet — AI scores appear shortly after you add a property.
-      </p>
-    );
-  }
-
-  return (
-    <div className="mt-3 grid gap-3">
-      {ranked.map((p) => {
-        const score = healthScores[p.id];
-        return (
-          <div
-            key={p.id}
-            className="row-hover rounded-md flex items-center justify-between gap-3 px-2 py-2 min-w-0"
-          >
-            <div className="min-w-0">
-              <div className="truncate text-sm font-medium">{p.address}</div>
-              <p className="text-xs text-accent">
-                AI Score: {score.score}/100 — {score.summary}
-              </p>
-            </div>
-            <button onClick={() => onOpenReport(p)} className="btn-outline shrink-0 text-xs py-1.5">
-              View AI Report
-            </button>
-          </div>
-        );
-      })}
-    </div>
   );
 }
 

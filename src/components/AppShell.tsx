@@ -8,20 +8,25 @@ import {
   CalendarClock,
   CalendarDays,
   Receipt,
+  Lock,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 
 // Billing and Settings live in the profile dropdown (SiteChrome.tsx) instead
 // of here — they're account-level, not a property-tax workflow section, so
 // grouping them with Sign out reads more clearly than sitting in this row.
+// `locked` is purely a visual signal here (the link still navigates) — the
+// actual gate is the ComingSoonLock render each locked page shows itself,
+// see bpp-accounts.tsx/tax-bills.tsx. Keep in sync with those pages' own
+// LOCKED flag when toggling either back on.
 const NAV = [
-  { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { to: "/dashboard/properties", label: "Properties", icon: Building2 },
-  { to: "/dashboard/bpp-accounts", label: "BPP Accounts", icon: Briefcase },
-  { to: "/dashboard/documents", label: "Documents", icon: FileText },
-  { to: "/dashboard/deadlines", label: "Deadlines", icon: CalendarClock },
-  { to: "/dashboard/calendar", label: "Calendar", icon: CalendarDays },
-  { to: "/dashboard/tax-bills", label: "Tax Bills", icon: Receipt },
+  { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard, locked: false },
+  { to: "/dashboard/properties", label: "Properties", icon: Building2, locked: false },
+  { to: "/dashboard/bpp-accounts", label: "BPP Accounts", icon: Briefcase, locked: true },
+  { to: "/dashboard/documents", label: "Documents", icon: FileText, locked: false },
+  { to: "/dashboard/deadlines", label: "Deadlines", icon: CalendarClock, locked: false },
+  { to: "/dashboard/calendar", label: "Calendar", icon: CalendarDays, locked: false },
+  { to: "/dashboard/tax-bills", label: "Tax Bills", icon: Receipt, locked: true },
 ] as const;
 
 // Pages that keep their own full-width marketing/tooling layout instead of the
@@ -96,6 +101,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               >
                 <Icon className="h-4 w-4" />
                 {item.label}
+                {item.locked && <Lock className="h-3 w-3 text-muted-foreground" />}
               </Link>
             );
           })}
