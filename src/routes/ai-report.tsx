@@ -1681,9 +1681,7 @@ function ModuleVisual({
       const needsAttention = withPhoto.filter((c) => c.condition !== "Good");
       return (
         <div className="grid gap-2">
-          <div className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-secondary/40">
-            <Building2 className="h-8 w-8 text-muted-foreground" />
-          </div>
+          <BuildingIllustration className="mx-auto h-28 w-auto" />
           {depreciation.conditionAdjustedValue != null ? (
             <div className="grid grid-cols-2 gap-1.5">
               <ExecutiveStat
@@ -1702,7 +1700,10 @@ function ModuleVisual({
               {needsAttention.length} of {withPhoto.length} components need attention
             </p>
           )}
-          <MiniMeter value={d.priorityScore} label="condition priority" />
+          <div className="flex flex-col items-center">
+            <SpeedometerGauge value={d.priorityScore} size="sm" />
+            <div className="-mt-1 text-xs text-muted-foreground">condition priority</div>
+          </div>
         </div>
       );
     }
@@ -3051,6 +3052,55 @@ function SiteMapThumb({ lat, lng, height = 140 }: { lat: number; lng: number; he
         </span>
       )}
     </div>
+  );
+}
+
+// A generic multi-story commercial building — deliberately not a photo or a
+// rendering of THIS specific property (this app has no building imagery for
+// any property), just a more architectural stand-in than a single flat
+// icon: two visible faces (front + side) for depth, a window grid, a
+// rooftop mechanical unit, and a ground shadow. Colored entirely from the
+// app's own theme tokens so it never needs its own light/dark variant.
+function BuildingIllustration({ className }: { className?: string }) {
+  const windowCols = [26, 40, 54];
+  const windowRows = [30, 44, 58];
+  return (
+    <svg viewBox="0 0 120 100" className={className} aria-hidden="true">
+      <ellipse cx="55" cy="93" rx="42" ry="4" fill="var(--border)" opacity="0.5" />
+      {/* Roof */}
+      <polygon points="20,25 65,25 90,15 45,15" fill="var(--border)" />
+      <rect x="49" y="9" width="13" height="7" rx="1" fill="var(--border)" />
+      <line x1="75" y1="15" x2="75" y2="5" stroke="var(--muted-foreground)" strokeWidth="1.5" />
+      {/* Side face */}
+      <polygon points="65,25 90,15 90,80 65,90" fill="var(--muted-foreground)" opacity="0.35" />
+      {/* Front face */}
+      <rect x="20" y="25" width="45" height="65" fill="var(--secondary)" />
+      <rect x="20" y="25" width="45" height="65" fill="none" stroke="var(--border)" />
+      {windowRows.map((y) =>
+        windowCols.map((x) => (
+          <rect
+            key={`${x}-${y}`}
+            x={x}
+            y={y}
+            width="9"
+            height="9"
+            rx="0.5"
+            fill="var(--muted-foreground)"
+            opacity="0.3"
+          />
+        )),
+      )}
+      {/* Entrance */}
+      <rect
+        x="36"
+        y="75"
+        width="14"
+        height="15"
+        rx="1"
+        fill="var(--muted-foreground)"
+        opacity="0.45"
+      />
+    </svg>
   );
 }
 
@@ -4535,7 +4585,10 @@ function ModulePreviewContent({
         <div className="mt-4 grid gap-4">
           <PipelineDiagram />
 
-          <MiniMeter value={d.priorityScore} label="Condition priority" />
+          <div className="flex flex-col items-center">
+            <SpeedometerGauge value={d.priorityScore} size="md" />
+            <div className="-mt-1 text-xs text-muted-foreground">Condition Priority</div>
+          </div>
 
           {d.guidance && <AiVerdictLine icon={m.icon} text={d.guidance} color={m.color} />}
 
