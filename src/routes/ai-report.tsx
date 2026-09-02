@@ -1664,93 +1664,44 @@ function ModuleVisual({
       );
     }
     case "improvement": {
+      // Card stays minimal by design — a building visual + the 1-2 numbers
+      // that actually matter (Total Depreciation, Value Impact). The full
+      // pipeline/4-component breakdown/6-tile metrics only live in the
+      // modal ("View report") — repeating them here was too much text for
+      // a glance-able card.
       const d = moduleState.data as ModuleResultMap["improvement"];
-      const economicLife = getTypicalEconomicLife(propertyType);
       const depreciation = computeDepreciation(
         d.effectiveAgeYears,
-        economicLife,
+        getTypicalEconomicLife(propertyType),
         d.functionalObsolescencePct,
         d.externalObsolescencePct,
         improvementValue ?? null,
       );
+      const withPhoto = d.buildingComponents.filter((c) => c.hasPhoto);
+      const needsAttention = withPhoto.filter((c) => c.condition !== "Good");
       return (
         <div className="grid gap-2">
-          <PipelineDiagram />
-
-          <div>
-            <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-              Building Condition Overview
-            </div>
-            <div className="grid gap-1">
-              {d.buildingComponents.map((c) => (
-                <BuildingComponentRow key={c.component} c={c} onUploadClick={onOpen} />
-              ))}
-            </div>
+          <div className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-secondary/40">
+            <Building2 className="h-8 w-8 text-muted-foreground" />
           </div>
-
-          <div>
-            <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-              Condition Metrics
-            </div>
+          {depreciation.conditionAdjustedValue != null ? (
             <div className="grid grid-cols-2 gap-1.5">
               <ExecutiveStat
-                label="Effective Age"
-                value={d.effectiveAgeYears != null ? `${d.effectiveAgeYears} yrs` : "—"}
-              />
-              <ExecutiveStat label="Economic Life" value={`${economicLife.typical} yrs`} />
-              <ExecutiveStat
-                label="Physical Depreciation"
-                value={
-                  depreciation.physicalDepreciationPct != null
-                    ? `${depreciation.physicalDepreciationPct}%`
-                    : "—"
-                }
-              />
-              <ExecutiveStat
                 label="Total Depreciation"
-                value={
-                  depreciation.totalDepreciationPct != null
-                    ? `${depreciation.totalDepreciationPct}%`
-                    : "—"
-                }
+                value={`${depreciation.totalDepreciationPct}%`}
               />
-            </div>
-          </div>
-
-          {depreciation.conditionAdjustedValue != null && improvementValue != null ? (
-            <div>
-              <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                Value Impact
-              </div>
-              <div className="grid grid-cols-3 gap-1.5">
-                <div className="rounded-md bg-secondary/40 px-1 py-1.5 text-center">
-                  <div className="text-[7px] uppercase tracking-wide text-muted-foreground">
-                    CAD Value
-                  </div>
-                  <div className="truncate text-[10px] font-bold">
-                    {compactCurrency(improvementValue)}
-                  </div>
-                </div>
-                <div className="rounded-md bg-success/10 px-1 py-1.5 text-center">
-                  <div className="text-[7px] uppercase tracking-wide text-success">Adjusted</div>
-                  <div className="truncate text-[10px] font-bold text-success">
-                    {compactCurrency(depreciation.conditionAdjustedValue)}
-                  </div>
-                </div>
-                <div className="rounded-md bg-destructive/10 px-1 py-1.5 text-center">
-                  <div className="text-[7px] uppercase tracking-wide text-destructive">Impact</div>
-                  <div className="truncate text-[10px] font-bold text-destructive">
-                    {depreciation.impactPct}%
-                  </div>
-                </div>
-              </div>
+              <ExecutiveStat label="Value Impact" value={`${depreciation.impactPct}%`} />
             </div>
           ) : (
-            <p className="text-[10px] text-muted-foreground">
-              Additional data needed — upload photos to estimate condition impact.
+            <p className="text-center text-[10px] text-muted-foreground">
+              Additional data needed — upload photos to assess condition.
             </p>
           )}
-
+          {needsAttention.length > 0 && (
+            <p className="text-center text-[10px] text-muted-foreground">
+              {needsAttention.length} of {withPhoto.length} components need attention
+            </p>
+          )}
           <MiniMeter value={d.priorityScore} label="condition priority" />
         </div>
       );
