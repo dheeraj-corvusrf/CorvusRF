@@ -6,7 +6,7 @@ import type { CadRecord } from "./cad-lookup";
 // disambiguating multiple accounts at the same address (see cad-lookup.ts's
 // "multiple" result).
 //
-// Two counties get a REAL deep link straight to the specific account, since
+// Six counties get a REAL deep link straight to the specific account, since
 // their URL format is confirmed (not guessed):
 //   - Bexar: verified directly against a real record a user shared
 //     (bexar.trueautomation.com/clientdb/Property.aspx?cid=110&prop_id=...).
@@ -16,6 +16,16 @@ import type { CadRecord } from "./cad-lookup";
 //     already fetches server-side (AcctDetailCom.aspx — the commercial
 //     variant, matching this app's commercial-only scope; see
 //     DALLAS_DETAIL_PATHS in supabase/functions/cad-lookup/index.ts).
+//   - Denton, Tarrant, Montgomery, Travis: same underlying TrueProdigy/
+//     ProdigyCAD platform this app's own cad-comps already uses for their
+//     backend data (see texas_cad_vendor_landscape) — confirmed live by
+//     actually searching each county's public site for a real account
+//     (Denton 34086, Tarrant 41054806, Montgomery 167662, Travis 230964) and
+//     following the result through to its detail page:
+//     {site}/property-detail/{accountNumber}. Travis's portal lives on its
+//     own subdomain (travis.prodigycad.com) rather than under traviscad.org
+//     itself — easy to miss if you only check the county's main domain, as
+//     an earlier pass here did before this was corrected.
 //
 // Every other county only gets that CAD's general property-search homepage
 // (a real, verified domain — not a guessed deep-link route this app has
@@ -37,6 +47,16 @@ export const CAD_SEARCH_HOMEPAGE: Record<string, string> = {
   "Williamson Central Appraisal District": "https://search.wcad.org",
 };
 
+// The 3 TrueProdigy-platform counties (see the comment above) all share the
+// identical {base}/property-detail/{accountNumber} shape — just a different
+// base per county's own public site.
+const PRODIGYCAD_DETAIL_BASE: Record<string, string> = {
+  "Denton Central Appraisal District": "https://www.dentoncad.com",
+  "Tarrant Appraisal District": "https://tarrant.prodigycad.com",
+  "Montgomery Central Appraisal District": "https://mcad-tx.org",
+  "Travis Central Appraisal District": "https://travis.prodigycad.com",
+};
+
 export function getCadRecordUrl(record: Pick<CadRecord, "cad" | "accountNumber">): string | null {
   if (!record.accountNumber) return CAD_SEARCH_HOMEPAGE[record.cad] ?? null;
 
@@ -46,6 +66,10 @@ export function getCadRecordUrl(record: Pick<CadRecord, "cad" | "accountNumber">
   if (record.cad === "Dallas Central Appraisal District") {
     return `https://www.dallascad.org/AcctDetailCom.aspx?ID=${encodeURIComponent(record.accountNumber)}`;
   }
+  const prodigyBase = PRODIGYCAD_DETAIL_BASE[record.cad];
+  if (prodigyBase) {
+    return `${prodigyBase}/property-detail/${encodeURIComponent(record.accountNumber)}`;
+  }
   return CAD_SEARCH_HOMEPAGE[record.cad] ?? null;
 }
 
@@ -54,7 +78,11 @@ export function getCadRecordUrl(record: Pick<CadRecord, "cad" | "accountNumber">
 // Record" vs. "Search on {CAD}'s Website") rather than promising a specific
 // record every county doesn't actually jump straight to.
 export function isDirectCadRecordUrl(cad: string): boolean {
-  return cad === "Bexar Appraisal District" || cad === "Dallas Central Appraisal District";
+  return (
+    cad === "Bexar Appraisal District" ||
+    cad === "Dallas Central Appraisal District" ||
+    cad in PRODIGYCAD_DETAIL_BASE
+  );
 }
 
 // Plain county names ("Bexar", not "Bexar Appraisal District") derived from

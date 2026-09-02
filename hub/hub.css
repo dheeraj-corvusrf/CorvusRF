@@ -66,10 +66,14 @@ header .container-page {
   margin-inline: 0;
 }
 header .bar {
-  height: 4rem;
-  display: flex;
+  height: 5.5rem;
+  display: grid;
+  /* 3 columns (not flex space-between) so the centered tagline is truly
+     centered in the bar regardless of how wide the brand/hint content on
+     either side of it happens to be. */
+  grid-template-columns: auto 1fr auto;
   align-items: center;
-  justify-content: space-between;
+  gap: 1rem;
 }
 .brand {
   display: flex;
@@ -80,8 +84,8 @@ header .bar {
 }
 .logo-mark {
   display: inline-flex;
-  height: 2rem;
-  width: 2rem;
+  height: 2.5rem;
+  width: 2.5rem;
   align-items: center;
   justify-content: center;
   border-radius: 0.5rem;
@@ -90,7 +94,7 @@ header .bar {
   flex-shrink: 0;
 }
 .wordmark {
-  font-size: 1.125rem;
+  font-size: 1.375rem;
   font-weight: 600;
   letter-spacing: -0.01em;
 }
@@ -113,11 +117,28 @@ main {
   position: relative;
 }
 
+/* Centered header tagline — moved here from its own banner row between the
+   header and the doors so it reads as part of the header itself. Sized up
+   at the same 640px breakpoint .doors-hint already uses, so it doesn't
+   force wrapping/overflow on a narrow phone width before growing to its
+   full "big" size on larger screens. */
+.header-tagline {
+  text-align: center;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--foreground);
+}
+@media (min-width: 640px) {
+  .header-tagline {
+    font-size: 1.625rem;
+  }
+}
+
 /* Small "Choose a door to enter" hint beside the logo — only the doors-page
    header shows it (placeholder pages reuse the same header markup without
    this element present). */
 .doors-hint {
-  font-size: 0.8125rem;
+  font-size: 0.9375rem;
   color: var(--muted-foreground);
   display: none;
 }
@@ -140,20 +161,6 @@ body.doors-page {
 }
 body.doors-page header {
   flex: 0 0 auto;
-}
-/* Centered tagline between the header and the doors — its own flex row so
-   .doors-stage below (flex: 1 1 auto) just shrinks to fill whatever's left,
-   same "never hand-compute heights" approach as header/footer above. */
-body.doors-page .tagline-banner {
-  flex: 0 0 auto;
-}
-.tagline-banner {
-  margin: 0;
-  padding: 0.625rem 1rem;
-  text-align: center;
-  font-size: 0.9375rem;
-  font-weight: 500;
-  color: var(--muted-foreground);
 }
 body.doors-page footer {
   flex: 0 0 auto;
@@ -341,16 +348,16 @@ body.doors-page footer {
 }
 
 /* ---------- Dark slab + glow-frame door style ----------
-   A near-black door leaf (a whisper of each door's own brand hue mixed in,
-   just enough to keep the five doors distinguishable up close) rather than
-   a bright painted swatch — the identity now reads mainly through the glow
-   frame (.door-panel::before above) and the handle, same as a moody, real
-   architectural doorway lit by a single LED strip. */
+   A dark door leaf with each door's own brand hue mixed in more heavily
+   than before (was 6%/2%, a near-black "whisper") — still reads as a door,
+   not a flat painted swatch, but the color itself is meant to be clearly
+   visible now, not just implied through the glow frame (.door-panel::before
+   above) and the handle. */
 .door-panel {
   background: linear-gradient(
     165deg,
-    color-mix(in oklch, var(--door-tint, #888) 6%, #12151c) 0%,
-    color-mix(in oklch, var(--door-tint, #888) 2%, #05060a) 100%
+    color-mix(in oklch, var(--door-tint, #888) 20%, #12151c) 0%,
+    color-mix(in oklch, var(--door-tint, #888) 9%, #05060a) 100%
   );
 }
 .door-pt {
@@ -525,9 +532,28 @@ body.doors-page footer {
   }
 }
 
+/* Lets the active door's leaf actually rise above the header instead of
+   getting clipped flat at its own frame's top edge (.door's overflow:hidden
+   otherwise cuts it off right where the door meets the header, killing the
+   3D illusion) — scoped to just the door currently being interacted with,
+   so the other four stay properly framed. z-index here is what actually
+   guarantees it paints over the header (a plain non-positioned box, so it
+   otherwise sits at the same "auto" stacking level as normal flow content,
+   below any positioned+z-indexed element like this one becomes on hover). */
+.door:hover,
+.door:focus-visible,
+.door.is-open {
+  overflow: visible;
+  z-index: 20;
+}
 /* Ajar peek on hover/focus — 30% of the way to the full -100deg swing-open
    the click animation plays (see .door.is-open below), so hovering visibly
-   opens the door partway rather than just tilting it a hair. */
+   opens the door partway rather than just tilting it a hair. Pure rotateY
+   around the hinge (transform-origin: left center, set on .door-panel
+   above) — no added translateY/scale here: a real hinge doesn't move, only
+   the door swings on it, so the left edge/corners must stay exactly put.
+   The rotated leaf itself is what's now allowed to extend past the frame
+   (see the overflow:visible rule above), not any artificial lift. */
 .door:hover .door-panel,
 .door:focus-visible .door-panel {
   transform: rotateY(-30deg);
@@ -671,16 +697,11 @@ body .door.is-open .door-label {
   flex-direction: column;
   align-items: center;
   gap: 0.1875rem;
-  /* +2pt over the previous 1.0625rem (17px) — 2pt ≈ 2.67px at the
-     standard 96dpi/16px-root conversion, landing on this next clean step. */
-  font-size: 1.25rem;
+  font-size: 1.0625rem;
   font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  /* Same door-glow accent already used for the label lettering
-     (.door-label-accent) instead of plain white, so the subtitle reads as
-     part of each door's own identity. */
-  color: var(--door-glow, #fff);
+  color: #fff;
   background: oklch(0.16 0.02 260 / 0.78);
   border: 1px solid oklch(1 0 0 / 0.16);
   border-radius: 0.625rem;
@@ -691,10 +712,19 @@ body .door.is-open .door-label {
 .door-subtitle span {
   white-space: nowrap;
 }
+/* Only the specific letter that actually spells out the door's own
+   abbreviation (PT, BSL, D&P, CO, RF) gets picked out — e.g. the "P" in
+   "Property" and "T" in "Tax" for CorvusPT, not the whole word. Same
+   door-glow accent already used for the label lettering
+   (.door-label-accent), +2pt over the surrounding word's 1.0625rem. */
+.door-subtitle-letter {
+  color: var(--door-glow, currentColor);
+  font-size: 1.25rem;
+}
 /* PT gets the same brighter override as .door-label-pt (its --door-glow is
-   a touch muted for this purpose) so the subtitle matches the nameplate's
+   a touch muted for this purpose) so these letters match the nameplate's
    own green exactly, not a slightly different shade of it. */
-.door-pt .door-subtitle {
+.door-pt .door-subtitle-letter {
   color: #34d399;
 }
 body .door.is-open .door-subtitle {
@@ -755,7 +785,7 @@ body .door.is-open .door-subtitle {
   /* Used to just drop this entirely — at the OLD ~70px single-row door
      width there was truly no room for horizontal, nowrap text. The
      2-column grid's ~183px doors have room, at a reduced size scoped to
-     just this breakpoint (desktop's own 1.25rem is untouched). */
+     just this breakpoint (desktop's own 1.0625rem is untouched). */
   .door-subtitle {
     font-size: 0.8125rem;
     padding: 0.4375rem 0.625rem;
