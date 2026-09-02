@@ -264,7 +264,12 @@ const missingInformation = (
         .slice(0, 8)
     : [];
 
-const DEFENSE_QA_STATUSES = ["Supported", "Partially Supported", "Evidence Needed", "User Input Needed"];
+const DEFENSE_QA_STATUSES = [
+  "Supported",
+  "Partially Supported",
+  "Evidence Needed",
+  "User Input Needed",
+];
 const defenseQA = (
   v: unknown,
 ): {
@@ -280,7 +285,8 @@ const defenseQA = (
           question: str(x.question, 160),
           suggestedAnswer: str(x.suggestedAnswer, 300),
           status: DEFENSE_QA_STATUSES.includes(x.status as string)
-            ? (x.status as "Supported" | "Partially Supported" | "Evidence Needed" | "User Input Needed")
+            ? (x.status as
+                "Supported" | "Partially Supported" | "Evidence Needed" | "User Input Needed")
             : ("User Input Needed" as const),
           relatedModule: relatedModule(x.relatedModule),
         }))
@@ -408,48 +414,53 @@ const MODULE_SPECS: Record<string, ModuleSpec> = {
       "appraisal district or ARB panel would realistically raise against THIS property's specific " +
       "strategy/comps/evidence — not a generic FAQ — each with a fact-based suggested answer " +
       "grounded only in the record, and an honest status for how well-supported that answer " +
-      "actually is.",
+      "actually is. This page is a visual dashboard, not a report to read top to bottom — every " +
+      "text field below is displayed next to real numbers/badges/gauges that already convey the " +
+      "figures (score, value, confidence). Never restate a number or fact the record already gave " +
+      "you; every field is the shortest possible phrase that adds NEW information a stat tile " +
+      "can't show, not a sentence justifying or explaining the stat.",
     schema:
       `{"recommendedAction": "<one of: Proceed with Protest | Proceed with Protest After ` +
       `Completing Recommended Evidence | Additional Information Needed Before Proceeding | ` +
       `Limited Protest Opportunity Based on Available Information>", ` +
-      `"recommendationExplanation": "<2-3 concise sentences>", ` +
-      `"primaryStrategyExplanation": "<2-3 sentences on the strongest real strategy from the ` +
-      `record, or null if none is clearly supported>", ` +
-      `"secondaryStrategyExplanation": "<1-2 sentences, or null if no second strategy ` +
-      `materially contributes>", ` +
-      `"majorFindings": [{"finding": "<short title>", "whyItMatters": "<1 sentence>", ` +
-      `"relatedModule": "<one of: comps | site | improvement | zoning | income | evidence | null>"}, ...] ` +
-      `(3-5 items, most important first), ` +
+      `"recommendationExplanation": "<ONE short sentence, max ~15 words — the single most ` +
+      `important reason only, never restating a $ or % figure>", ` +
+      `"primaryStrategyExplanation": "<max ~10 words, a short phrase not a sentence — why this ` +
+      `strategy, in a few words, or null if none is clearly supported>", ` +
+      `"secondaryStrategyExplanation": "<max ~10 words, or null if no second strategy materially ` +
+      `contributes>", ` +
+      `"majorFindings": [{"finding": "<short title, max ~6 words>", "whyItMatters": "<max ~8 ` +
+      `words>", "relatedModule": "<one of: comps | site | improvement | zoning | income | ` +
+      `evidence | null>"}, ...] (3-5 items, most important first), ` +
       `"missingInformation": [{"item": "<short item>", "severity": "<Critical | Important | ` +
       `Supporting>"}, ...] (only real gaps, empty array if none), ` +
       `"recommendedProtestValue": <number, the real indicated value to argue for, or null if not ` +
       `reliably supported by the record>, ` +
-      `"recommendedProtestValueBasis": "<1 sentence basis, or 'Additional analysis required' if ` +
-      `the value above is null>", ` +
-      `"nextAction": "<ONE concise sentence, the single most important next step>", ` +
-      `"conflictNote": "<1-2 sentences describing a genuine conflict between the record's own ` +
+      `"recommendedProtestValueBasis": "<max ~10 words, or 'Additional analysis required' if the ` +
+      `value above is null>", ` +
+      `"nextAction": "<ONE short sentence, max ~12 words, the single most important next step>", ` +
+      `"conflictNote": "<1 short sentence describing a genuine conflict between the record's own ` +
       `signals, or null>", ` +
       `"defenseQA": [{"question": "<property-specific likely challenge>", "suggestedAnswer": ` +
-      `"<fact-based answer using only the record>", "status": "<one of: Supported | Partially ` +
-      `Supported | Evidence Needed | User Input Needed>", "relatedModule": "<one of: comps | site ` +
-      `| improvement | zoning | income | evidence | null>"}, ...] (4-6 items)}`,
+      `"<max ~20 words, fact-based, using only the record>", "status": "<one of: Supported | ` +
+      `Partially Supported | Evidence Needed | User Input Needed>", "relatedModule": "<one of: ` +
+      `comps | site | improvement | zoning | income | evidence | null>"}, ...] (4-6 items)}`,
     parse: (p) => ({
       recommendedAction: isValidRecommendedAction(p.recommendedAction)
         ? p.recommendedAction
         : "Additional Information Needed Before Proceeding",
-      recommendationExplanation: str(p.recommendationExplanation, 400),
-      primaryStrategyExplanation: str(p.primaryStrategyExplanation, 400) || null,
-      secondaryStrategyExplanation: str(p.secondaryStrategyExplanation, 300) || null,
+      recommendationExplanation: str(p.recommendationExplanation, 140),
+      primaryStrategyExplanation: str(p.primaryStrategyExplanation, 90) || null,
+      secondaryStrategyExplanation: str(p.secondaryStrategyExplanation, 90) || null,
       majorFindings: majorFindings(p.majorFindings),
       missingInformation: missingInformation(p.missingInformation),
       recommendedProtestValue:
         typeof p.recommendedProtestValue === "number" && Number.isFinite(p.recommendedProtestValue)
           ? p.recommendedProtestValue
           : null,
-      recommendedProtestValueBasis: str(p.recommendedProtestValueBasis, 200),
-      nextAction: str(p.nextAction, 200),
-      conflictNote: str(p.conflictNote, 300) || null,
+      recommendedProtestValueBasis: str(p.recommendedProtestValueBasis, 90),
+      nextAction: str(p.nextAction, 160),
+      conflictNote: str(p.conflictNote, 200) || null,
       defenseQA: defenseQA(p.defenseQA),
     }),
   },

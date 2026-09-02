@@ -2486,21 +2486,22 @@ function FindingCard({
     ? MODULES.find((mm) => mm.id === finding.relatedModule)
     : null;
   return (
-    <div className="card-elev p-3">
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0 flex-1">
-          <div className="text-sm font-semibold">{finding.finding}</div>
-          <p className="mt-0.5 text-xs text-muted-foreground">{finding.whyItMatters}</p>
-        </div>
-        {target && (
-          <button
-            onClick={() => onOpenModule(target.id)}
-            className="shrink-0 whitespace-nowrap text-xs text-accent hover:underline"
-          >
-            View Analysis →
-          </button>
+    <div className="flex items-start gap-2 rounded-lg bg-secondary/30 px-3 py-2">
+      <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-success" />
+      <div className="min-w-0 flex-1">
+        <span className="text-sm font-semibold">{finding.finding}</span>
+        {finding.whyItMatters && (
+          <span className="text-xs text-muted-foreground"> — {finding.whyItMatters}</span>
         )}
       </div>
+      {target && (
+        <button
+          onClick={() => onOpenModule(target.id)}
+          className="shrink-0 whitespace-nowrap text-xs text-accent hover:underline"
+        >
+          View Analysis →
+        </button>
+      )}
     </div>
   );
 }
@@ -2771,6 +2772,26 @@ function ChecklistIconRows({ items, color }: { items: string[]; color: IconColor
 // strategies (so "Comparable Sales" shows the same icon as the Market Value
 // module card, etc.) via relatedModules; falls back to a generic icon for an
 // AI-added "Other: ..." strategy, which doesn't map to any of Modules 3-7.
+// Visual cue for Module 10's Recommended Action banner — a glance-able icon
+// standing in for reading the category string closely.
+function RecommendedActionIcon({
+  action,
+  className,
+}: {
+  action: ModuleResultMap["executive"]["recommendedAction"];
+  className?: string;
+}) {
+  const Icon =
+    action === "Proceed with Protest"
+      ? ShieldCheck
+      : action === "Proceed with Protest After Completing Recommended Evidence"
+        ? FileWarning
+        : action === "Limited Protest Opportunity Based on Available Information"
+          ? AlertTriangle
+          : HelpCircle;
+  return <Icon className={className} />;
+}
+
 function strategyIcon(s: StrategyEntry): LucideIcon {
   const relatedId = s.relatedModules[0];
   const mod = relatedId ? MODULES.find((mm) => mm.id === relatedId) : undefined;
@@ -4252,15 +4273,23 @@ function ModulePreviewContent({
             </div>
           )}
 
-          {/* 3. Final Protest Recommendation */}
-          <div className={`rounded-lg p-4 ${m.color.bg}`}>
-            <div className={`text-[10px] font-semibold uppercase tracking-wide ${m.color.text}`}>
-              Recommended Action
+          {/* 3. Final Protest Recommendation — icon + the action itself carry
+              the message; explanation is now capped to one short phrase
+              server-side, not a paragraph (see MODULE_SPECS.executive). */}
+          <div className={`flex items-start gap-3 rounded-lg p-4 ${m.color.bg}`}>
+            <RecommendedActionIcon
+              action={d.recommendedAction}
+              className={`mt-0.5 h-6 w-6 shrink-0 ${m.color.text}`}
+            />
+            <div className="min-w-0 flex-1">
+              <div className={`text-[10px] font-semibold uppercase tracking-wide ${m.color.text}`}>
+                Recommended Action
+              </div>
+              <div className="mt-0.5 font-serif text-lg font-bold">{d.recommendedAction}</div>
+              {d.recommendationExplanation && (
+                <p className="mt-1 text-sm text-foreground/90">{d.recommendationExplanation}</p>
+              )}
             </div>
-            <div className="mt-1 font-serif text-lg font-bold">{d.recommendedAction}</div>
-            {d.recommendationExplanation && (
-              <p className="mt-1.5 text-sm text-foreground/90">{d.recommendationExplanation}</p>
-            )}
           </div>
           {d.conflictNote && (
             <div className="flex items-start gap-2 rounded-lg bg-warning/15 p-3 text-sm text-warning-foreground">
@@ -4269,37 +4298,45 @@ function ModulePreviewContent({
             </div>
           )}
 
-          {/* 4. Recommended Protest Strategy */}
-          {(d.primaryStrategyExplanation || d.secondaryStrategyExplanation) && (
-            <div className="grid gap-2">
-              {d.primaryStrategyExplanation && (
-                <div className="card-elev p-3">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    Primary Strategy
-                    {strategyData?.strategies[0] ? ` — ${strategyData.strategies[0].name}` : ""}
-                  </div>
-                  <p className="mt-1 text-sm">{d.primaryStrategyExplanation}</p>
+          {/* 4. Recommended Protest Strategy — the same StrategyBar visual
+              (icon + score bar + number) Module 6's own ranked list already
+              uses, so strength reads at a glance instead of via prose; the
+              AI's phrase (now capped to ~10 words server-side) is a caption
+              under the bar, not a paragraph. */}
+          {(strategyData?.strategies[0] || strategyData?.strategies[1]) && (
+            <div className="card-elev grid gap-3 p-3">
+              <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Recommended Protest Strategy
+              </div>
+              {strategyData.strategies[0] && (
+                <div>
+                  <StrategyBar s={strategyData.strategies[0]} />
+                  {d.primaryStrategyExplanation && (
+                    <p className="mt-1 pl-6 text-xs text-muted-foreground">
+                      {d.primaryStrategyExplanation}
+                    </p>
+                  )}
                 </div>
               )}
-              {d.secondaryStrategyExplanation && (
-                <div className="card-elev p-3">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    Secondary Strategy
-                    {strategyData?.strategies[1] ? ` — ${strategyData.strategies[1].name}` : ""}
-                  </div>
-                  <p className="mt-1 text-sm">{d.secondaryStrategyExplanation}</p>
+              {strategyData.strategies[1] && d.secondaryStrategyExplanation && (
+                <div>
+                  <StrategyBar s={strategyData.strategies[1]} />
+                  <p className="mt-1 pl-6 text-xs text-muted-foreground">
+                    {d.secondaryStrategyExplanation}
+                  </p>
                 </div>
               )}
             </div>
           )}
 
-          {/* 5. Major Supporting Findings */}
+          {/* 5. Major Supporting Findings — icon-led, one short line each
+              (whyItMatters capped to ~8 words server-side), not paragraphs. */}
           {d.majorFindings.length > 0 && (
             <div>
               <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 Major Supporting Findings
               </div>
-              <div className="grid gap-2">
+              <div className="grid gap-1.5">
                 {d.majorFindings.map((f, i) => (
                   <FindingCard key={i} finding={f} onOpenModule={onOpenModule} />
                 ))}
