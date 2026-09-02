@@ -396,7 +396,13 @@ const MODULE_SPECS: Record<string, ModuleSpec> = {
       "Produce a prioritized evidence checklist for the protest packet. For each item, judge its " +
       "importance to the case (High/Low) and how readily available it typically is to a property " +
       "owner (High/Low) — this powers a priority-quadrant view, so favor items that actually differ " +
-      "on these two axes rather than marking everything High/High.",
+      "on these two axes rather than marking everything High/High. importance is High only for an " +
+      "item that would materially change the strategy/value argument if missing, Low otherwise; " +
+      "availability is High only for something the owner already has or can obtain with no real " +
+      "effort (a photo, a bill), Low for something that takes real work to get (a certified " +
+      "appraisal, a rent roll). This checklist feeds a real completeness score shown to the user — " +
+      "given the same property record, always select the same real evidence types and classify them " +
+      "the same way, not a different list each time.",
     schema: `{"items": [{"item": "<short item>", "importance": "<High | Low>", "availability": "<High | Low>"}, ...]}`,
     parse: (p) => ({ items: evidenceItems(p.items) }),
   },
@@ -413,8 +419,14 @@ const MODULE_SPECS: Record<string, ModuleSpec> = {
       "reduction, or protest success. For defenseQA, generate 4-6 property-specific questions an " +
       "appraisal district or ARB panel would realistically raise against THIS property's specific " +
       "strategy/comps/evidence — not a generic FAQ — each with a fact-based suggested answer " +
-      "grounded only in the record, and an honest status for how well-supported that answer " +
-      "actually is. This page is a visual dashboard, not a report to read top to bottom — every " +
+      "grounded only in the record. status is a real classification, not a feel — apply this rule " +
+      "strictly, in order: Supported only when the record's own evidence/comps/strategy data " +
+      "directly and fully backs the answer; Partially Supported when the record backs part of the " +
+      "answer but a real gap remains; Evidence Needed when the record names the needed evidence " +
+      "item but it isn't yet marked as uploaded/available; User Input Needed when answering fully " +
+      "requires a fact this record doesn't contain at all. This score feeds a real readiness gauge " +
+      "shown to the user — given the same record, always classify the same way, not a different " +
+      "call each time. This page is a visual dashboard, not a report to read top to bottom — every " +
       "text field below is displayed next to real numbers/badges/gauges that already convey the " +
       "figures (score, value, confidence). Never restate a number or fact the record already gave " +
       "you; every field is the shortest possible phrase that adds NEW information a stat tile " +
@@ -640,6 +652,18 @@ async function generateJson(
     generationConfig: {
       responseMimeType: "application/json",
       thinkingConfig: { thinkingBudget },
+      // 0, not left at Gemini's default (~1) — several downstream numbers
+      // (Module 10's Case Assessment / Defense Readiness gauges) are real
+      // deterministic formulas over classification fields the model itself
+      // assigns (evidence importance/availability, defenseQA status); at
+      // default sampling those classifications visibly drifted between two
+      // calls against the *same* underlying record, so a gauge could swing
+      // 20+ points with nothing about the actual case having changed. 0
+      // makes token selection always-greedy — not a mathematical guarantee
+      // of byte-identical output every time, but it removes sampling as a
+      // source of variance, leaving only genuine differences in the record
+      // fed in to move these numbers.
+      temperature: 0,
     },
   };
 
