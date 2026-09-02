@@ -141,6 +141,20 @@ body.doors-page {
 body.doors-page header {
   flex: 0 0 auto;
 }
+/* Centered tagline between the header and the doors — its own flex row so
+   .doors-stage below (flex: 1 1 auto) just shrinks to fill whatever's left,
+   same "never hand-compute heights" approach as header/footer above. */
+body.doors-page .tagline-banner {
+  flex: 0 0 auto;
+}
+.tagline-banner {
+  margin: 0;
+  padding: 0.625rem 1rem;
+  text-align: center;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  color: var(--muted-foreground);
+}
 body.doors-page footer {
   flex: 0 0 auto;
   height: 2.25rem;
