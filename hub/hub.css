@@ -671,16 +671,11 @@ body .door.is-open .door-label {
   flex-direction: column;
   align-items: center;
   gap: 0.1875rem;
-  /* +2pt over the previous 1.0625rem (17px) — 2pt ≈ 2.67px at the
-     standard 96dpi/16px-root conversion, landing on this next clean step. */
-  font-size: 1.25rem;
+  font-size: 1.0625rem;
   font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  /* Same door-glow accent already used for the label lettering
-     (.door-label-accent) instead of plain white, so the subtitle reads as
-     part of each door's own identity. */
-  color: var(--door-glow, #fff);
+  color: #fff;
   background: oklch(0.16 0.02 260 / 0.78);
   border: 1px solid oklch(1 0 0 / 0.16);
   border-radius: 0.625rem;
@@ -691,10 +686,19 @@ body .door.is-open .door-label {
 .door-subtitle span {
   white-space: nowrap;
 }
+/* Only the specific letter that actually spells out the door's own
+   abbreviation (PT, BSL, D&P, CO, RF) gets picked out — e.g. the "P" in
+   "Property" and "T" in "Tax" for CorvusPT, not the whole word. Same
+   door-glow accent already used for the label lettering
+   (.door-label-accent), +2pt over the surrounding word's 1.0625rem. */
+.door-subtitle-letter {
+  color: var(--door-glow, currentColor);
+  font-size: 1.25rem;
+}
 /* PT gets the same brighter override as .door-label-pt (its --door-glow is
-   a touch muted for this purpose) so the subtitle matches the nameplate's
+   a touch muted for this purpose) so these letters match the nameplate's
    own green exactly, not a slightly different shade of it. */
-.door-pt .door-subtitle {
+.door-pt .door-subtitle-letter {
   color: #34d399;
 }
 body .door.is-open .door-subtitle {
@@ -755,7 +759,7 @@ body .door.is-open .door-subtitle {
   /* Used to just drop this entirely — at the OLD ~70px single-row door
      width there was truly no room for horizontal, nowrap text. The
      2-column grid's ~183px doors have room, at a reduced size scoped to
-     just this breakpoint (desktop's own 1.25rem is untouched). */
+     just this breakpoint (desktop's own 1.0625rem is untouched). */
   .door-subtitle {
     font-size: 0.8125rem;
     padding: 0.4375rem 0.625rem;
