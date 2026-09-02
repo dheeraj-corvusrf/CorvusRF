@@ -6,7 +6,7 @@ import type { CadRecord } from "./cad-lookup";
 // disambiguating multiple accounts at the same address (see cad-lookup.ts's
 // "multiple" result).
 //
-// Five counties get a REAL deep link straight to the specific account, since
+// Six counties get a REAL deep link straight to the specific account, since
 // their URL format is confirmed (not guessed):
 //   - Bexar: verified directly against a real record a user shared
 //     (bexar.trueautomation.com/clientdb/Property.aspx?cid=110&prop_id=...).
@@ -16,15 +16,16 @@ import type { CadRecord } from "./cad-lookup";
 //     already fetches server-side (AcctDetailCom.aspx — the commercial
 //     variant, matching this app's commercial-only scope; see
 //     DALLAS_DETAIL_PATHS in supabase/functions/cad-lookup/index.ts).
-//   - Denton, Tarrant, Montgomery: same underlying platform as this app's
-//     own TrueProdigy-backed cad-comps (see texas_cad_vendor_landscape) —
-//     confirmed live by actually searching each county's public site for a
-//     real account on file (Denton 34086, Tarrant 41054806, Montgomery
-//     167662) and following the result through to its detail page:
-//     {site}/property-detail/{accountNumber}. Travis is on a different
-//     platform (no TrueProdigy signature found on traviscad.org) and stays
-//     on the generic fallback below until its own real pattern is confirmed
-//     the same way — never assumed just because it shares a data vendor.
+//   - Denton, Tarrant, Montgomery, Travis: same underlying TrueProdigy/
+//     ProdigyCAD platform this app's own cad-comps already uses for their
+//     backend data (see texas_cad_vendor_landscape) — confirmed live by
+//     actually searching each county's public site for a real account
+//     (Denton 34086, Tarrant 41054806, Montgomery 167662, Travis 230964) and
+//     following the result through to its detail page:
+//     {site}/property-detail/{accountNumber}. Travis's portal lives on its
+//     own subdomain (travis.prodigycad.com) rather than under traviscad.org
+//     itself — easy to miss if you only check the county's main domain, as
+//     an earlier pass here did before this was corrected.
 //
 // Every other county only gets that CAD's general property-search homepage
 // (a real, verified domain — not a guessed deep-link route this app has
@@ -53,6 +54,7 @@ const PRODIGYCAD_DETAIL_BASE: Record<string, string> = {
   "Denton Central Appraisal District": "https://www.dentoncad.com",
   "Tarrant Appraisal District": "https://tarrant.prodigycad.com",
   "Montgomery Central Appraisal District": "https://mcad-tx.org",
+  "Travis Central Appraisal District": "https://travis.prodigycad.com",
 };
 
 export function getCadRecordUrl(record: Pick<CadRecord, "cad" | "accountNumber">): string | null {
