@@ -1607,10 +1607,10 @@ function ModuleVisual({
               reference this card was matched to, all real numbers. */}
           <div className="grid grid-cols-3 gap-1.5">
             <div
-              className={`rounded-md px-1 py-1.5 text-center ${summary.overvaluationRange ? "bg-destructive/10" : "bg-secondary/40"}`}
+              className={`min-w-0 rounded-md px-1 py-1.5 text-center ${summary.overvaluationRange ? "bg-destructive/10" : "bg-secondary/40"}`}
             >
               <div
-                className={`text-[7px] uppercase tracking-wide ${summary.overvaluationRange ? "text-destructive" : "text-muted-foreground"}`}
+                className={`truncate text-[7px] uppercase tracking-wide ${summary.overvaluationRange ? "text-destructive" : "text-muted-foreground"}`}
               >
                 Overvaluation
               </div>
@@ -1629,8 +1629,10 @@ function ModuleVisual({
                 </div>
               )}
             </div>
-            <div className="rounded-md bg-accent/10 px-1 py-1.5 text-center">
-              <div className="text-[7px] uppercase tracking-wide text-accent">Primary Strategy</div>
+            <div className="min-w-0 rounded-md bg-accent/10 px-1 py-1.5 text-center">
+              <div className="truncate text-[7px] uppercase tracking-wide text-accent">
+                Primary Strategy
+              </div>
               <div className="truncate text-[10px] font-bold">
                 {strategyData?.strategies[0]?.name ?? "—"}
               </div>
@@ -1641,10 +1643,10 @@ function ModuleVisual({
               )}
             </div>
             <div
-              className={`rounded-md px-1 py-1.5 text-center ${summary.indicatedValueRange ? "bg-success/10" : "bg-secondary/40"}`}
+              className={`min-w-0 rounded-md px-1 py-1.5 text-center ${summary.indicatedValueRange ? "bg-success/10" : "bg-secondary/40"}`}
             >
               <div
-                className={`text-[7px] uppercase tracking-wide ${summary.indicatedValueRange ? "text-success" : "text-muted-foreground"}`}
+                className={`truncate text-[7px] uppercase tracking-wide ${summary.indicatedValueRange ? "text-success" : "text-muted-foreground"}`}
               >
                 Value Range
               </div>
@@ -2485,9 +2487,17 @@ function FormulaChain({
 // getExecutiveSummary() in src/lib/executive-summary.ts for the source of
 // every value passed in here.
 function ExecutiveStat({ label, value }: { label: string; value: string }) {
+  // min-w-0 on the grid-item wrapper itself, not just truncate on the
+  // children — a grid item's default auto min-width is based on its
+  // content, so a long uppercase label like "EVIDENCE READINESS" can still
+  // force this cell (and the whole row) wider than the modal without it.
+  // Same bug class fixed across the shared row components earlier; this one
+  // was added afterward for Module 10 and got missed.
   return (
-    <div className="rounded-lg bg-secondary/40 px-2 py-2 text-center">
-      <div className="text-[8px] uppercase tracking-wide text-muted-foreground">{label}</div>
+    <div className="min-w-0 rounded-lg bg-secondary/40 px-2 py-2 text-center">
+      <div className="truncate text-[8px] uppercase tracking-wide text-muted-foreground">
+        {label}
+      </div>
       <div className="mt-0.5 truncate text-xs font-semibold">{value}</div>
     </div>
   );
