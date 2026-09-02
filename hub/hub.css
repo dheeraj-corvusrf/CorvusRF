@@ -532,12 +532,28 @@ body.doors-page footer {
   }
 }
 
+/* Lets the active door's leaf actually rise above the header instead of
+   getting clipped flat at its own frame's top edge (.door's overflow:hidden
+   otherwise cuts it off right where the door meets the header, killing the
+   3D illusion) — scoped to just the door currently being interacted with,
+   so the other four stay properly framed. z-index here is what actually
+   guarantees it paints over the header (a plain non-positioned box, so it
+   otherwise sits at the same "auto" stacking level as normal flow content,
+   below any positioned+z-indexed element like this one becomes on hover). */
+.door:hover,
+.door:focus-visible,
+.door.is-open {
+  overflow: visible;
+  z-index: 20;
+}
 /* Ajar peek on hover/focus — 30% of the way to the full -100deg swing-open
    the click animation plays (see .door.is-open below), so hovering visibly
-   opens the door partway rather than just tilting it a hair. */
+   opens the door partway rather than just tilting it a hair. Lifted up and
+   scaled up slightly too (not just rotated) so it visibly breaks past the
+   header line rather than just tilting in place. */
 .door:hover .door-panel,
 .door:focus-visible .door-panel {
-  transform: rotateY(-30deg);
+  transform: rotateY(-30deg) translateY(-1.25rem) scale(1.05);
   box-shadow:
     inset 0 0 0 1px oklch(1 0 0 / 0.14),
     1.5rem 0 3rem -1rem oklch(0 0 0 / 0.55);
@@ -555,7 +571,7 @@ body.doors-page footer {
    navigates, revealing the plain "hallway" behind it (.door's own
    background). Currently unreachable — see the comment on .door above. */
 .door.is-open .door-panel {
-  transform: rotateY(-100deg);
+  transform: rotateY(-100deg) translateY(-2.5rem) scale(1.1);
 }
 /* Every other door dims slightly once one has been chosen. */
 .doors.has-open .door:not(.is-open) {
