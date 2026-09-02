@@ -87,7 +87,7 @@ export const MODULES: Module[] = [
     question: "Is the building being valued fairly based on its age and condition?",
     status: "Completed",
     teaser:
-      "AI checklist of condition and functional-obsolescence factors worth documenting for this property.",
+      "Real age-life depreciation math from your uploaded photos, plus a checklist of what else to document.",
     icon: Wrench,
     color: ICON_COLORS[4],
   },

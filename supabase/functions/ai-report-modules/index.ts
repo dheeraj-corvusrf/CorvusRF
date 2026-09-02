@@ -106,6 +106,13 @@ type ModulesInput = {
     floodZone: { zone: string; label: string; inSFHA: boolean } | null;
     elevationFt: number | null;
   } | null;
+  // Only for moduleId "improvement" — the real typical economic-life range
+  // for this property's type (src/lib/improvement-condition.ts,
+  // getTypicalEconomicLife()), grounding the AI's effective-age estimate in
+  // an honest industry-general figure rather than an unmoored guess. Not
+  // gated on anything (unlike evidenceImages) — always sent for this
+  // module.
+  economicLifeYears?: { min: number; max: number; typical: number } | null;
   // Question-mode fields (see Deno.serve below) — when `question` is set, this
   // request is a Q&A follow-up, not a module-analysis request.
   question?: string;
@@ -118,7 +125,9 @@ report module.
 
 Reason only from what's given plus general knowledge of Texas commercial property appraisal
 practice. Do NOT invent specific comparable sale prices, specific building square footage,
-specific site defects, or a specific effective age — none of that was provided. Where this
+specific site defects, or a specific effective age unless real grounding for it (e.g. real
+attached photos, a real site-condition data point) was actually given below — that grounding
+won't exist for most calls, so treat "none of that was provided" as the default. Where this
 module would normally need data this record doesn't include (actual comparable sales, a site
 inspection, a building condition survey), give general guidance and a checklist of what to
 gather instead of fabricated specific findings.
@@ -177,6 +186,14 @@ const checklist = (v: unknown): string[] =>
 // opposite of "the AI didn't return a usable number") when missing/invalid.
 const score100 = (v: unknown, fallback = 50): number =>
   Math.max(0, Math.min(100, Math.round(Number(v)) || fallback));
+
+// Same clamp, but null (not a fallback midpoint) when the AI didn't return
+// a usable number — for fields where "unknown" must stay honestly unknown
+// rather than defaulting to 50 (e.g. Module 5's obsolescence percentages,
+// which feed a real depreciation calculation client-side and would silently
+// corrupt it if a missing value read as "50%").
+const score100OrNull = (v: unknown): number | null =>
+  typeof v === "number" && Number.isFinite(v) ? Math.max(0, Math.min(100, Math.round(v))) : null;
 
 const strList = (v: unknown, max: number, len: number): string[] =>
   Array.isArray(v)
@@ -416,6 +433,86 @@ function enforceSiteFactorRealData(
   });
 }
 
+// Module 5 (improvement) — the 4 fixed building components, in a fixed
+// order. Same allow-list discipline as SITE_FACTORS: the AI can't omit or
+// invent a row, so the UI's 4-row layout is always stable.
+const BUILDING_COMPONENTS = ["Roof", "HVAC", "Exterior", "Interior"] as const;
+type BuildingComponentName = (typeof BUILDING_COMPONENTS)[number];
+type BuildingComponentCondition = "Good" | "Fair" | "Poor" | "Unknown";
+type BuildingComponent = {
+  component: BuildingComponentName;
+  hasPhoto: boolean;
+  condition: BuildingComponentCondition;
+  actionNeeded: string | null;
+  notes: string;
+};
+const BUILDING_COMPONENT_CONDITIONS: BuildingComponentCondition[] = [
+  "Good",
+  "Fair",
+  "Poor",
+  "Unknown",
+];
+
+// First pass — validates the AI's raw array into exactly 4 typed entries.
+// Does not yet know whether any evidence images were actually sent (that's
+// only visible in the request handler, not here) — see
+// enforceBuildingComponentRealData below.
+function buildingComponents(v: unknown): BuildingComponent[] {
+  const byName = new Map<string, Record<string, unknown>>();
+  if (Array.isArray(v)) {
+    for (const x of v) {
+      if (
+        typeof x === "object" &&
+        x !== null &&
+        typeof (x as Record<string, unknown>).component === "string"
+      ) {
+        byName.set(
+          (x as Record<string, unknown>).component as string,
+          x as Record<string, unknown>,
+        );
+      }
+    }
+  }
+  return BUILDING_COMPONENTS.map((component) => {
+    const x = byName.get(component) ?? {};
+    const hasPhoto = x.hasPhoto === true;
+    // Belt-and-suspenders: the model's own "no photo" admission always wins
+    // over a stray non-"Unknown" condition it might have filled in anyway.
+    const condition = !hasPhoto
+      ? "Unknown"
+      : BUILDING_COMPONENT_CONDITIONS.includes(x.condition as BuildingComponentCondition)
+        ? (x.condition as BuildingComponentCondition)
+        : "Unknown";
+    return {
+      component,
+      hasPhoto,
+      condition,
+      actionNeeded: hasPhoto ? str(x.actionNeeded, 60) || null : null,
+      notes: hasPhoto ? str(x.notes, 70) : "",
+    };
+  });
+}
+
+// Second pass — the real enforcement, run in the request handler where
+// input.evidenceImages is visible (spec.parse only ever sees the AI's raw
+// JSON, matching every other module). When literally zero photos were
+// sent, every component is hard-clamped to "no photo" regardless of what
+// the AI returned — this app has nothing real to show it, and the model's
+// own discipline alone isn't trusted to guarantee that.
+function enforceBuildingComponentRealData(
+  components: BuildingComponent[],
+  hadAnyPhotos: boolean,
+): BuildingComponent[] {
+  if (hadAnyPhotos) return components;
+  return components.map((c) => ({
+    ...c,
+    hasPhoto: false,
+    condition: "Unknown",
+    actionNeeded: null,
+    notes: "",
+  }));
+}
+
 const MODULE_SPECS: Record<string, ModuleSpec> = {
   strategy: {
     instruction:
@@ -516,16 +613,57 @@ const MODULE_SPECS: Record<string, ModuleSpec> = {
   },
   improvement: {
     instruction:
-      "Give guidance on building condition / functional obsolescence factors worth documenting. " +
-      "Also give an overall 0-100 documentation-priority score for how worthwhile pursuing " +
-      "improvement-condition evidence looks for this specific property (based on its value profile " +
-      "and property type — not a claim about a specific defect you haven't observed).",
-    schema: `{"guidance": "<ONE short sentence, max ~18 words — a headline, the checklist below carries the detail>", "checklist": ["<short item>", ...], "priorityScore": <integer 0-100>}`,
-    parse: (p) => ({
-      guidance: str(p.guidance, 160),
-      checklist: checklist(p.checklist),
-      priorityScore: score100(p.priorityScore),
-    }),
+      "Assess this property's building condition across exactly these 4 components, in this " +
+      "exact order: Roof, HVAC, Exterior, Interior. Set hasPhoto true for a component ONLY when " +
+      "an attached photo/document actually shows it — if none does, set hasPhoto false and leave " +
+      "condition/actionNeeded/notes at their defaults; never guess a condition for a component " +
+      "you can't actually see. For a component you DO have a real photo of, state condition " +
+      "(Good/Fair/Poor) and actionNeeded (e.g. Repair Needed, Replacement, Maintenance, or null " +
+      "if nothing is needed) based only on what's visible. Also estimate effectiveAgeYears ONLY " +
+      "if photos/documents give a real basis for it (visible wear, stated renovation history, " +
+      "etc.) — ground it using the typical economic life range given above, never invent an age " +
+      "from property type or value alone; leave it null with an honest effectiveAgeBasis " +
+      "otherwise. Same discipline for functionalObsolescencePct (outdated layout/systems/design " +
+      "visible in what was given) and externalObsolescencePct (market/locational factors you can " +
+      "reasonably infer from the record) — null with an honest basis when there's no real " +
+      "grounding for either. Also give an overall 0-100 documentation-priority score for how " +
+      "worthwhile pursuing improvement-condition evidence looks for this property, and a " +
+      "one-sentence key finding grounded only in whichever components/metrics have real data — " +
+      "say plainly that more data is needed if nothing real was found.",
+    schema:
+      `{"guidance": "<ONE short sentence, max ~18 words>", ` +
+      `"buildingComponents": [{"component": "<one of: Roof | HVAC | Exterior | Interior>", ` +
+      `"hasPhoto": <true|false>, "condition": "<Good | Fair | Poor | Unknown>", "actionNeeded": ` +
+      `"<short phrase, e.g. Repair Needed | Replacement | Maintenance, or null>", "notes": ` +
+      `"<max ~8 words>"}, ...] (exactly 4 entries, in the order listed above), ` +
+      `"effectiveAgeYears": <number, or null if not reliably supported>, ` +
+      `"effectiveAgeBasis": "<max ~10 words, or 'Additional Data Needed — upload property ` +
+      `photos' if the value above is null>", ` +
+      `"functionalObsolescencePct": <integer 0-100, or null>, ` +
+      `"functionalObsolescenceBasis": "<max ~10 words>", ` +
+      `"externalObsolescencePct": <integer 0-100, or null>, ` +
+      `"externalObsolescenceBasis": "<max ~10 words>", ` +
+      `"keyFinding": "<max 2 short sentences>", "priorityScore": <integer 0-100>}`,
+    parse: (p) => {
+      const hasAge =
+        typeof p.effectiveAgeYears === "number" && Number.isFinite(p.effectiveAgeYears);
+      return {
+        guidance: str(p.guidance, 160),
+        // Real-data enforcement (every component clamped to "no photo" when
+        // zero evidence images were sent at all) happens in the request
+        // handler via enforceBuildingComponentRealData — this parse() only
+        // has the AI's raw JSON, matching every other module's parse.
+        buildingComponents: buildingComponents(p.buildingComponents),
+        effectiveAgeYears: hasAge ? Math.max(0, Math.round(p.effectiveAgeYears as number)) : null,
+        effectiveAgeBasis: str(p.effectiveAgeBasis, 90),
+        functionalObsolescencePct: score100OrNull(p.functionalObsolescencePct),
+        functionalObsolescenceBasis: str(p.functionalObsolescenceBasis, 90),
+        externalObsolescencePct: score100OrNull(p.externalObsolescencePct),
+        externalObsolescenceBasis: str(p.externalObsolescenceBasis, 90),
+        keyFinding: str(p.keyFinding, 320),
+        priorityScore: score100(p.priorityScore),
+      };
+    },
   },
   zoning: {
     instruction:
@@ -668,6 +806,15 @@ function buildRecord(input: ModulesInput): string {
         `${parts.join(" ")} Use these exact real values — never invent a different zone or elevation.`,
       );
     }
+  }
+  if (input.economicLifeYears) {
+    const e = input.economicLifeYears;
+    lines.push(
+      `Typical economic life for this property type (general industry guidance, not a ` +
+        `precise or county-specific figure): ${e.min}-${e.max} years (${e.typical} typical). ` +
+        `Only estimate an effective age if photos/documents actually show the building's real ` +
+        `condition — ground it in what's visible, never in property type or value alone.`,
+    );
   }
   if (input.compsSummary) {
     const c = input.compsSummary;
@@ -983,6 +1130,17 @@ Deno.serve(async (req: Request) => {
         (result as { factors: SiteFactor[] }).factors,
         input.siteGis,
       );
+    }
+    // Real-data enforcement for Module 5 — see
+    // enforceBuildingComponentRealData's own comment. evidenceParts.length
+    // (not input.evidenceImages.length) is the real signal: it's already
+    // filtered down to only genuine image/PDF data URLs.
+    if (input.moduleId === "improvement") {
+      (result as { buildingComponents: BuildingComponent[] }).buildingComponents =
+        enforceBuildingComponentRealData(
+          (result as { buildingComponents: BuildingComponent[] }).buildingComponents,
+          evidenceParts.length > 0,
+        );
     }
     return new Response(JSON.stringify(result), { status: 200, headers: corsHeaders });
   } catch (err) {

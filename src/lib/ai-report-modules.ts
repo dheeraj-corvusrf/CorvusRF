@@ -76,6 +76,12 @@ export type ModuleAnalysisInput = {
     floodZone: { zone: string; label: string; inSFHA: boolean } | null;
     elevationFt: number | null;
   } | null;
+  // Only for "improvement" — the real typical economic-life range for this
+  // property's type (improvement-condition.ts's getTypicalEconomicLife()),
+  // always sent (unlike evidenceImages, not gated on anything real existing
+  // yet) so the AI's effective-age estimate is grounded in an honest
+  // industry-general figure rather than an unmoored guess.
+  economicLifeYears?: { min: number; max: number; typical: number } | null;
 };
 
 export type BatchModuleId =
@@ -140,7 +146,32 @@ export type ModuleResultMap = {
     keyFinding: string;
     priorityScore: number;
   };
-  improvement: { guidance: string; checklist: string[]; priorityScore: number };
+  // Real 4-component structured assessment — see MODULE_SPECS.improvement and
+  // enforceBuildingComponentRealData in the edge function. hasPhoto/
+  // condition are server-enforced: when zero evidence images were sent at
+  // all, every component reads hasPhoto:false/condition:"Unknown" no
+  // matter what the AI returned. effectiveAgeYears/functionalObsolescencePct/
+  // externalObsolescencePct are null whenever the AI had no real basis for
+  // them — see src/lib/improvement-condition.ts's computeDepreciation() for
+  // the real, deterministic math built from these.
+  improvement: {
+    guidance: string;
+    buildingComponents: {
+      component: "Roof" | "HVAC" | "Exterior" | "Interior";
+      hasPhoto: boolean;
+      condition: "Good" | "Fair" | "Poor" | "Unknown";
+      actionNeeded: string | null;
+      notes: string;
+    }[];
+    effectiveAgeYears: number | null;
+    effectiveAgeBasis: string;
+    functionalObsolescencePct: number | null;
+    functionalObsolescenceBasis: string;
+    externalObsolescencePct: number | null;
+    externalObsolescenceBasis: string;
+    keyFinding: string;
+    priorityScore: number;
+  };
   zoning: {
     matches: "consistent" | "inconsistent" | "uncertain";
     assessment: string;

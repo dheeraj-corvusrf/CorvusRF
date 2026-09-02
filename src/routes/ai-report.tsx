@@ -68,6 +68,7 @@ import {
 import { getComps, type CompsResult, type CompProperty } from "@/lib/cad-comps";
 import { getSiteGis, type SiteGisResult } from "@/lib/site-gis";
 import { pickHeadlineFactor, countDataGaps, type SiteFactor } from "@/lib/site-condition";
+import { getTypicalEconomicLife, computeDepreciation } from "@/lib/improvement-condition";
 import { getCadRecordUrl, isDirectCadRecordUrl } from "@/lib/cad-record-url";
 import {
   computeComparableStats,
@@ -530,6 +531,15 @@ function Report() {
               .map((i) => i.label),
           };
         }
+      }
+
+      // Real typical economic-life range for this property's type (see
+      // src/lib/improvement-condition.ts) — always attached, not gated on
+      // anything, so the AI's effective-age estimate (when it has real
+      // photo grounding for one) is anchored to an honest industry-general
+      // figure rather than an unmoored guess.
+      if (id === "improvement") {
+        input.economicLifeYears = getTypicalEconomicLife(state.propertyType);
       }
 
       // Improvement Condition reads uploaded evidence (photos/repair estimates/
@@ -1085,6 +1095,7 @@ function Report() {
               estimated={estimated}
               propertyType={state.propertyType}
               totalValue={state.totalValue}
+              improvementValue={state.improvementValue}
               onOpen={() => openModule(m)}
               onForceReload={() => loadModule(m.id, { force: true })}
             />
@@ -1257,6 +1268,7 @@ function ModuleCard({
   estimated,
   propertyType,
   totalValue,
+  improvementValue,
   onOpen,
   onForceReload,
 }: {
@@ -1275,6 +1287,7 @@ function ModuleCard({
   };
   propertyType?: string;
   totalValue?: number | null;
+  improvementValue?: number | null;
   onOpen: () => void;
   onForceReload: () => void;
 }) {
@@ -1364,6 +1377,7 @@ function ModuleCard({
             estimated={estimated}
             propertyType={propertyType}
             totalValue={totalValue}
+            improvementValue={improvementValue}
             onOpen={onOpen}
           />
         </div>
@@ -1418,6 +1432,7 @@ function ModuleVisual({
   estimated,
   propertyType,
   totalValue,
+  improvementValue,
   onOpen,
 }: {
   m: Module;
@@ -1434,6 +1449,7 @@ function ModuleVisual({
   };
   propertyType?: string;
   totalValue?: number | null;
+  improvementValue?: number | null;
   onOpen: () => void;
 }) {
   if (!unlocked) {
@@ -1649,12 +1665,41 @@ function ModuleVisual({
     }
     case "improvement": {
       const d = moduleState.data as ModuleResultMap["improvement"];
+      const depreciation = computeDepreciation(
+        d.effectiveAgeYears,
+        getTypicalEconomicLife(propertyType),
+        d.functionalObsolescencePct,
+        d.externalObsolescencePct,
+        improvementValue ?? null,
+      );
       return (
         <div>
-          <ImprovementIconRing items={d.checklist} color={m.color} />
+          <ImprovementIconRing components={d.buildingComponents} color={m.color} />
           <div className="mt-1.5">
             <MiniMeter value={d.priorityScore} label="condition priority" />
           </div>
+          {depreciation.conditionAdjustedValue != null && improvementValue != null ? (
+            <div className="mt-1.5 grid grid-cols-2 gap-1.5">
+              <div className="rounded-md bg-secondary/40 px-1 py-1.5 text-center">
+                <div className="text-[7px] uppercase tracking-wide text-muted-foreground">
+                  CAD Value
+                </div>
+                <div className="truncate text-[10px] font-bold">
+                  {compactCurrency(improvementValue)}
+                </div>
+              </div>
+              <div className="rounded-md bg-destructive/10 px-1 py-1.5 text-center">
+                <div className="text-[7px] uppercase tracking-wide text-destructive">Impact</div>
+                <div className="truncate text-[10px] font-bold text-destructive">
+                  {depreciation.impactPct}%
+                </div>
+              </div>
+            </div>
+          ) : (
+            <p className="mt-1.5 text-[10px] text-muted-foreground">
+              Additional data needed — upload photos to estimate condition impact.
+            </p>
+          )}
         </div>
       );
     }
@@ -2748,6 +2793,96 @@ function SiteFactorGapTile({
   );
 }
 
+const BUILDING_CONDITION_TONE: Record<string, string> = {
+  Good: "bg-success/15 text-success",
+  Fair: "bg-warning/15 text-warning-foreground",
+  Poor: "bg-destructive/10 text-destructive",
+  Unknown: "bg-secondary/60 text-muted-foreground",
+};
+
+// One row of Module 5's Building Condition Overview. condition/hasPhoto are
+// server-enforced (see enforceBuildingComponentRealData) — this component
+// just renders whatever it's given, never re-decides "no photo" itself.
+function BuildingComponentRow({
+  c,
+  onOpenModule,
+}: {
+  c: ModuleResultMap["improvement"]["buildingComponents"][number];
+  onOpenModule: (moduleId: string) => void;
+}) {
+  return (
+    <div className="card-elev p-2.5">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-sm font-semibold">{c.component}</span>
+            <span
+              className={`shrink-0 whitespace-nowrap rounded-full px-1.5 py-0.5 text-[9px] font-semibold ${BUILDING_CONDITION_TONE[c.condition]}`}
+            >
+              {c.hasPhoto ? c.condition : "No Photo Provided"}
+            </span>
+          </div>
+          {c.hasPhoto ? (
+            <>
+              {c.notes && <p className="mt-0.5 text-xs text-muted-foreground">{c.notes}</p>}
+              {c.actionNeeded && (
+                <p className="mt-0.5 text-xs font-medium text-foreground/80">{c.actionNeeded}</p>
+              )}
+            </>
+          ) : (
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Upload a photo showing the {c.component.toLowerCase()} to assess condition.
+            </p>
+          )}
+        </div>
+      </div>
+      {!c.hasPhoto && (
+        <button
+          onClick={() => onOpenModule("improvement")}
+          className="mt-1.5 text-xs text-accent hover:underline"
+        >
+          Upload Photo →
+        </button>
+      )}
+    </div>
+  );
+}
+
+// The reference's 5-step explainer strip — purely describes a pipeline that
+// now genuinely exists (this module's own real photo-grounded assessment +
+// deterministic depreciation math), not a claim about this property. Fixed,
+// not data-driven — same spirit as a product diagram, not an AI output.
+const PIPELINE_STEPS: { label: string; sub: string; icon: LucideIcon }[] = [
+  { label: "User Input", sub: "Building Data, Photos", icon: FileText },
+  { label: "AI Processing", sub: "Condition Analyzer", icon: Wrench },
+  { label: "Logic/Decision", sub: "Depreciation Model", icon: BarChart3 },
+  { label: "AI Output", sub: "Condition Assessment", icon: Activity },
+  { label: "Next Step", sub: "Apply to Value Model", icon: ArrowRight },
+];
+
+function PipelineDiagram() {
+  return (
+    <div className="grid grid-cols-5 gap-1">
+      {PIPELINE_STEPS.map((step, i) => (
+        <div key={step.label} className="flex flex-col items-center gap-1 text-center">
+          <div className="flex items-center gap-1">
+            <div className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-secondary/60 text-muted-foreground">
+              <step.icon className="h-3.5 w-3.5" />
+            </div>
+            {i < PIPELINE_STEPS.length - 1 && (
+              <ArrowRight className="hidden h-3 w-3 shrink-0 text-muted-foreground sm:block" />
+            )}
+          </div>
+          <div className="text-[9px] font-semibold uppercase tracking-wide">{step.label}</div>
+          <div className="line-clamp-2 text-[8px] leading-tight text-muted-foreground">
+            {step.sub}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ---------- Reference-infographic chrome shared by every module: a
 // numbered badge (ModuleCard header + modal header) and a one-line colored
 // insight banner on each card, derived from data already loaded elsewhere
@@ -2915,14 +3050,20 @@ function SiteMapThumb({ lat, lng, height = 140 }: { lat: number; lng: number; he
   );
 }
 
-// Central building icon with up to 4 checklist items as small icon badges
-// at its corners — same generic-icon principle as ChecklistIconRows (the
-// checklist is free AI text, not typed defect categories, so every badge
-// uses the same icon rather than guessing "this one is roof damage").
-// Full item text is always available via each badge's title tooltip and,
-// in full, via ChecklistIconRows in the modal.
-function ImprovementIconRing({ items, color }: { items: string[]; color: IconColor }) {
-  const corners = items.slice(0, 4);
+// Central building icon (generic — never a fake specific rendering of this
+// property) with badges only for components that genuinely need attention:
+// a real photo was provided (hasPhoto) AND the condition isn't "Good" — a
+// gap ("Unknown", no photo) never renders as if it were a finding. Full
+// detail lives in BuildingComponentRow in the modal; this is just the
+// card's condensed version.
+function ImprovementIconRing({
+  components,
+  color,
+}: {
+  components: ModuleResultMap["improvement"]["buildingComponents"];
+  color: IconColor;
+}) {
+  const flagged = components.filter((c) => c.hasPhoto && c.condition !== "Good").slice(0, 4);
   const positions = [
     "-top-1 -left-1",
     "-top-1 -right-1",
@@ -2933,19 +3074,19 @@ function ImprovementIconRing({ items, color }: { items: string[]; color: IconCol
     <div className="mx-auto flex flex-col items-center gap-1">
       <div className="relative grid h-20 w-20 place-items-center">
         <Building2 className="h-9 w-9 text-muted-foreground" />
-        {corners.map((item, i) => (
+        {flagged.map((c, i) => (
           <span
-            key={i}
-            title={item}
+            key={c.component}
+            title={`${c.component}: ${c.condition}${c.actionNeeded ? ` — ${c.actionNeeded}` : ""}`}
             className={`absolute grid h-6 w-6 place-items-center rounded-full border-2 border-card ${color.bg} ${color.text} ${positions[i]}`}
           >
             <AlertTriangle className="h-3 w-3" />
           </span>
         ))}
       </div>
-      {items.length > 0 && (
+      {flagged.length > 0 && (
         <div className="text-[10px] text-muted-foreground">
-          {items.length} factor{items.length === 1 ? "" : "s"} worth documenting
+          {flagged.length} component{flagged.length === 1 ? "" : "s"} need attention
         </div>
       )}
     </div>
@@ -4421,18 +4562,125 @@ function ModulePreviewContent({
       const improvementDocs = evidenceDocs.filter(
         (doc) => doc.documentType === EVIDENCE_DOCUMENT_TYPE,
       );
+      const economicLife = getTypicalEconomicLife(state.propertyType);
+      const depreciation = computeDepreciation(
+        d.effectiveAgeYears,
+        economicLife,
+        d.functionalObsolescencePct,
+        d.externalObsolescencePct,
+        state.improvementValue ?? null,
+      );
       return (
-        <div className="mt-4">
-          <ImprovementIconRing items={d.checklist} color={m.color} />
-          <div className="mt-3">
-            <MiniMeter value={d.priorityScore} label="Condition priority" />
+        <div className="mt-4 grid gap-4">
+          <PipelineDiagram />
+
+          <MiniMeter value={d.priorityScore} label="Condition priority" />
+
+          {d.guidance && <AiVerdictLine icon={m.icon} text={d.guidance} color={m.color} />}
+
+          {/* Building Condition Overview — 4 fixed components, real photo-
+              grounded findings (see MODULE_SPECS.improvement and
+              enforceBuildingComponentRealData). "No Photo Provided" is
+              honest, never a guessed condition. */}
+          <div>
+            <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Building Condition Overview
+            </div>
+            <div className="grid gap-1.5">
+              {d.buildingComponents.map((c) => (
+                <BuildingComponentRow key={c.component} c={c} onOpenModule={onOpenModule} />
+              ))}
+            </div>
           </div>
-          <div className="mt-3">
-            <AiVerdictLine icon={m.icon} text={d.guidance} color={m.color} />
+
+          {/* Condition Metrics — Physical Depreciation and Total
+              Depreciation are real deterministic math (see
+              computeDepreciation in improvement-condition.ts), never
+              AI-computed; Effective Age/Functional/External Obsolescence
+              are the AI's own photo-grounded estimates, honestly null when
+              there's no real basis. */}
+          <div>
+            <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Condition Metrics
+            </div>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+              <ExecutiveStat
+                label="Effective Age"
+                value={
+                  d.effectiveAgeYears != null
+                    ? `${d.effectiveAgeYears} yrs`
+                    : "Additional Data Needed"
+                }
+              />
+              <ExecutiveStat
+                label="Economic Life"
+                value={`${economicLife.typical} yrs (${economicLife.min}-${economicLife.max} typical)`}
+              />
+              <ExecutiveStat
+                label="Physical Depreciation"
+                value={
+                  depreciation.physicalDepreciationPct != null
+                    ? `${depreciation.physicalDepreciationPct}%`
+                    : "Additional Data Needed"
+                }
+              />
+              <ExecutiveStat
+                label="Functional Obsolescence"
+                value={
+                  d.functionalObsolescencePct != null
+                    ? `${d.functionalObsolescencePct}%`
+                    : "Additional Data Needed"
+                }
+              />
+              <ExecutiveStat
+                label="External Obsolescence"
+                value={
+                  d.externalObsolescencePct != null
+                    ? `${d.externalObsolescencePct}%`
+                    : "Additional Data Needed"
+                }
+              />
+              <ExecutiveStat
+                label="Total Depreciation"
+                value={
+                  depreciation.totalDepreciationPct != null
+                    ? `${depreciation.totalDepreciationPct}%`
+                    : "Additional Data Needed"
+                }
+              />
+            </div>
           </div>
-          <div className="mt-3">
-            <ChecklistIconRows items={d.checklist} color={m.color} />
-          </div>
+
+          {/* Value Impact — only ever rendered once computeDepreciation()
+              actually returned real numbers; never a placeholder row. */}
+          {depreciation.conditionAdjustedValue != null && state.improvementValue != null && (
+            <div>
+              <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Value Impact
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <FactBox label="CAD Improvement Value" value={currency(state.improvementValue)} />
+                <FactBox
+                  label="Condition-Adjusted Value"
+                  value={currency(depreciation.conditionAdjustedValue)}
+                />
+                <FactBox
+                  label="Impact"
+                  value={`${currency(depreciation.impactDollar ?? 0)} (${depreciation.impactPct}%)`}
+                />
+              </div>
+            </div>
+          )}
+
+          {d.keyFinding && (
+            <div className={`rounded-lg p-4 ${m.color.bg}`}>
+              <div className={`text-[10px] font-semibold uppercase tracking-wide ${m.color.text}`}>
+                Key Finding
+              </div>
+              <p className="mt-1 text-sm text-foreground/90">{d.keyFinding}</p>
+            </div>
+          )}
+
           {allowEvidenceUpload && (
             <div className="mt-4 border-t border-border/60 pt-4 print:hidden">
               <div className="text-sm font-medium">Add Evidence</div>
