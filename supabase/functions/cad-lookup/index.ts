@@ -217,13 +217,25 @@ function coreStreetName(street: string): string {
 // conventions for the same concept, confirmed across four counties. No single
 // rewrite of the user's input can match all of them, so this generates every
 // plausible variant instead and tries them all (OR'd) in the same query.
+//
+// FM (Farm-to-Market) roads are the exact same problem, found 2026-09-02 chasing
+// a real report: "FM1957, San Antonio, TX 78245" (typed with no space, no house
+// number — a real highway-frontage commercial property with no numbered address
+// at all) returned nothing. Confirmed live against Bexar's own data: searching
+// the literal typed "FM1957" matches zero rows, but "FM 1957" (with a space) is
+// exactly how Bexar stores it — e.g. "11440 FM 1957 SAN ANTONIO, TX 78245", a
+// real match for this exact report. RM (Ranch-to-Market) and RR (Ranch Road) are
+// the same style of Texas road prefix, included here on the same pattern even
+// though only FM has been confirmed live so far.
 function coreVariants(core: string): string[] {
   const variants = new Set<string>([core]);
-  const m = core.match(/^(interstate|ih|i|u\.?s\.?|us)\s*-?\s*(?:hy|hwy|highway)?\s*-?\s*(\d+)$/i);
+  const m = core.match(
+    /^(interstate|ih|i|u\.?s\.?|us|fm|rm|rr)\s*-?\s*(?:hy|hwy|highway)?\s*-?\s*(\d+)$/i,
+  );
   if (m) {
     const n = m[2];
-    const isInterstate = /^(interstate|ih|i)$/i.test(m[1]);
-    if (isInterstate) {
+    const prefix = m[1].toLowerCase();
+    if (/^(interstate|ih|i)$/i.test(prefix)) {
       for (const v of [
         `I${n}`,
         `I ${n}`,
@@ -235,8 +247,14 @@ function coreVariants(core: string): string[] {
       ]) {
         variants.add(v);
       }
-    } else {
+    } else if (/^(us|u\.?s\.?)$/i.test(prefix)) {
       for (const v of [`US ${n}`, `U S HY ${n}`, `US HWY ${n}`, `US HIGHWAY ${n}`, `HWY ${n}`]) {
+        variants.add(v);
+      }
+    } else {
+      // FM / RM / RR
+      const p = prefix.toUpperCase();
+      for (const v of [`${p}${n}`, `${p} ${n}`, `${p}-${n}`]) {
         variants.add(v);
       }
     }
