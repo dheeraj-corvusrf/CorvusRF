@@ -1665,41 +1665,93 @@ function ModuleVisual({
     }
     case "improvement": {
       const d = moduleState.data as ModuleResultMap["improvement"];
+      const economicLife = getTypicalEconomicLife(propertyType);
       const depreciation = computeDepreciation(
         d.effectiveAgeYears,
-        getTypicalEconomicLife(propertyType),
+        economicLife,
         d.functionalObsolescencePct,
         d.externalObsolescencePct,
         improvementValue ?? null,
       );
       return (
-        <div>
-          <ImprovementIconRing components={d.buildingComponents} color={m.color} />
-          <div className="mt-1.5">
-            <MiniMeter value={d.priorityScore} label="condition priority" />
+        <div className="grid gap-2">
+          <PipelineDiagram />
+
+          <div>
+            <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Building Condition Overview
+            </div>
+            <div className="grid gap-1">
+              {d.buildingComponents.map((c) => (
+                <BuildingComponentRow key={c.component} c={c} onUploadClick={onOpen} />
+              ))}
+            </div>
           </div>
+
+          <div>
+            <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Condition Metrics
+            </div>
+            <div className="grid grid-cols-2 gap-1.5">
+              <ExecutiveStat
+                label="Effective Age"
+                value={d.effectiveAgeYears != null ? `${d.effectiveAgeYears} yrs` : "—"}
+              />
+              <ExecutiveStat label="Economic Life" value={`${economicLife.typical} yrs`} />
+              <ExecutiveStat
+                label="Physical Depreciation"
+                value={
+                  depreciation.physicalDepreciationPct != null
+                    ? `${depreciation.physicalDepreciationPct}%`
+                    : "—"
+                }
+              />
+              <ExecutiveStat
+                label="Total Depreciation"
+                value={
+                  depreciation.totalDepreciationPct != null
+                    ? `${depreciation.totalDepreciationPct}%`
+                    : "—"
+                }
+              />
+            </div>
+          </div>
+
           {depreciation.conditionAdjustedValue != null && improvementValue != null ? (
-            <div className="mt-1.5 grid grid-cols-2 gap-1.5">
-              <div className="rounded-md bg-secondary/40 px-1 py-1.5 text-center">
-                <div className="text-[7px] uppercase tracking-wide text-muted-foreground">
-                  CAD Value
-                </div>
-                <div className="truncate text-[10px] font-bold">
-                  {compactCurrency(improvementValue)}
-                </div>
+            <div>
+              <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Value Impact
               </div>
-              <div className="rounded-md bg-destructive/10 px-1 py-1.5 text-center">
-                <div className="text-[7px] uppercase tracking-wide text-destructive">Impact</div>
-                <div className="truncate text-[10px] font-bold text-destructive">
-                  {depreciation.impactPct}%
+              <div className="grid grid-cols-3 gap-1.5">
+                <div className="rounded-md bg-secondary/40 px-1 py-1.5 text-center">
+                  <div className="text-[7px] uppercase tracking-wide text-muted-foreground">
+                    CAD Value
+                  </div>
+                  <div className="truncate text-[10px] font-bold">
+                    {compactCurrency(improvementValue)}
+                  </div>
+                </div>
+                <div className="rounded-md bg-success/10 px-1 py-1.5 text-center">
+                  <div className="text-[7px] uppercase tracking-wide text-success">Adjusted</div>
+                  <div className="truncate text-[10px] font-bold text-success">
+                    {compactCurrency(depreciation.conditionAdjustedValue)}
+                  </div>
+                </div>
+                <div className="rounded-md bg-destructive/10 px-1 py-1.5 text-center">
+                  <div className="text-[7px] uppercase tracking-wide text-destructive">Impact</div>
+                  <div className="truncate text-[10px] font-bold text-destructive">
+                    {depreciation.impactPct}%
+                  </div>
                 </div>
               </div>
             </div>
           ) : (
-            <p className="mt-1.5 text-[10px] text-muted-foreground">
+            <p className="text-[10px] text-muted-foreground">
               Additional data needed — upload photos to estimate condition impact.
             </p>
           )}
+
+          <MiniMeter value={d.priorityScore} label="condition priority" />
         </div>
       );
     }
@@ -2805,10 +2857,14 @@ const BUILDING_CONDITION_TONE: Record<string, string> = {
 // just renders whatever it's given, never re-decides "no photo" itself.
 function BuildingComponentRow({
   c,
-  onOpenModule,
+  onUploadClick,
 }: {
   c: ModuleResultMap["improvement"]["buildingComponents"][number];
-  onOpenModule: (moduleId: string) => void;
+  // Optional — the modal already has the "Add Evidence" upload section in
+  // the same view, so its rows render without a redundant button; the
+  // card's rows pass onOpen (opens this module's own modal, where that
+  // section lives).
+  onUploadClick?: () => void;
 }) {
   return (
     <div className="card-elev p-2.5">
@@ -2836,11 +2892,8 @@ function BuildingComponentRow({
           )}
         </div>
       </div>
-      {!c.hasPhoto && (
-        <button
-          onClick={() => onOpenModule("improvement")}
-          className="mt-1.5 text-xs text-accent hover:underline"
-        >
+      {!c.hasPhoto && onUploadClick && (
+        <button onClick={onUploadClick} className="mt-1.5 text-xs text-accent hover:underline">
           Upload Photo →
         </button>
       )}
@@ -3045,49 +3098,6 @@ function SiteMapThumb({ lat, lng, height = 140 }: { lat: number; lng: number; he
         <span className="pointer-events-none absolute bottom-0 right-0 rounded-tl bg-black/45 px-1 text-[8px] leading-tight text-white">
           Tiles © Esri
         </span>
-      )}
-    </div>
-  );
-}
-
-// Central building icon (generic — never a fake specific rendering of this
-// property) with badges only for components that genuinely need attention:
-// a real photo was provided (hasPhoto) AND the condition isn't "Good" — a
-// gap ("Unknown", no photo) never renders as if it were a finding. Full
-// detail lives in BuildingComponentRow in the modal; this is just the
-// card's condensed version.
-function ImprovementIconRing({
-  components,
-  color,
-}: {
-  components: ModuleResultMap["improvement"]["buildingComponents"];
-  color: IconColor;
-}) {
-  const flagged = components.filter((c) => c.hasPhoto && c.condition !== "Good").slice(0, 4);
-  const positions = [
-    "-top-1 -left-1",
-    "-top-1 -right-1",
-    "-bottom-1 -left-1",
-    "-bottom-1 -right-1",
-  ];
-  return (
-    <div className="mx-auto flex flex-col items-center gap-1">
-      <div className="relative grid h-20 w-20 place-items-center">
-        <Building2 className="h-9 w-9 text-muted-foreground" />
-        {flagged.map((c, i) => (
-          <span
-            key={c.component}
-            title={`${c.component}: ${c.condition}${c.actionNeeded ? ` — ${c.actionNeeded}` : ""}`}
-            className={`absolute grid h-6 w-6 place-items-center rounded-full border-2 border-card ${color.bg} ${color.text} ${positions[i]}`}
-          >
-            <AlertTriangle className="h-3 w-3" />
-          </span>
-        ))}
-      </div>
-      {flagged.length > 0 && (
-        <div className="text-[10px] text-muted-foreground">
-          {flagged.length} component{flagged.length === 1 ? "" : "s"} need attention
-        </div>
       )}
     </div>
   );
@@ -4588,7 +4598,7 @@ function ModulePreviewContent({
             </div>
             <div className="grid gap-1.5">
               {d.buildingComponents.map((c) => (
-                <BuildingComponentRow key={c.component} c={c} onOpenModule={onOpenModule} />
+                <BuildingComponentRow key={c.component} c={c} />
               ))}
             </div>
           </div>
