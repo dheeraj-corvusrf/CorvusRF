@@ -67,6 +67,15 @@ export type ModuleAnalysisInput = {
   // getPreFilingCheck() in pre-filing-check.ts) — omitted, not fabricated,
   // when no case has been started yet.
   preFilingStatus?: { missingBlocking: string[] } | null;
+  // Only for "site" — real point data from site-gis.ts's getSiteGis() (FEMA
+  // flood zone + USGS elevation) for the property's real lat/lng, when one
+  // exists. Absent entirely, not just null fields, whenever no real lat/lng
+  // exists for this property/county (most counties today) — see
+  // loadSiteGis() in ai-report.tsx.
+  siteGis?: {
+    floodZone: { zone: string; label: string; inSFHA: boolean } | null;
+    elevationFt: number | null;
+  } | null;
 };
 
 export type BatchModuleId =
@@ -98,7 +107,39 @@ export type ModuleResultMap = {
     topStrategySummary: string;
   };
   comps: { guidance: string; checklist: string[]; recommendedUse: string };
-  site: { guidance: string; checklist: string[]; priorityScore: number };
+  // Real 14-factor structured assessment — see MODULE_SPECS.site and
+  // enforceSiteFactorRealData in the edge function. Only "Floodplain" and
+  // "Grade" can ever read "Confirmed"/"Partial Data"; every other factor is
+  // server-enforced to "Additional Data Needed" until a real source exists
+  // for it — never trust status alone without that context.
+  site: {
+    guidance: string;
+    factors: {
+      factor:
+        | "Floodplain"
+        | "Easements"
+        | "Drainage"
+        | "Sewer"
+        | "Water Availability"
+        | "Buildability"
+        | "Ponds"
+        | "Streams"
+        | "Road Frontage"
+        | "Visibility"
+        | "Traffic Counts / VPD"
+        | "Grade"
+        | "Topography"
+        | "Access Limitations";
+      status: "Confirmed" | "Partial Data" | "Additional Data Needed";
+      finding: string;
+      severity: "High" | "Moderate" | "Low" | "Unknown";
+      confidence: "High" | "Moderate" | "Low";
+      potentialImpact: string;
+      evidenceNeeded: string | null;
+    }[];
+    keyFinding: string;
+    priorityScore: number;
+  };
   improvement: { guidance: string; checklist: string[]; priorityScore: number };
   zoning: {
     matches: "consistent" | "inconsistent" | "uncertain";

@@ -93,6 +93,19 @@ type ModulesInput = {
     reductionPct: number | null;
   } | null;
   preFilingStatus?: { missingBlocking: string[] } | null;
+  // Only for moduleId "site" — real point data the site-gis edge function
+  // already fetched (FEMA NFHL flood zone + USGS elevation) for the
+  // subject's real lat/lng, when one exists (see loadSiteGis() in
+  // ai-report.tsx). Absent entirely — not just null fields — whenever no
+  // real lat/lng exists for this property/county; never guessed. The
+  // handler re-clamps every site factor's status against this exact field
+  // after parsing (see enforceSiteFactorRealData below), so even if the AI
+  // ignored the instruction and claimed a real finding anyway, the response
+  // sent to the client can't say "Confirmed" without this being populated.
+  siteGis?: {
+    floodZone: { zone: string; label: string; inSFHA: boolean } | null;
+    elevationFt: number | null;
+  } | null;
   // Question-mode fields (see Deno.serve below) — when `question` is set, this
   // request is a Q&A follow-up, not a module-analysis request.
   question?: string;
@@ -294,6 +307,115 @@ const defenseQA = (
         .slice(0, 6)
     : [];
 
+// Module 4 (site) — the 14 factors from the spec, in a fixed order. Enforced
+// as an allow-list (not left to the AI to name/omit/invent categories) so
+// the UI's table always has exactly 14 rows in a stable order.
+const SITE_FACTORS = [
+  "Floodplain",
+  "Easements",
+  "Drainage",
+  "Sewer",
+  "Water Availability",
+  "Buildability",
+  "Ponds",
+  "Streams",
+  "Road Frontage",
+  "Visibility",
+  "Traffic Counts / VPD",
+  "Grade",
+  "Topography",
+  "Access Limitations",
+] as const;
+type SiteFactorName = (typeof SITE_FACTORS)[number];
+type SiteFactorStatus = "Confirmed" | "Partial Data" | "Additional Data Needed";
+type SiteFactorSeverity = "High" | "Moderate" | "Low" | "Unknown";
+type SiteFactorConfidence = "High" | "Moderate" | "Low";
+type SiteFactor = {
+  factor: SiteFactorName;
+  status: SiteFactorStatus;
+  finding: string;
+  severity: SiteFactorSeverity;
+  confidence: SiteFactorConfidence;
+  potentialImpact: string;
+  evidenceNeeded: string | null;
+};
+const SITE_FACTOR_STATUSES: SiteFactorStatus[] = [
+  "Confirmed",
+  "Partial Data",
+  "Additional Data Needed",
+];
+const SITE_FACTOR_SEVERITIES: SiteFactorSeverity[] = ["High", "Moderate", "Low", "Unknown"];
+const SITE_FACTOR_CONFIDENCES: SiteFactorConfidence[] = ["High", "Moderate", "Low"];
+
+// First pass — validates the AI's raw factor array into exactly 14 typed
+// entries (one per SITE_FACTORS name, in order), defaulting anything
+// missing/malformed to a safe "Additional Data Needed" row. Does NOT yet
+// know about real siteGis data — see enforceSiteFactorRealData below, which
+// runs after this in the request handler (spec.parse only receives the AI's
+// own JSON, not the original request input, matching every other module).
+function siteFactors(v: unknown): SiteFactor[] {
+  const byName = new Map<string, Record<string, unknown>>();
+  if (Array.isArray(v)) {
+    for (const x of v) {
+      if (
+        typeof x === "object" &&
+        x !== null &&
+        typeof (x as Record<string, unknown>).factor === "string"
+      ) {
+        byName.set((x as Record<string, unknown>).factor as string, x as Record<string, unknown>);
+      }
+    }
+  }
+  return SITE_FACTORS.map((factor) => {
+    const x = byName.get(factor) ?? {};
+    const status = SITE_FACTOR_STATUSES.includes(x.status as SiteFactorStatus)
+      ? (x.status as SiteFactorStatus)
+      : "Additional Data Needed";
+    return {
+      factor,
+      status,
+      finding:
+        str(x.finding, 90) ||
+        (status === "Additional Data Needed" ? "Additional data needed to assess." : ""),
+      severity: SITE_FACTOR_SEVERITIES.includes(x.severity as SiteFactorSeverity)
+        ? (x.severity as SiteFactorSeverity)
+        : "Unknown",
+      confidence: SITE_FACTOR_CONFIDENCES.includes(x.confidence as SiteFactorConfidence)
+        ? (x.confidence as SiteFactorConfidence)
+        : "Moderate",
+      potentialImpact: str(x.potentialImpact, 70),
+      evidenceNeeded: str(x.evidenceNeeded, 90) || null,
+    };
+  });
+}
+
+// Second pass — the real enforcement. Runs in the request handler (has
+// access to the original input.siteGis, unlike spec.parse). Floodplain can
+// only read "Confirmed" when a real FEMA zone was actually fetched for this
+// property; Grade can only read "Partial Data" (never "Confirmed" — a
+// single elevation point is not a contour survey) when a real USGS
+// elevation was fetched; every other factor is hard-clamped to "Additional
+// Data Needed" with "Low" confidence no matter what the AI returned — this
+// app has no real source for any of them yet, and the AI's own discipline
+// alone isn't trusted to guarantee that.
+function enforceSiteFactorRealData(
+  factors: SiteFactor[],
+  siteGis: ModulesInput["siteGis"],
+): SiteFactor[] {
+  return factors.map((f) => {
+    if (f.factor === "Floodplain") {
+      if (!siteGis?.floodZone) return { ...f, status: "Additional Data Needed", confidence: "Low" };
+      return { ...f, status: "Confirmed" };
+    }
+    if (f.factor === "Grade") {
+      if (siteGis?.elevationFt == null)
+        return { ...f, status: "Additional Data Needed", confidence: "Low" };
+      return { ...f, status: "Partial Data" };
+    }
+    return { ...f, status: "Additional Data Needed", confidence: "Low" };
+  });
+}
+
 const MODULE_SPECS: Record<string, ModuleSpec> = {
   strategy: {
     instruction:
@@ -350,14 +472,45 @@ const MODULE_SPECS: Record<string, ModuleSpec> = {
   },
   site: {
     instruction:
-      "Give guidance on site-condition factors (access, drainage, easements) worth documenting. " +
-      "Also give an overall 0-100 documentation-priority score for how worthwhile pursuing site-" +
-      "condition evidence looks for this specific property (based on its value profile and property " +
-      "type — not a claim about a specific defect you haven't observed).",
-    schema: `{"guidance": "<ONE short sentence, max ~18 words — a headline, the checklist below carries the detail>", "checklist": ["<short item>", ...], "priorityScore": <integer 0-100>}`,
+      "Assess this property's site conditions across exactly these 14 factors, in this exact " +
+      "order: Floodplain, Easements, Drainage, Sewer, Water Availability, Buildability, Ponds, " +
+      "Streams, Road Frontage, Visibility, Traffic Counts / VPD, Grade, Topography, Access " +
+      "Limitations. Only Floodplain and Grade can ever be backed by real data (given above, " +
+      "when present) — for every other factor you have no real source, so briefly explain what " +
+      "the factor is, why it could matter for THIS property type/value, and what to upload to " +
+      "assess it (a plat, a drainage plan, a utility letter, a traffic study, a topo survey, " +
+      "etc.); never claim a specific site condition you weren't given real data for. For " +
+      "Floodplain, state the real zone/Special Flood Hazard Area status given above; for Grade, " +
+      "state the real elevation given above but note a single point isn't a full topographic " +
+      "assessment. Also give an overall 0-100 documentation-priority score for how worthwhile " +
+      "pursuing site-condition evidence looks for this property (its value profile and property " +
+      "type), and a one-sentence key finding grounded only in whichever factors have real/" +
+      "partial data — say plainly that more data is needed if nothing real was found, never " +
+      "assert a valuation impact you can't back with a real fact.",
+    schema:
+      `{"guidance": "<ONE short sentence, max ~18 words>", ` +
+      `"factors": [{"factor": "<one of the 14 exact names above>", "status": "<Confirmed | ` +
+      `Partial Data | Additional Data Needed>", "finding": "<short factual statement, max ~10 ` +
+      `words>", "severity": "<High | Moderate | Low | Unknown>", "confidence": "<High | ` +
+      `Moderate | Low>", "potentialImpact": "<short phrase, max ~8 words>", "evidenceNeeded": ` +
+      `"<short phrase, or null if nothing further is needed>"}, ...] (exactly 14 entries, one ` +
+      `per factor, in the order listed above), ` +
+      `"keyFinding": "<max 2 short sentences>", "priorityScore": <integer 0-100>}`,
     parse: (p) => ({
       guidance: str(p.guidance, 160),
-      checklist: checklist(p.checklist),
+      // Real-data enforcement (Floodplain/Grade clamped to what siteGis
+      // actually gave, every other factor hard-clamped to "Additional Data
+      // Needed") happens in the request handler via
+      // enforceSiteFactorRealData — this parse() only has the AI's raw
+      // JSON, not the original input, matching every other module's parse.
+      factors: siteFactors(p.factors),
+      // 320, not the ~180 chars "2 short sentences" implies — same fix
+      // comps.recommendedUse already needed: confirmed live the model's
+      // real output regularly ran a bit over its own instruction, and a
+      // hard character slice mid-sentence reads as a broken/cut-off UI, not
+      // just "a bit long." Generous headroom over the target is safer than
+      // a tight cut.
+      keyFinding: str(p.keyFinding, 320),
       priorityScore: score100(p.priorityScore),
     }),
   },
@@ -495,6 +648,27 @@ function buildRecord(input: ModulesInput): string {
     input.totalValue != null && `Total assessed value: $${input.totalValue.toLocaleString()}`,
   ];
 
+  if (input.siteGis) {
+    const g = input.siteGis;
+    const parts: string[] = [];
+    if (g.floodZone) {
+      parts.push(
+        `Real FEMA flood zone at this property's exact location: Zone ${g.floodZone.zone} ` +
+          `(${g.floodZone.label})${g.floodZone.inSFHA ? ", inside a Special Flood Hazard Area" : ", not in a Special Flood Hazard Area"}.`,
+      );
+    }
+    if (g.elevationFt != null) {
+      parts.push(
+        `Real ground elevation at this exact point (USGS): ${Math.round(g.elevationFt)} ft — ` +
+          `a single point, not a full topographic survey.`,
+      );
+    }
+    if (parts.length > 0) {
+      lines.push(
+        `${parts.join(" ")} Use these exact real values — never invent a different zone or elevation.`,
+      );
+    }
+  }
   if (input.compsSummary) {
     const c = input.compsSummary;
     lines.push(
@@ -801,6 +975,15 @@ Deno.serve(async (req: Request) => {
       input.moduleId === "executive" ? 1536 : undefined,
     );
     const result = spec.parse(parsed ?? {});
+    // Real-data enforcement for Module 4 — see enforceSiteFactorRealData's
+    // own comment. Runs here, not inside spec.parse, because only the
+    // handler has the original request input (input.siteGis).
+    if (input.moduleId === "site") {
+      (result as { factors: SiteFactor[] }).factors = enforceSiteFactorRealData(
+        (result as { factors: SiteFactor[] }).factors,
+        input.siteGis,
+      );
+    }
     return new Response(JSON.stringify(result), { status: 200, headers: corsHeaders });
   } catch (err) {
     const errStatus = (err as { status?: number } | null)?.status;

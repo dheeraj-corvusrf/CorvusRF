@@ -66,6 +66,8 @@ import {
   type StrategyEntry,
 } from "@/lib/ai-report-modules";
 import { getComps, type CompsResult, type CompProperty } from "@/lib/cad-comps";
+import { getSiteGis, type SiteGisResult } from "@/lib/site-gis";
+import { pickHeadlineFactor, countDataGaps, type SiteFactor } from "@/lib/site-condition";
 import { getCadRecordUrl, isDirectCadRecordUrl } from "@/lib/cad-record-url";
 import {
   computeComparableStats,
@@ -190,6 +192,20 @@ function Report() {
   const [compsMap, setCompsMap] = useState<{ data: CompsResult | null; loading: boolean }>({
     data: null,
     loading: false,
+  });
+  // Real FEMA flood-zone + USGS elevation for the subject's lat/lng, once
+  // compsMap resolves one (see loadSiteGis()/its firing effect below). Same
+  // rationale as compsMap: not an AI call, its own real/empty result shape.
+  // `attempted` distinguishes "settled, genuinely no data" from "not started
+  // yet" — see loadSiteGis's own comment.
+  const [siteGisMap, setSiteGisMap] = useState<{
+    data: SiteGisResult | null;
+    loading: boolean;
+    attempted: boolean;
+  }>({
+    data: null,
+    loading: false,
+    attempted: false,
   });
   // Lets "Request Protest Filing" work from the report page too, not just the
   // Properties dashboard — resolves (or, on first click, creates) the real saved
@@ -444,6 +460,15 @@ function Report() {
         }
       }
 
+      // Module 4's real point GIS facts, when the sequencing effect above
+      // already resolved them for this property's lat/lng — absent
+      // entirely, never fabricated, for the counties with no lat/lng at
+      // all. See enforceSiteFactorRealData in the edge function for how
+      // this gates every factor's status server-side, not just here.
+      if (id === "site" && siteGisMap.data) {
+        input.siteGis = siteGisMap.data;
+      }
+
       // Module 10 reconciles Modules 2/3/8/9's already-real outputs — see the
       // sequencing effect above that waits for strategy + evidence to settle
       // before this ever fires, so these reads are the real thing, not
@@ -623,6 +648,22 @@ function Report() {
       .catch(() => setCompsMap({ data: null, loading: false }));
   }
 
+  // Real point GIS facts (Module 4) — only ever fetched once compsMap has
+  // resolved a real lat/lng (see the firing effect below); most counties
+  // have no lat/lng at all yet, in which case this is simply never called
+  // and Module 4 honestly shows "Additional Data Needed" throughout.
+  // `attempted` (distinct from `loading`) is what lets the sequencing effect
+  // below tell "settled, no data" apart from "not started yet" — `loading:
+  // false` alone can't, since both the initial and the post-fetch state
+  // share it.
+  function loadSiteGis(lat: number, lng: number) {
+    if (siteGisMap.attempted || siteGisMap.loading) return;
+    setSiteGisMap({ data: null, loading: true, attempted: true });
+    getSiteGis({ lat, lng })
+      .then((data) => setSiteGisMap({ data, loading: false, attempted: true }))
+      .catch(() => setSiteGisMap({ data: null, loading: false, attempted: true }));
+  }
+
   useEffect(() => {
     if (!user) {
       setBillingChecked(true);
@@ -768,6 +809,8 @@ function Report() {
   useEffect(() => {
     if (!state.totalValue) return;
     loadCompsMap();
+    const subject = compsMap.data?.subject;
+    if (subject) loadSiteGis(subject.latitude, subject.longitude);
     const strategyState = moduleData.strategy;
     const fire = () => {
       for (const id of SEQUENCED_AFTER_STRATEGY) {
@@ -782,6 +825,20 @@ function Report() {
         // that fetch actually settles, giving "comps" a second real chance
         // to fire with real data instead of silently going out ungrounded.
         if (id === "comps" && compsMap.loading) continue;
+        // "site" needs compsMap settled AND, only when a real subject/lat-
+        // lng came out of it, siteGisMap itself settled too — otherwise it
+        // could fire while the GIS fetch is merely not-yet-started instead
+        // of genuinely unavailable, and Module 4 would show "Additional
+        // Data Needed" for something that was actually about to resolve.
+        // `!siteGisMap.attempted` (not `siteGisMap.loading`) is the right
+        // check here — `loading` is also false before the fetch starts, so
+        // it can't tell "not started" apart from "settled" on its own.
+        if (
+          id === "site" &&
+          (compsMap.loading || (!!subject && (!siteGisMap.attempted || siteGisMap.loading)))
+        ) {
+          continue;
+        }
         const m = MODULES.find((mm) => mm.id === id);
         if (m && (m.n <= FREE_MODULE_COUNT || hasFullAccess)) loadModule(m.id);
       }
@@ -792,11 +849,12 @@ function Report() {
     }
     const t = setTimeout(fire, 6000);
     return () => clearTimeout(t);
-    // Same rationale as the effect above for omitting loadModule/loadCompsMap;
-    // moduleData.strategy's data/error (plus compsMap.loading, for the
-    // "comps" race described above) are read explicitly instead of the
-    // whole moduleData/compsMap objects so this only re-fires on those
-    // specific state transitions, not every other module's load.
+    // Same rationale as the effect above for omitting loadModule/loadCompsMap/
+    // loadSiteGis; moduleData.strategy's data/error (plus compsMap.loading/
+    // .data and siteGisMap's own settle state, for the races described
+    // above) are read explicitly instead of the whole moduleData/compsMap/
+    // siteGisMap objects so this only re-fires on those specific state
+    // transitions, not every other module's load.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     state.totalValue,
@@ -804,6 +862,9 @@ function Report() {
     moduleData.strategy?.data,
     moduleData.strategy?.error,
     compsMap.loading,
+    compsMap.data,
+    siteGisMap.attempted,
+    siteGisMap.loading,
   ]);
 
   // Module 10 (executive) reconciles Module 2's strategy and Module 8's
@@ -1020,6 +1081,7 @@ function Report() {
               moduleState={moduleData[m.id]}
               moduleData={moduleData}
               compsMap={compsMap}
+              siteGisMap={siteGisMap}
               estimated={estimated}
               propertyType={state.propertyType}
               totalValue={state.totalValue}
@@ -1064,6 +1126,7 @@ function Report() {
                 moduleState={moduleData[m.id]}
                 moduleData={moduleData}
                 compsMap={compsMap}
+                siteGisMap={siteGisMap}
                 onRetry={() => {}}
                 allowEvidenceUpload={false}
                 evidenceDocs={evidenceDocs}
@@ -1100,6 +1163,7 @@ function Report() {
             moduleState={moduleData[openModel.id]}
             moduleData={moduleData}
             compsMap={compsMap}
+            siteGisMap={siteGisMap}
             onRetry={() => loadModule(openModel.id)}
             allowEvidenceUpload
             evidenceDocs={evidenceDocs}
@@ -1189,6 +1253,7 @@ function ModuleCard({
   moduleState,
   moduleData,
   compsMap,
+  siteGisMap,
   estimated,
   propertyType,
   totalValue,
@@ -1201,6 +1266,7 @@ function ModuleCard({
   moduleState: ModuleAsyncState | undefined;
   moduleData: Record<string, ModuleAsyncState>;
   compsMap: { data: CompsResult | null; loading: boolean };
+  siteGisMap: { data: SiteGisResult | null; loading: boolean };
   estimated: {
     reduction: number;
     savings: number;
@@ -1294,6 +1360,7 @@ function ModuleCard({
             moduleState={moduleState}
             moduleData={moduleData}
             compsMap={compsMap}
+            siteGisMap={siteGisMap}
             estimated={estimated}
             propertyType={propertyType}
             totalValue={totalValue}
@@ -1347,6 +1414,7 @@ function ModuleVisual({
   moduleState,
   moduleData,
   compsMap,
+  siteGisMap,
   estimated,
   propertyType,
   totalValue,
@@ -1357,6 +1425,7 @@ function ModuleVisual({
   moduleState: ModuleAsyncState | undefined;
   moduleData: Record<string, ModuleAsyncState>;
   compsMap: { data: CompsResult | null; loading: boolean };
+  siteGisMap: { data: SiteGisResult | null; loading: boolean };
   estimated: {
     reduction: number;
     savings: number;
@@ -1538,22 +1607,42 @@ function ModuleVisual({
     case "site": {
       const d = moduleState.data as ModuleResultMap["site"];
       const subject = compsMap.data?.subject;
+      const headline = pickHeadlineFactor(d.factors);
       return (
         <div>
-          {subject ? (
-            <SiteMapThumb lat={subject.latitude} lng={subject.longitude} height={128} />
-          ) : (
-            <div className="grid h-32 place-items-center rounded-lg bg-secondary/40">
-              <MapPin className="h-6 w-6 text-muted-foreground" />
-            </div>
-          )}
-          <div className="mt-2.5">
-            <MiniMeter value={d.priorityScore} label="documentation priority" />
-            {d.checklist.length > 0 && (
-              <div className="mt-1.5">
-                <ChecklistIconRows items={d.checklist.slice(0, 2)} color={m.color} />
+          <div className="relative">
+            {subject ? (
+              <SiteMapThumb lat={subject.latitude} lng={subject.longitude} height={128} />
+            ) : (
+              <div className="grid h-32 place-items-center rounded-lg bg-secondary/40">
+                <MapPin className="h-6 w-6 text-muted-foreground" />
               </div>
             )}
+            <FloodZoneBadge floodZone={siteGisMap.data?.floodZone} />
+          </div>
+          <div className="mt-2.5">
+            <MiniMeter value={d.priorityScore} label="documentation priority" />
+            <div className="mt-1.5">
+              {headline ? (
+                <SiteImpactChain factor={headline} />
+              ) : (
+                <p className="text-[10px] text-muted-foreground">
+                  {countDataGaps(d.factors)} of {d.factors.length} site factors need more data.
+                </p>
+              )}
+            </div>
+            {d.keyFinding && (
+              <p className="mt-1.5 line-clamp-2 text-[10px] text-muted-foreground">
+                {d.keyFinding}
+              </p>
+            )}
+            {/* Static hint, not a link — the card's own "View report" button
+                below already opens this module's modal, where the real
+                clickable Next Step bar (to Module 5) lives. */}
+            <p className="mt-1.5 flex items-center gap-1 text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Next: Improvement Condition
+              <ArrowRight className="h-2.5 w-2.5" />
+            </p>
           </div>
         </div>
       );
@@ -2580,6 +2669,59 @@ function DefenseQARow({
   );
 }
 
+const SITE_FACTOR_STATUS_TONE: Record<SiteFactor["status"], string> = {
+  Confirmed: "bg-success/15 text-success",
+  "Partial Data": "bg-warning/15 text-warning-foreground",
+  "Additional Data Needed": "bg-secondary/60 text-muted-foreground",
+};
+
+// One row of Module 4's 14-factor table. status is server-enforced (see
+// enforceSiteFactorRealData) — this component just renders whatever it's
+// given, never re-decides Confirmed/Partial/Additional Data Needed itself.
+function SiteFactorRow({
+  factor,
+  onOpenModule,
+}: {
+  factor: SiteFactor;
+  onOpenModule: (moduleId: string) => void;
+}) {
+  return (
+    <div className="card-elev p-2.5">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-sm font-semibold">{factor.factor}</span>
+            <span
+              className={`shrink-0 whitespace-nowrap rounded-full px-1.5 py-0.5 text-[9px] font-semibold ${SITE_FACTOR_STATUS_TONE[factor.status]}`}
+            >
+              {factor.status}
+            </span>
+          </div>
+          <p className="mt-0.5 text-xs text-muted-foreground">{factor.finding}</p>
+        </div>
+        {factor.severity !== "Unknown" && (
+          <span className="shrink-0 whitespace-nowrap text-[9px] font-semibold text-muted-foreground">
+            {factor.severity}
+          </span>
+        )}
+      </div>
+      {factor.evidenceNeeded && (
+        <div className="mt-1.5 flex min-w-0 items-center justify-between gap-2 text-xs">
+          <span className="min-w-0 flex-1 truncate text-muted-foreground">
+            {factor.evidenceNeeded}
+          </span>
+          <button
+            onClick={() => onOpenModule("evidence")}
+            className="shrink-0 whitespace-nowrap text-accent hover:underline"
+          >
+            Upload →
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ---------- Reference-infographic chrome shared by every module: a
 // numbered badge (ModuleCard header + modal header) and a one-line colored
 // insight banner on each card, derived from data already loaded elsewhere
@@ -2682,10 +2824,11 @@ function InsightBanner({ text, color }: { text: string; color: IconColor }) {
   );
 }
 
-// Generic icon+text row for free-text AI checklist items (Site/Improvement
-// Condition) — deliberately the SAME icon for every row rather than
-// guessing a specific category (floodplain vs. easement vs. drainage) from
-// unstructured text the AI never actually categorized.
+// Generic icon+text row for free-text AI checklist items (Improvement
+// Condition — Site Condition moved to a real structured 14-factor table,
+// see SiteFactorRow) — deliberately the SAME icon for every row rather than
+// guessing a specific category from unstructured text the AI never actually
+// categorized.
 // Real satellite thumbnail for Site Condition, reusing the subject
 // property's own coordinates — already loaded for every visitor via the
 // comps fetch (see loadCompsMap() in Report()), not a second API call.
@@ -2779,6 +2922,71 @@ function ImprovementIconRing({ items, color }: { items: string[]; color: IconCol
           {items.length} factor{items.length === 1 ? "" : "s"} worth documenting
         </div>
       )}
+    </div>
+  );
+}
+
+// Real FEMA flood zone, floated over the site map's corner — a point fact
+// (this app has no parcel boundary to shade an actual overlay polygon with),
+// never shown at all when siteGis hasn't resolved a real zone (see
+// loadSiteGis() in Report()). Colored by inSFHA — the real Special Flood
+// Hazard Area boolean FEMA returns, not a guess.
+function FloodZoneBadge({ floodZone }: { floodZone: SiteGisResult["floodZone"] | undefined }) {
+  if (!floodZone) return null;
+  return (
+    <div
+      className={`absolute left-1.5 top-1.5 rounded-full px-1.5 py-0.5 text-[9px] font-semibold text-white shadow ${
+        floodZone.inSFHA ? "bg-destructive" : "bg-success"
+      }`}
+      title={floodZone.label}
+    >
+      Zone {floodZone.zone}
+    </div>
+  );
+}
+
+// Card's condensed constraint -> impact chain (the card's own version of
+// Module 4's full "AI Impact Analysis" flow in the modal) — only ever built
+// from a factor that pickHeadlineFactor() already confirmed has real/partial
+// data, so this never shows a fabricated finding.
+// Card's own version of the reference's "AI Impact Analysis" vertical
+// arrow chain — built entirely from the SAME real structured fields the
+// modal's table shows for this one factor (finding -> potentialImpact ->
+// a severity-derived relevance label -> evidenceNeeded as the recommended
+// next step), not new AI output. Only ever called with a factor
+// pickHeadlineFactor() already confirmed has real/partial data.
+function SiteImpactChain({ factor }: { factor: SiteFactor }) {
+  const tone =
+    factor.severity === "High"
+      ? "text-destructive"
+      : factor.severity === "Moderate"
+        ? "text-warning-foreground"
+        : "text-success";
+  const relevance =
+    factor.severity === "High"
+      ? "High Valuation Relevance"
+      : factor.severity === "Moderate"
+        ? "Moderate Valuation Relevance"
+        : "Low Valuation Relevance";
+  const steps: { text: string; tone?: string }[] = [
+    { text: `${factor.factor}: ${factor.finding}`, tone },
+    ...(factor.potentialImpact ? [{ text: factor.potentialImpact }] : []),
+    { text: relevance, tone },
+    ...(factor.evidenceNeeded ? [{ text: `Next: ${factor.evidenceNeeded}` }] : []),
+  ];
+  return (
+    <div className="grid gap-0.5">
+      {steps.map((step, i) => (
+        <div key={i} className="grid justify-items-center gap-0.5">
+          {i > 0 && <ArrowDown className="h-2.5 w-2.5 text-muted-foreground" />}
+          <div
+            className={`w-full truncate rounded-md bg-secondary/40 px-1.5 py-1 text-center text-[9px] font-medium ${step.tone ?? "text-foreground"}`}
+            title={step.text}
+          >
+            {step.text}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -3412,9 +3620,9 @@ const DATA_REQUIREMENTS: DataRequirementRow[] = [
   {
     category: "Site Conditions",
     required: "Lot shape, access, flood zone, topography, easements",
-    source: "CAD GIS + FEMA/public GIS",
-    usedFor: "Would identify site issues that could support a lower value",
-    status: "Not integrated",
+    source: "FEMA NFHL (flood zone) + USGS (elevation) — real, point-level only",
+    usedFor: "Flood zone and a single elevation point; every other factor still needs upload",
+    status: "Partial",
   },
   {
     category: "Improvement Condition",
@@ -3535,6 +3743,7 @@ function ModulePreviewContent({
   moduleState,
   moduleData,
   compsMap,
+  siteGisMap,
   onRetry,
   allowEvidenceUpload,
   evidenceDocs,
@@ -3559,6 +3768,7 @@ function ModulePreviewContent({
   moduleState: ModuleAsyncState | undefined;
   moduleData: Record<string, ModuleAsyncState>;
   compsMap: { data: CompsResult | null; loading: boolean };
+  siteGisMap: { data: SiteGisResult | null; loading: boolean };
   onRetry: () => void;
   allowEvidenceUpload: boolean;
   evidenceDocs: DocumentRecord[];
@@ -4069,18 +4279,89 @@ function ModulePreviewContent({
     case "site": {
       const d = moduleState.data as ModuleResultMap["site"];
       const subject = compsMap.data?.subject;
+      const siteGis = siteGisMap.data;
+      const gaps = countDataGaps(d.factors);
+      const nextModule = MODULES.find((mm) => mm.id === "improvement");
       return (
-        <div className="mt-4">
-          {subject && <SiteMapThumb lat={subject.latitude} lng={subject.longitude} height={220} />}
-          <div className="mt-3">
-            <MiniMeter value={d.priorityScore} label="Documentation priority" />
+        <div className="mt-4 grid gap-4">
+          <div>
+            <div className="relative">
+              {subject ? (
+                <SiteMapThumb lat={subject.latitude} lng={subject.longitude} height={220} />
+              ) : (
+                <div className="grid h-[220px] place-items-center rounded-lg bg-secondary/40">
+                  <MapPin className="h-8 w-8 text-muted-foreground" />
+                </div>
+              )}
+              <FloodZoneBadge floodZone={siteGis?.floodZone} />
+            </div>
+            {/* Real "Site Facts" strip — only ever the two point facts this
+                app can actually fetch (FEMA/USGS); nothing else is claimed. */}
+            {(siteGis?.floodZone || siteGis?.elevationFt != null) && (
+              <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                {siteGis?.floodZone && (
+                  <span>
+                    Flood zone:{" "}
+                    <strong className="text-foreground">{siteGis.floodZone.label}</strong>
+                  </span>
+                )}
+                {siteGis?.elevationFt != null && (
+                  <span>
+                    Elevation:{" "}
+                    <strong className="text-foreground">
+                      {Math.round(siteGis.elevationFt)} ft
+                    </strong>{" "}
+                    (single point, not a full survey)
+                  </span>
+                )}
+              </div>
+            )}
           </div>
-          <div className="mt-3">
-            <AiVerdictLine icon={m.icon} text={d.guidance} color={m.color} />
+
+          <MiniMeter value={d.priorityScore} label="Documentation priority" />
+
+          {d.guidance && <AiVerdictLine icon={m.icon} text={d.guidance} color={m.color} />}
+
+          {/* Full 14-factor structured table — see MODULE_SPECS.site and
+              enforceSiteFactorRealData in the edge function. Only
+              Floodplain/Grade can ever read Confirmed/Partial Data; every
+              other row is honestly "Additional Data Needed" until a real
+              source exists for it. */}
+          <div>
+            <div className="mb-1.5 flex items-center justify-between gap-2">
+              <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Site Factors
+              </div>
+              <span className="shrink-0 whitespace-nowrap text-xs text-muted-foreground">
+                {gaps} of {d.factors.length} need more data
+              </span>
+            </div>
+            <div className="grid gap-1.5">
+              {d.factors.map((f) => (
+                <SiteFactorRow key={f.factor} factor={f} onOpenModule={onOpenModule} />
+              ))}
+            </div>
           </div>
-          <div className="mt-3">
-            <ChecklistIconRows items={d.checklist} color={m.color} />
-          </div>
+
+          {d.keyFinding && (
+            <div className={`rounded-lg p-4 ${m.color.bg}`}>
+              <div className={`text-[10px] font-semibold uppercase tracking-wide ${m.color.text}`}>
+                Key Finding
+              </div>
+              <p className="mt-1 text-sm text-foreground/90">{d.keyFinding}</p>
+            </div>
+          )}
+
+          {nextModule && (
+            <button
+              type="button"
+              onClick={() => onOpenModule(nextModule.id)}
+              className="flex items-center justify-between gap-2 rounded-lg bg-secondary/40 px-4 py-2.5 text-sm font-semibold transition-colors hover:bg-secondary/60"
+            >
+              <span>Next Step: Evaluate {nextModule.shortName}</span>
+              <ArrowRight className="h-4 w-4" />
+            </button>
+          )}
         </div>
       );
     }

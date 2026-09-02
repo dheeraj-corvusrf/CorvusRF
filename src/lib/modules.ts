@@ -75,7 +75,7 @@ export const MODULES: Module[] = [
     question: "Are there land or site-related issues that could support a lower valuation?",
     status: "Completed",
     teaser:
-      "AI checklist of site factors — access, drainage, easements — worth documenting for this property type.",
+      "Real FEMA flood-zone and elevation data where available, plus a 14-factor checklist of what to document otherwise.",
     icon: MapPin,
     color: ICON_COLORS[3],
   },
