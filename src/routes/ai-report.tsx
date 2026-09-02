@@ -3057,49 +3057,130 @@ function SiteMapThumb({ lat, lng, height = 140 }: { lat: number; lng: number; he
 
 // A generic multi-story commercial building — deliberately not a photo or a
 // rendering of THIS specific property (this app has no building imagery for
-// any property), just a more architectural stand-in than a single flat
-// icon: two visible faces (front + side) for depth, a window grid, a
-// rooftop mechanical unit, and a ground shadow. Colored entirely from the
-// app's own theme tokens so it never needs its own light/dark variant.
+// any property, and Street View Static API isn't enabled on this project's
+// Google Cloud key — confirmed live, not something to fake). A static
+// illustration instead, made to actually read as a building: two lit faces
+// (front + side, gradient-shaded for depth) with mullioned, reflective
+// windows, a stepped rooftop with a mechanical unit and cornice line, an
+// entrance canopy over real double doors, and a soft ground shadow.
+// Colored entirely from the app's own theme tokens, gradients included, so
+// it never needs its own light/dark variant.
 function BuildingIllustration({ className }: { className?: string }) {
-  const windowCols = [26, 40, 54];
-  const windowRows = [30, 44, 58];
+  const windowRows = [26, 38, 50, 62, 74];
+  const windowCols = [25, 39, 53];
   return (
-    <svg viewBox="0 0 120 100" className={className} aria-hidden="true">
-      <ellipse cx="55" cy="93" rx="42" ry="4" fill="var(--border)" opacity="0.5" />
+    <svg viewBox="0 0 120 105" className={className} aria-hidden="true">
+      <defs>
+        <linearGradient id="bldgFront" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0%" stopColor="var(--card)" />
+          <stop offset="100%" stopColor="var(--secondary)" />
+        </linearGradient>
+        <linearGradient id="bldgSide" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0%" stopColor="var(--muted-foreground)" stopOpacity="0.22" />
+          <stop offset="100%" stopColor="var(--muted-foreground)" stopOpacity="0.48" />
+        </linearGradient>
+        <linearGradient id="bldgGlass" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="var(--accent)" stopOpacity="0.4" />
+          <stop offset="100%" stopColor="var(--muted-foreground)" stopOpacity="0.28" />
+        </linearGradient>
+        <radialGradient id="bldgShadow" cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stopColor="var(--border)" stopOpacity="0.55" />
+          <stop offset="100%" stopColor="var(--border)" stopOpacity="0" />
+        </radialGradient>
+      </defs>
+
+      <ellipse cx="57" cy="97" rx="48" ry="6" fill="url(#bldgShadow)" />
+
       {/* Roof */}
-      <polygon points="20,25 65,25 90,15 45,15" fill="var(--border)" />
-      <rect x="49" y="9" width="13" height="7" rx="1" fill="var(--border)" />
-      <line x1="75" y1="15" x2="75" y2="5" stroke="var(--muted-foreground)" strokeWidth="1.5" />
+      <polygon points="19,26 65,26 91,15 45,15" fill="var(--border)" />
+      <polygon points="19,26 65,26 63,29 21,29" fill="var(--muted-foreground)" opacity="0.25" />
+      <rect x="48" y="8" width="14" height="8" rx="1" fill="var(--border)" />
+      <rect
+        x="50"
+        y="6"
+        width="10"
+        height="3"
+        rx="0.5"
+        fill="var(--muted-foreground)"
+        opacity="0.4"
+      />
+      <line x1="77" y1="15" x2="77" y2="4" stroke="var(--muted-foreground)" strokeWidth="1.25" />
+      <circle cx="77" cy="4" r="1.5" fill="var(--muted-foreground)" opacity="0.6" />
+
       {/* Side face */}
-      <polygon points="65,25 90,15 90,80 65,90" fill="var(--muted-foreground)" opacity="0.35" />
+      <polygon points="65,26 91,15 91,85 65,96" fill="url(#bldgSide)" />
+      <polygon points="65,26 91,15 91,20 65,31" fill="var(--muted-foreground)" opacity="0.15" />
+
       {/* Front face */}
-      <rect x="20" y="25" width="45" height="65" fill="var(--secondary)" />
-      <rect x="20" y="25" width="45" height="65" fill="none" stroke="var(--border)" />
+      <rect x="19" y="26" width="46" height="70" fill="url(#bldgFront)" />
+      <rect
+        x="19"
+        y="26"
+        width="46"
+        height="70"
+        fill="none"
+        stroke="var(--border)"
+        strokeWidth="0.75"
+      />
+      {/* Cornice */}
+      <rect x="19" y="26" width="46" height="3" fill="var(--border)" />
+
       {windowRows.map((y) =>
         windowCols.map((x) => (
-          <rect
-            key={`${x}-${y}`}
-            x={x}
-            y={y}
-            width="9"
-            height="9"
-            rx="0.5"
-            fill="var(--muted-foreground)"
-            opacity="0.3"
-          />
+          <g key={`${x}-${y}`}>
+            <rect x={x} y={y} width="9" height="8" rx="0.5" fill="url(#bldgGlass)" />
+            <line
+              x1={x + 4.5}
+              y1={y}
+              x2={x + 4.5}
+              y2={y + 8}
+              stroke="var(--card)"
+              strokeWidth="0.5"
+              opacity="0.6"
+            />
+            <line
+              x1={x}
+              y1={y + 4}
+              x2={x + 9}
+              y2={y + 4}
+              stroke="var(--card)"
+              strokeWidth="0.5"
+              opacity="0.6"
+            />
+            <line
+              x1={x + 1}
+              y1={y + 1}
+              x2={x + 3.5}
+              y2={y + 1}
+              stroke="var(--card)"
+              strokeWidth="0.8"
+              opacity="0.7"
+            />
+          </g>
         )),
       )}
-      {/* Entrance */}
+
+      {/* Entrance canopy + double doors */}
+      <rect x="32" y="85" width="22" height="2" fill="var(--border)" />
       <rect
-        x="36"
-        y="75"
-        width="14"
-        height="15"
-        rx="1"
+        x="35"
+        y="87"
+        width="8"
+        height="9"
+        rx="0.5"
         fill="var(--muted-foreground)"
-        opacity="0.45"
+        opacity="0.55"
       />
+      <rect
+        x="43"
+        y="87"
+        width="8"
+        height="9"
+        rx="0.5"
+        fill="var(--muted-foreground)"
+        opacity="0.55"
+      />
+      <line x1="43" y1="87" x2="43" y2="96" stroke="var(--border)" strokeWidth="0.75" />
     </svg>
   );
 }
