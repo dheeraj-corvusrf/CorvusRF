@@ -3,7 +3,7 @@
    second framework build. Color tokens copied verbatim from src/styles.css's
    :root block for visual consistency with the CorvusPT app. */
 :root {
-  --background: oklch(0.995 0.003 90);
+  --background: oklch(0.98 0.01 155);
   --foreground: oklch(0.2 0.04 250);
   --card: oklch(1 0 0);
   --primary: oklch(0.29 0.08 255);
@@ -140,6 +140,20 @@ body.doors-page {
 }
 body.doors-page header {
   flex: 0 0 auto;
+}
+/* Centered tagline between the header and the doors — its own flex row so
+   .doors-stage below (flex: 1 1 auto) just shrinks to fill whatever's left,
+   same "never hand-compute heights" approach as header/footer above. */
+body.doors-page .tagline-banner {
+  flex: 0 0 auto;
+}
+.tagline-banner {
+  margin: 0;
+  padding: 0.625rem 1rem;
+  text-align: center;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  color: var(--muted-foreground);
 }
 body.doors-page footer {
   flex: 0 0 auto;
@@ -657,11 +671,16 @@ body .door.is-open .door-label {
   flex-direction: column;
   align-items: center;
   gap: 0.1875rem;
-  font-size: 1.0625rem;
+  /* +2pt over the previous 1.0625rem (17px) — 2pt ≈ 2.67px at the
+     standard 96dpi/16px-root conversion, landing on this next clean step. */
+  font-size: 1.25rem;
   font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  color: #fff;
+  /* Same door-glow accent already used for the label lettering
+     (.door-label-accent) instead of plain white, so the subtitle reads as
+     part of each door's own identity. */
+  color: var(--door-glow, #fff);
   background: oklch(0.16 0.02 260 / 0.78);
   border: 1px solid oklch(1 0 0 / 0.16);
   border-radius: 0.625rem;
@@ -671,6 +690,12 @@ body .door.is-open .door-label {
 }
 .door-subtitle span {
   white-space: nowrap;
+}
+/* PT gets the same brighter override as .door-label-pt (its --door-glow is
+   a touch muted for this purpose) so the subtitle matches the nameplate's
+   own green exactly, not a slightly different shade of it. */
+.door-pt .door-subtitle {
+  color: #34d399;
 }
 body .door.is-open .door-subtitle {
   opacity: 0;
@@ -730,7 +755,7 @@ body .door.is-open .door-subtitle {
   /* Used to just drop this entirely — at the OLD ~70px single-row door
      width there was truly no room for horizontal, nowrap text. The
      2-column grid's ~183px doors have room, at a reduced size scoped to
-     just this breakpoint (desktop's own 1.0625rem is untouched). */
+     just this breakpoint (desktop's own 1.25rem is untouched). */
   .door-subtitle {
     font-size: 0.8125rem;
     padding: 0.4375rem 0.625rem;
