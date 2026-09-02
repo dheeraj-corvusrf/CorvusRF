@@ -33,6 +33,55 @@ export type ModuleAnalysisInput = {
     marketValue: number | null;
     similarity: number;
   }[];
+  // Everything below is only for "executive" — real outputs Modules 2/3/8/9
+  // already computed (never regenerated), so Module 10 can actually
+  // reconcile them instead of writing a recommendation blind to the rest of
+  // the report. See loadModule()'s executive branch in ai-report.tsx and the
+  // sequencing effect that waits for strategy + evidence to resolve first.
+  topStrategies?: {
+    name: string;
+    primaryReason: string;
+    strengthScore: number;
+    whySelected: string;
+    existingEvidence: string[];
+    missingEvidence: string[];
+  }[];
+  evidenceReadiness?: {
+    criticalMissing: string[];
+    importantMissing: string[];
+    uploadedCount: number;
+  };
+  compsIndicated?: {
+    min: number;
+    median: number;
+    max: number;
+    gapPct: number | null;
+    confidencePct: number | null;
+  } | null;
+  financialSummary?: {
+    savings: number;
+    basis: "comps" | "formula";
+    reductionPct: number | null;
+  } | null;
+  // Only present once a real protest case exists for this property (see
+  // getPreFilingCheck() in pre-filing-check.ts) — omitted, not fabricated,
+  // when no case has been started yet.
+  preFilingStatus?: { missingBlocking: string[] } | null;
+  // Only for "site" — real point data from site-gis.ts's getSiteGis() (FEMA
+  // flood zone + USGS elevation) for the property's real lat/lng, when one
+  // exists. Absent entirely, not just null fields, whenever no real lat/lng
+  // exists for this property/county (most counties today) — see
+  // loadSiteGis() in ai-report.tsx.
+  siteGis?: {
+    floodZone: { zone: string; label: string; inSFHA: boolean } | null;
+    elevationFt: number | null;
+  } | null;
+  // Only for "improvement" — the real typical economic-life range for this
+  // property's type (improvement-condition.ts's getTypicalEconomicLife()),
+  // always sent (unlike evidenceImages, not gated on anything real existing
+  // yet) so the AI's effective-age estimate is grounded in an honest
+  // industry-general figure rather than an unmoored guess.
+  economicLifeYears?: { min: number; max: number; typical: number } | null;
 };
 
 export type BatchModuleId =
@@ -64,8 +113,65 @@ export type ModuleResultMap = {
     topStrategySummary: string;
   };
   comps: { guidance: string; checklist: string[]; recommendedUse: string };
-  site: { guidance: string; checklist: string[]; priorityScore: number };
-  improvement: { guidance: string; checklist: string[]; priorityScore: number };
+  // Real 14-factor structured assessment — see MODULE_SPECS.site and
+  // enforceSiteFactorRealData in the edge function. Only "Floodplain" and
+  // "Grade" can ever read "Confirmed"/"Partial Data"; every other factor is
+  // server-enforced to "Additional Data Needed" until a real source exists
+  // for it — never trust status alone without that context.
+  site: {
+    guidance: string;
+    factors: {
+      factor:
+        | "Floodplain"
+        | "Easements"
+        | "Drainage"
+        | "Sewer"
+        | "Water Availability"
+        | "Buildability"
+        | "Ponds"
+        | "Streams"
+        | "Road Frontage"
+        | "Visibility"
+        | "Traffic Counts / VPD"
+        | "Grade"
+        | "Topography"
+        | "Access Limitations";
+      status: "Confirmed" | "Partial Data" | "Additional Data Needed";
+      finding: string;
+      severity: "High" | "Moderate" | "Low" | "Unknown";
+      confidence: "High" | "Moderate" | "Low";
+      potentialImpact: string;
+      evidenceNeeded: string | null;
+    }[];
+    keyFinding: string;
+    priorityScore: number;
+  };
+  // Real 4-component structured assessment — see MODULE_SPECS.improvement and
+  // enforceBuildingComponentRealData in the edge function. hasPhoto/
+  // condition are server-enforced: when zero evidence images were sent at
+  // all, every component reads hasPhoto:false/condition:"Unknown" no
+  // matter what the AI returned. effectiveAgeYears/functionalObsolescencePct/
+  // externalObsolescencePct are null whenever the AI had no real basis for
+  // them — see src/lib/improvement-condition.ts's computeDepreciation() for
+  // the real, deterministic math built from these.
+  improvement: {
+    guidance: string;
+    buildingComponents: {
+      component: "Roof" | "HVAC" | "Exterior" | "Interior";
+      hasPhoto: boolean;
+      condition: "Good" | "Fair" | "Poor" | "Unknown";
+      actionNeeded: string | null;
+      notes: string;
+    }[];
+    effectiveAgeYears: number | null;
+    effectiveAgeBasis: string;
+    functionalObsolescencePct: number | null;
+    functionalObsolescenceBasis: string;
+    externalObsolescencePct: number | null;
+    externalObsolescenceBasis: string;
+    keyFinding: string;
+    priorityScore: number;
+  };
   zoning: {
     matches: "consistent" | "inconsistent" | "uncertain";
     assessment: string;
@@ -74,7 +180,37 @@ export type ModuleResultMap = {
   evidence: {
     items: { item: string; importance: "High" | "Low"; availability: "High" | "Low" }[];
   };
-  executive: { recommendation: string; basis: string; nextStep: string };
+  // Recommendation/basis/nextStep kept for backward compatibility with any
+  // stale cached shape — the real UI (ai-report.tsx's "executive" cases)
+  // reads the richer fields below now. See MODULE_SPECS.executive in
+  // supabase/functions/ai-report-modules/index.ts for the full schema this
+  // mirrors.
+  executive: {
+    recommendedAction:
+      | "Proceed with Protest"
+      | "Proceed with Protest After Completing Recommended Evidence"
+      | "Additional Information Needed Before Proceeding"
+      | "Limited Protest Opportunity Based on Available Information";
+    recommendationExplanation: string;
+    primaryStrategyExplanation: string | null;
+    secondaryStrategyExplanation: string | null;
+    majorFindings: { finding: string; whyItMatters: string; relatedModule: string | null }[];
+    missingInformation: { item: string; severity: "Critical" | "Important" | "Supporting" }[];
+    recommendedProtestValue: number | null;
+    recommendedProtestValueBasis: string;
+    nextAction: string;
+    // Only populated when the AI genuinely notices the fed-in signals
+    // disagree (e.g. a strong strategy score against missing critical
+    // evidence) — per the instruction to flag conflicts, not silently pick
+    // a side. Absent, never fabricated, when nothing actually conflicts.
+    conflictNote: string | null;
+    defenseQA: {
+      question: string;
+      suggestedAnswer: string;
+      status: "Supported" | "Partially Supported" | "Evidence Needed" | "User Input Needed";
+      relatedModule: string | null;
+    }[];
+  };
 };
 
 // Fetches exactly one module's analysis per call — the caller only invokes this when

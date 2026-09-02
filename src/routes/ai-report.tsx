@@ -16,7 +16,6 @@ import {
   Home,
   Percent,
   DollarSign,
-  Award,
   Activity,
   TrendingUp,
   TrendingDown,
@@ -67,6 +66,9 @@ import {
   type StrategyEntry,
 } from "@/lib/ai-report-modules";
 import { getComps, type CompsResult, type CompProperty } from "@/lib/cad-comps";
+import { getSiteGis, type SiteGisResult } from "@/lib/site-gis";
+import { pickHeadlineFactor, countDataGaps, type SiteFactor } from "@/lib/site-condition";
+import { getTypicalEconomicLife, computeDepreciation } from "@/lib/improvement-condition";
 import { getCadRecordUrl, isDirectCadRecordUrl } from "@/lib/cad-record-url";
 import {
   computeComparableStats,
@@ -74,6 +76,12 @@ import {
   type ComparableStats,
 } from "@/lib/comps-analysis";
 import { estimateSavings } from "@/lib/savings-estimate";
+import { getExecutiveSummary, getDefenseReadinessScore } from "@/lib/executive-summary";
+import {
+  getPreFilingCheck,
+  isPreFilingBlocked,
+  type PreFilingCheckItem,
+} from "@/lib/pre-filing-check";
 import {
   classifyPropertyCategory,
   getAssessmentRatioInfo,
@@ -185,6 +193,20 @@ function Report() {
   const [compsMap, setCompsMap] = useState<{ data: CompsResult | null; loading: boolean }>({
     data: null,
     loading: false,
+  });
+  // Real FEMA flood-zone + USGS elevation for the subject's lat/lng, once
+  // compsMap resolves one (see loadSiteGis()/its firing effect below). Same
+  // rationale as compsMap: not an AI call, its own real/empty result shape.
+  // `attempted` distinguishes "settled, genuinely no data" from "not started
+  // yet" — see loadSiteGis's own comment.
+  const [siteGisMap, setSiteGisMap] = useState<{
+    data: SiteGisResult | null;
+    loading: boolean;
+    attempted: boolean;
+  }>({
+    data: null,
+    loading: false,
+    attempted: false,
   });
   // Lets "Request Protest Filing" work from the report page too, not just the
   // Properties dashboard — resolves (or, on first click, creates) the real saved
@@ -439,6 +461,87 @@ function Report() {
         }
       }
 
+      // Module 4's real point GIS facts, when the sequencing effect above
+      // already resolved them for this property's lat/lng — absent
+      // entirely, never fabricated, for the counties with no lat/lng at
+      // all. See enforceSiteFactorRealData in the edge function for how
+      // this gates every factor's status server-side, not just here.
+      if (id === "site" && siteGisMap.data) {
+        input.siteGis = siteGisMap.data;
+      }
+
+      // Module 10 reconciles Modules 2/3/8/9's already-real outputs — see the
+      // sequencing effect above that waits for strategy + evidence to settle
+      // before this ever fires, so these reads are the real thing, not
+      // whatever happened to be in state on the first render.
+      if (id === "executive") {
+        const strategyData = moduleData.strategy?.data as ModuleResultMap["strategy"] | undefined;
+        if (strategyData && strategyData.strategies.length > 0) {
+          input.topStrategies = strategyData.strategies.slice(0, 2).map((s) => ({
+            name: s.name,
+            primaryReason: s.primaryReason,
+            strengthScore: s.strengthScore,
+            whySelected: s.whySelected,
+            existingEvidence: s.existingEvidence,
+            missingEvidence: s.missingEvidence,
+          }));
+        }
+        const evidenceData = moduleData.evidence?.data as ModuleResultMap["evidence"] | undefined;
+        if (evidenceData) {
+          input.evidenceReadiness = {
+            criticalMissing: evidenceData.items
+              .filter((i) => i.importance === "High" && i.availability === "Low")
+              .map((i) => i.item),
+            importantMissing: evidenceData.items
+              .filter(
+                (i) =>
+                  !(i.importance === "High" && i.availability === "Low") &&
+                  i.availability === "Low",
+              )
+              .map((i) => i.item),
+            uploadedCount: evidenceDocs.length,
+          };
+        }
+        const execStats = computeComparableStats(
+          compsMap.data?.subject ?? null,
+          compsMap.data?.comps ?? [],
+          state.totalValue,
+        );
+        if (execStats.indicated) {
+          input.compsIndicated = {
+            min: execStats.indicated.min,
+            median: execStats.indicated.median,
+            max: execStats.indicated.max,
+            gapPct: execStats.valuationGapPct,
+            confidencePct: execStats.confidencePct,
+          };
+        }
+        if (savingsEstimate) {
+          input.financialSummary = {
+            savings: savingsEstimate.amount,
+            basis: savingsEstimate.basis,
+            reductionPct: savingsEstimate.basis === "formula" ? savingsEstimate.reductionPct : null,
+          };
+        }
+        if (existingProtest && resolvedProperty) {
+          const items = getPreFilingCheck(resolvedProperty, existingProtest);
+          input.preFilingStatus = {
+            missingBlocking: items
+              .filter((i) => i.blocking && i.status === "missing")
+              .map((i) => i.label),
+          };
+        }
+      }
+
+      // Real typical economic-life range for this property's type (see
+      // src/lib/improvement-condition.ts) — always attached, not gated on
+      // anything, so the AI's effective-age estimate (when it has real
+      // photo grounding for one) is anchored to an honest industry-general
+      // figure rather than an unmoored guess.
+      if (id === "improvement") {
+        input.economicLifeYears = getTypicalEconomicLife(state.propertyType);
+      }
+
       // Improvement Condition reads uploaded evidence (photos/repair estimates/
       // appraisals) back from storage and attaches it so the AI grounds its
       // guidance in what's actually shown rather than only general advice — see
@@ -555,6 +658,22 @@ function Report() {
       .catch(() => setCompsMap({ data: null, loading: false }));
   }
 
+  // Real point GIS facts (Module 4) — only ever fetched once compsMap has
+  // resolved a real lat/lng (see the firing effect below); most counties
+  // have no lat/lng at all yet, in which case this is simply never called
+  // and Module 4 honestly shows "Additional Data Needed" throughout.
+  // `attempted` (distinct from `loading`) is what lets the sequencing effect
+  // below tell "settled, no data" apart from "not started yet" — `loading:
+  // false` alone can't, since both the initial and the post-fetch state
+  // share it.
+  function loadSiteGis(lat: number, lng: number) {
+    if (siteGisMap.attempted || siteGisMap.loading) return;
+    setSiteGisMap({ data: null, loading: true, attempted: true });
+    getSiteGis({ lat, lng })
+      .then((data) => setSiteGisMap({ data, loading: false, attempted: true }))
+      .catch(() => setSiteGisMap({ data: null, loading: false, attempted: true }));
+  }
+
   useEffect(() => {
     if (!user) {
       setBillingChecked(true);
@@ -663,11 +782,22 @@ function Report() {
   // ranks, so they're sequenced to fire after it (see the effect below) rather
   // than in this immediate batch, which is why they're excluded here.
   const SEQUENCED_AFTER_STRATEGY = new Set(["comps", "site", "improvement", "zoning"]);
+  // Module 10 (executive) reconciles Module 2's strategy AND Module 8's
+  // evidence — firing it in this same immediate batch (as it did before this
+  // sequencing was added) meant its own AI call went out before either had
+  // resolved, reading moduleData.strategy/evidence as still undefined. See
+  // the dedicated effect below.
 
   useEffect(() => {
     if (!state.totalValue) return;
     for (const m of MODULES) {
-      if (m.id === "savings" || m.id === "income" || SEQUENCED_AFTER_STRATEGY.has(m.id)) continue;
+      if (
+        m.id === "savings" ||
+        m.id === "income" ||
+        m.id === "executive" ||
+        SEQUENCED_AFTER_STRATEGY.has(m.id)
+      )
+        continue;
       if (m.n <= FREE_MODULE_COUNT || hasFullAccess) loadModule(m.id);
     }
     // loadModule closes over moduleData for its own-fetch guard, which is
@@ -689,6 +819,8 @@ function Report() {
   useEffect(() => {
     if (!state.totalValue) return;
     loadCompsMap();
+    const subject = compsMap.data?.subject;
+    if (subject) loadSiteGis(subject.latitude, subject.longitude);
     const strategyState = moduleData.strategy;
     const fire = () => {
       for (const id of SEQUENCED_AFTER_STRATEGY) {
@@ -703,6 +835,20 @@ function Report() {
         // that fetch actually settles, giving "comps" a second real chance
         // to fire with real data instead of silently going out ungrounded.
         if (id === "comps" && compsMap.loading) continue;
+        // "site" needs compsMap settled AND, only when a real subject/lat-
+        // lng came out of it, siteGisMap itself settled too — otherwise it
+        // could fire while the GIS fetch is merely not-yet-started instead
+        // of genuinely unavailable, and Module 4 would show "Additional
+        // Data Needed" for something that was actually about to resolve.
+        // `!siteGisMap.attempted` (not `siteGisMap.loading`) is the right
+        // check here — `loading` is also false before the fetch starts, so
+        // it can't tell "not started" apart from "settled" on its own.
+        if (
+          id === "site" &&
+          (compsMap.loading || (!!subject && (!siteGisMap.attempted || siteGisMap.loading)))
+        ) {
+          continue;
+        }
         const m = MODULES.find((mm) => mm.id === id);
         if (m && (m.n <= FREE_MODULE_COUNT || hasFullAccess)) loadModule(m.id);
       }
@@ -713,11 +859,12 @@ function Report() {
     }
     const t = setTimeout(fire, 6000);
     return () => clearTimeout(t);
-    // Same rationale as the effect above for omitting loadModule/loadCompsMap;
-    // moduleData.strategy's data/error (plus compsMap.loading, for the
-    // "comps" race described above) are read explicitly instead of the
-    // whole moduleData/compsMap objects so this only re-fires on those
-    // specific state transitions, not every other module's load.
+    // Same rationale as the effect above for omitting loadModule/loadCompsMap/
+    // loadSiteGis; moduleData.strategy's data/error (plus compsMap.loading/
+    // .data and siteGisMap's own settle state, for the races described
+    // above) are read explicitly instead of the whole moduleData/compsMap/
+    // siteGisMap objects so this only re-fires on those specific state
+    // transitions, not every other module's load.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     state.totalValue,
@@ -725,6 +872,36 @@ function Report() {
     moduleData.strategy?.data,
     moduleData.strategy?.error,
     compsMap.loading,
+    compsMap.data,
+    siteGisMap.attempted,
+    siteGisMap.loading,
+  ]);
+
+  // Module 10 (executive) reconciles Module 2's strategy and Module 8's
+  // evidence into one final recommendation — it needs to actually read their
+  // real output, so it waits for both to settle (data or error) before firing
+  // its own call, same 6s-capped-timeout pattern as the comps/strategy effect
+  // above (a slow/failed dependency shouldn't stall Module 10 indefinitely).
+  useEffect(() => {
+    if (!state.totalValue || !hasFullAccess) return;
+    const strategyState = moduleData.strategy;
+    const evidenceState = moduleData.evidence;
+    const strategyDone = !!(strategyState?.data || strategyState?.error);
+    const evidenceDone = !!(evidenceState?.data || evidenceState?.error);
+    if (strategyDone && evidenceDone) {
+      loadModule("executive");
+      return;
+    }
+    const t = setTimeout(() => loadModule("executive"), 6000);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    state.totalValue,
+    hasFullAccess,
+    moduleData.strategy?.data,
+    moduleData.strategy?.error,
+    moduleData.evidence?.data,
+    moduleData.evidence?.error,
   ]);
 
   function openModule(m: Module) {
@@ -914,9 +1091,11 @@ function Report() {
               moduleState={moduleData[m.id]}
               moduleData={moduleData}
               compsMap={compsMap}
+              siteGisMap={siteGisMap}
               estimated={estimated}
               propertyType={state.propertyType}
               totalValue={state.totalValue}
+              improvementValue={state.improvementValue}
               onOpen={() => openModule(m)}
               onForceReload={() => loadModule(m.id, { force: true })}
             />
@@ -958,6 +1137,7 @@ function Report() {
                 moduleState={moduleData[m.id]}
                 moduleData={moduleData}
                 compsMap={compsMap}
+                siteGisMap={siteGisMap}
                 onRetry={() => {}}
                 allowEvidenceUpload={false}
                 evidenceDocs={evidenceDocs}
@@ -966,6 +1146,11 @@ function Report() {
                 onForceReload={() => {}}
                 onAnswerStrategy={() => {}}
                 onAskQuestion={() => Promise.resolve("")}
+                existingProtest={null}
+                resolvedProperty={null}
+                onOpenModule={() => {}}
+                onStartProtest={() => {}}
+                onViewCase={() => {}}
               />
             </div>
           ));
@@ -989,6 +1174,7 @@ function Report() {
             moduleState={moduleData[openModel.id]}
             moduleData={moduleData}
             compsMap={compsMap}
+            siteGisMap={siteGisMap}
             onRetry={() => loadModule(openModel.id)}
             allowEvidenceUpload
             evidenceDocs={evidenceDocs}
@@ -997,6 +1183,14 @@ function Report() {
             onForceReload={() => loadModule(openModel.id, { force: true })}
             onAnswerStrategy={answerStrategy}
             onAskQuestion={askQuestion}
+            existingProtest={existingProtest}
+            resolvedProperty={resolvedProperty}
+            onOpenModule={(id) => {
+              const target = MODULES.find((mm) => mm.id === id);
+              if (target) openModule(target);
+            }}
+            onStartProtest={startProtest}
+            onViewCase={() => setShowCase(true)}
           />
           <div className="mt-6 flex gap-2 justify-end">
             <button onClick={() => setOpenId(null)} className="btn-outline">
@@ -1070,9 +1264,11 @@ function ModuleCard({
   moduleState,
   moduleData,
   compsMap,
+  siteGisMap,
   estimated,
   propertyType,
   totalValue,
+  improvementValue,
   onOpen,
   onForceReload,
 }: {
@@ -1082,6 +1278,7 @@ function ModuleCard({
   moduleState: ModuleAsyncState | undefined;
   moduleData: Record<string, ModuleAsyncState>;
   compsMap: { data: CompsResult | null; loading: boolean };
+  siteGisMap: { data: SiteGisResult | null; loading: boolean };
   estimated: {
     reduction: number;
     savings: number;
@@ -1090,6 +1287,7 @@ function ModuleCard({
   };
   propertyType?: string;
   totalValue?: number | null;
+  improvementValue?: number | null;
   onOpen: () => void;
   onForceReload: () => void;
 }) {
@@ -1175,9 +1373,11 @@ function ModuleCard({
             moduleState={moduleState}
             moduleData={moduleData}
             compsMap={compsMap}
+            siteGisMap={siteGisMap}
             estimated={estimated}
             propertyType={propertyType}
             totalValue={totalValue}
+            improvementValue={improvementValue}
             onOpen={onOpen}
           />
         </div>
@@ -1228,9 +1428,11 @@ function ModuleVisual({
   moduleState,
   moduleData,
   compsMap,
+  siteGisMap,
   estimated,
   propertyType,
   totalValue,
+  improvementValue,
   onOpen,
 }: {
   m: Module;
@@ -1238,6 +1440,7 @@ function ModuleVisual({
   moduleState: ModuleAsyncState | undefined;
   moduleData: Record<string, ModuleAsyncState>;
   compsMap: { data: CompsResult | null; loading: boolean };
+  siteGisMap: { data: SiteGisResult | null; loading: boolean };
   estimated: {
     reduction: number;
     savings: number;
@@ -1246,6 +1449,7 @@ function ModuleVisual({
   };
   propertyType?: string;
   totalValue?: number | null;
+  improvementValue?: number | null;
   onOpen: () => void;
 }) {
   if (!unlocked) {
@@ -1419,33 +1623,86 @@ function ModuleVisual({
     case "site": {
       const d = moduleState.data as ModuleResultMap["site"];
       const subject = compsMap.data?.subject;
+      const headline = pickHeadlineFactor(d.factors);
       return (
         <div>
-          {subject ? (
-            <SiteMapThumb lat={subject.latitude} lng={subject.longitude} height={128} />
-          ) : (
-            <div className="grid h-32 place-items-center rounded-lg bg-secondary/40">
-              <MapPin className="h-6 w-6 text-muted-foreground" />
-            </div>
-          )}
-          <div className="mt-2.5">
-            <MiniMeter value={d.priorityScore} label="documentation priority" />
-            {d.checklist.length > 0 && (
-              <div className="mt-1.5">
-                <ChecklistIconRows items={d.checklist.slice(0, 2)} color={m.color} />
+          <div className="relative">
+            {subject ? (
+              <SiteMapThumb lat={subject.latitude} lng={subject.longitude} height={128} />
+            ) : (
+              <div className="grid h-32 place-items-center rounded-lg bg-secondary/40">
+                <MapPin className="h-6 w-6 text-muted-foreground" />
               </div>
             )}
+            <FloodZoneBadge floodZone={siteGisMap.data?.floodZone} />
+          </div>
+          <div className="mt-2.5">
+            <MiniMeter value={d.priorityScore} label="documentation priority" />
+            <div className="mt-1.5">
+              {headline ? (
+                <SiteImpactChain factor={headline} />
+              ) : (
+                <p className="text-[10px] text-muted-foreground">
+                  {countDataGaps(d.factors)} of {d.factors.length} site factors need more data.
+                </p>
+              )}
+            </div>
+            {d.keyFinding && (
+              <p className="mt-1.5 line-clamp-2 text-[10px] text-muted-foreground">
+                {d.keyFinding}
+              </p>
+            )}
+            {/* Static hint, not a link — the card's own "View report" button
+                below already opens this module's modal, where the real
+                clickable Next Step bar (to Module 5) lives. */}
+            <p className="mt-1.5 flex items-center gap-1 text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Next: Improvement Condition
+              <ArrowRight className="h-2.5 w-2.5" />
+            </p>
           </div>
         </div>
       );
     }
     case "improvement": {
+      // Card stays minimal by design — a building visual + the 1-2 numbers
+      // that actually matter (Total Depreciation, Value Impact). The full
+      // pipeline/4-component breakdown/6-tile metrics only live in the
+      // modal ("View report") — repeating them here was too much text for
+      // a glance-able card.
       const d = moduleState.data as ModuleResultMap["improvement"];
+      const depreciation = computeDepreciation(
+        d.effectiveAgeYears,
+        getTypicalEconomicLife(propertyType),
+        d.functionalObsolescencePct,
+        d.externalObsolescencePct,
+        improvementValue ?? null,
+      );
+      const withPhoto = d.buildingComponents.filter((c) => c.hasPhoto);
+      const needsAttention = withPhoto.filter((c) => c.condition !== "Good");
       return (
-        <div>
-          <ImprovementIconRing items={d.checklist} color={m.color} />
-          <div className="mt-1.5">
-            <MiniMeter value={d.priorityScore} label="condition priority" />
+        <div className="grid gap-2">
+          <BuildingIllustration className="mx-auto h-28 w-auto" />
+          {depreciation.conditionAdjustedValue != null ? (
+            <div className="grid grid-cols-2 gap-1.5">
+              <ExecutiveStat
+                label="Total Depreciation"
+                value={`${depreciation.totalDepreciationPct}%`}
+              />
+              <ExecutiveStat label="Value Impact" value={`${depreciation.impactPct}%`} />
+            </div>
+          ) : (
+            <p className="text-center text-[10px] text-muted-foreground">
+              Additional data needed — upload photos to assess condition.
+            </p>
+          )}
+          {needsAttention.length > 0 && (
+            <p className="text-center text-[10px] text-muted-foreground">
+              {needsAttention.length} of {withPhoto.length} components need attention
+            </p>
+          )}
+          <div className="flex flex-col items-center">
+            <SpeedometerGauge value={d.priorityScore} size="sm" />
+            <div className="-mt-1 text-xs text-muted-foreground">condition priority</div>
           </div>
         </div>
       );
@@ -1466,35 +1723,124 @@ function ModuleVisual({
     }
     case "executive": {
       const d = moduleState.data as ModuleResultMap["executive"];
-      const strategyData = moduleData.strategy?.data as ModuleResultMap["strategy"] | undefined;
       const evidenceData = moduleData.evidence?.data as ModuleResultMap["evidence"] | undefined;
-      const keyEvidence =
-        evidenceData?.items.find((i) => i.importance === "High")?.item ??
-        evidenceData?.items[0]?.item ??
-        null;
-      const comps =
-        compsMap.data?.comps.filter(
-          (c): c is typeof c & { marketValue: number } => c.marketValue != null,
-        ) ?? [];
-      const valueRange =
-        comps.length > 0
-          ? `${compactCurrency(Math.min(...comps.map((c) => c.marketValue)))}–${compactCurrency(Math.max(...comps.map((c) => c.marketValue)))}`
-          : null;
+      const strategyData = moduleData.strategy?.data as ModuleResultMap["strategy"] | undefined;
+      const execStats = computeComparableStats(
+        compsMap.data?.subject ?? null,
+        compsMap.data?.comps ?? [],
+        totalValue,
+      );
+      const summary = getExecutiveSummary(
+        execStats,
+        estimated.savings,
+        evidenceData?.items ?? [],
+        null,
+      );
+      const defenseScore = getDefenseReadinessScore(d.defenseQA);
       return (
-        <div>
-          <div className="mb-1.5 flex justify-center">
-            <span
-              className={`grid h-10 w-10 place-items-center rounded-full ${m.color.bg} ${m.color.text}`}
+        <div className="grid gap-2">
+          {/* Real Executive Summary tiles — overvaluation range (comps
+              math), primary strategy name (Module 2's own top pick), market
+              value range (comps math) — same 3-tile layout as the
+              reference this card was matched to, all real numbers. */}
+          <div className="grid grid-cols-3 gap-1.5">
+            <div
+              className={`min-w-0 rounded-md px-1 py-1.5 text-center ${summary.overvaluationRange ? "bg-destructive/10" : "bg-secondary/40"}`}
             >
-              <Award className="h-5 w-5" />
-            </span>
+              <div
+                className={`truncate text-[7px] uppercase tracking-wide ${summary.overvaluationRange ? "text-destructive" : "text-muted-foreground"}`}
+              >
+                Overvaluation
+              </div>
+              <div
+                className={`truncate text-[11px] font-bold ${summary.overvaluationRange ? "text-destructive" : "text-muted-foreground"}`}
+              >
+                {summary.overvaluationRange
+                  ? `${compactCurrency(summary.overvaluationRange.minDollar)}–${compactCurrency(summary.overvaluationRange.maxDollar)}`
+                  : summary.indicatedValueRange
+                    ? "Not Indicated"
+                    : "Insufficient Data"}
+              </div>
+              {summary.overvaluationRange && (
+                <div className="text-[8px] text-destructive/80">
+                  ({summary.overvaluationRange.minPct}%–{summary.overvaluationRange.maxPct}%)
+                </div>
+              )}
+            </div>
+            <div className="min-w-0 rounded-md bg-accent/10 px-1 py-1.5 text-center">
+              <div className="truncate text-[7px] uppercase tracking-wide text-accent">
+                Primary Strategy
+              </div>
+              <div className="truncate text-[10px] font-bold">
+                {strategyData?.strategies[0]?.name ?? "—"}
+              </div>
+              {strategyData?.strategies[0] && (
+                <div className="text-[8px] text-muted-foreground">
+                  {strategyData.strategies[0].strengthScore >= 70 ? "Strongest" : "Best available"}
+                </div>
+              )}
+            </div>
+            <div
+              className={`min-w-0 rounded-md px-1 py-1.5 text-center ${summary.indicatedValueRange ? "bg-success/10" : "bg-secondary/40"}`}
+            >
+              <div
+                className={`truncate text-[7px] uppercase tracking-wide ${summary.indicatedValueRange ? "text-success" : "text-muted-foreground"}`}
+              >
+                Value Range
+              </div>
+              <div
+                className={`truncate text-[11px] font-bold ${summary.indicatedValueRange ? "text-success" : "text-muted-foreground"}`}
+              >
+                {summary.indicatedValueRange
+                  ? `${compactCurrency(summary.indicatedValueRange.min)}–${compactCurrency(summary.indicatedValueRange.max)}`
+                  : "Insufficient Data"}
+              </div>
+              {summary.currentCadValue != null && (
+                <div className="truncate text-[8px] text-muted-foreground">
+                  vs CAD {compactCurrency(summary.currentCadValue)}
+                </div>
+              )}
+            </div>
           </div>
-          <ExecutiveBadges
-            strategy={strategyData?.strategies[0]?.name ?? null}
-            keyEvidence={keyEvidence}
-            valueRange={valueRange}
-            nextStep={d.nextStep}
-          />
+          {!summary.indicatedValueRange && (
+            <p className="text-[9px] text-muted-foreground">
+              No comparable properties with a usable market value were found for this property yet —
+              comps math above can&apos;t run without at least one.
+            </p>
+          )}
+
+          {/* Key Supporting Factors — real AI findings, short titles only. */}
+          {d.majorFindings.length > 0 && (
+            <div className="grid gap-0.5">
+              {d.majorFindings.slice(0, 4).map((f, i) => (
+                <div key={i} className="flex items-center gap-1.5">
+                  <CheckCircle2 className="h-3 w-3 shrink-0 text-success" />
+                  <span className="min-w-0 flex-1 truncate text-[10px]">{f.finding}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Overall Case Assessment + Protest Defense Readiness gauges,
+              side by side — same pairing as the reference. */}
+          <div className="grid grid-cols-2 items-end gap-2">
+            {summary.overallConfidencePct != null && (
+              <div className="flex flex-col items-center">
+                <SpeedometerGauge value={summary.overallConfidencePct} size="sm" />
+                <div className="-mt-1 text-center text-[8px] uppercase tracking-wide text-muted-foreground">
+                  Case Assessment
+                </div>
+              </div>
+            )}
+            {defenseScore != null && (
+              <div className="flex flex-col items-center">
+                <SpeedometerGauge value={defenseScore} size="sm" />
+                <div className="-mt-1 text-center text-[8px] uppercase tracking-wide text-muted-foreground">
+                  Defense Readiness
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       );
     }
@@ -2275,35 +2621,267 @@ function FormulaChain({
   );
 }
 
-function ExecutiveBadges({
-  strategy,
-  keyEvidence,
-  valueRange,
-  nextStep,
-}: {
-  strategy: string | null;
-  keyEvidence: string | null;
-  valueRange: string | null;
-  nextStep: string;
-}) {
-  const badges = [
-    { icon: Target, label: "Primary Strategy", value: strategy },
-    { icon: FileText, label: "Key Evidence", value: keyEvidence },
-    { icon: BarChart3, label: "Value Range", value: valueRange },
-    { icon: ArrowRight, label: "Next Step", value: nextStep },
-  ];
+// Module 10's Executive Summary tile — one real number/label per stat, see
+// getExecutiveSummary() in src/lib/executive-summary.ts for the source of
+// every value passed in here.
+function ExecutiveStat({ label, value }: { label: string; value: string }) {
+  // min-w-0 on the grid-item wrapper itself, not just truncate on the
+  // children — a grid item's default auto min-width is based on its
+  // content, so a long uppercase label like "EVIDENCE READINESS" can still
+  // force this cell (and the whole row) wider than the modal without it.
+  // Same bug class fixed across the shared row components earlier; this one
+  // was added afterward for Module 10 and got missed.
   return (
-    <div className="grid grid-cols-4 gap-1">
-      {badges.map((b) => (
-        <div
-          key={b.label}
-          className="flex flex-col items-center gap-0.5 rounded-md bg-secondary/40 px-1 py-1.5 text-center"
+    <div className="min-w-0 rounded-lg bg-secondary/40 px-2 py-2 text-center">
+      <div className="truncate text-[8px] uppercase tracking-wide text-muted-foreground">
+        {label}
+      </div>
+      <div className="mt-0.5 truncate text-xs font-semibold">{value}</div>
+    </div>
+  );
+}
+
+// Module 10's "Major Supporting Findings" row — real AI findings grounded in
+// the record, each optionally deep-linking back to the module that actually
+// produced the underlying analysis (same modal, just switches which module
+// is open — see onOpenModule in Report()).
+function FindingCard({
+  finding,
+  onOpenModule,
+}: {
+  finding: { finding: string; whyItMatters: string; relatedModule: string | null };
+  onOpenModule: (moduleId: string) => void;
+}) {
+  const target = finding.relatedModule
+    ? MODULES.find((mm) => mm.id === finding.relatedModule)
+    : null;
+  return (
+    <div className="flex items-start gap-2 rounded-lg bg-secondary/30 px-3 py-2">
+      <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-success" />
+      <div className="min-w-0 flex-1">
+        <span className="text-sm font-semibold">{finding.finding}</span>
+        {finding.whyItMatters && (
+          <span className="text-xs text-muted-foreground"> — {finding.whyItMatters}</span>
+        )}
+      </div>
+      {target && (
+        <button
+          onClick={() => onOpenModule(target.id)}
+          className="shrink-0 whitespace-nowrap text-xs text-accent hover:underline"
         >
-          <b.icon className="h-3.5 w-3.5 shrink-0 text-accent" />
-          <div className="w-full truncate text-[7px] uppercase tracking-wide text-muted-foreground">
-            {b.label}
+          View Analysis →
+        </button>
+      )}
+    </div>
+  );
+}
+
+const DEFENSE_QA_STATUS_TONE: Record<string, string> = {
+  Supported: "bg-success/15 text-success",
+  "Partially Supported": "bg-warning/15 text-warning-foreground",
+  "Evidence Needed": "bg-destructive/10 text-destructive",
+  "User Input Needed": "bg-secondary/60 text-muted-foreground",
+};
+
+// One row of the first-version Defense Readiness Q&A table — read-only
+// (editing the answer / re-uploading evidence for just this question is a
+// follow-up, see the plan this was built from). "View Evidence" only
+// appears when the AI actually named a real module its answer draws from.
+function DefenseQARow({
+  qa,
+  onOpenModule,
+}: {
+  qa: ModuleResultMap["executive"]["defenseQA"][number];
+  onOpenModule: (moduleId: string) => void;
+}) {
+  const target = qa.relatedModule ? MODULES.find((mm) => mm.id === qa.relatedModule) : null;
+  return (
+    <div className="card-elev p-3">
+      <div className="flex items-start justify-between gap-2">
+        <div className="text-sm font-semibold">{qa.question}</div>
+        <span
+          className={`shrink-0 whitespace-nowrap rounded-full px-2 py-0.5 text-[9px] font-semibold ${DEFENSE_QA_STATUS_TONE[qa.status] ?? "bg-secondary/60 text-muted-foreground"}`}
+        >
+          {qa.status}
+        </span>
+      </div>
+      <p className="mt-1 text-xs text-muted-foreground">{qa.suggestedAnswer}</p>
+      {target && (
+        <button
+          onClick={() => onOpenModule(target.id)}
+          className="mt-1.5 text-xs text-accent hover:underline"
+        >
+          View Evidence →
+        </button>
+      )}
+    </div>
+  );
+}
+
+const SITE_FACTOR_STATUS_TONE: Record<SiteFactor["status"], string> = {
+  Confirmed: "bg-success/15 text-success",
+  "Partial Data": "bg-warning/15 text-warning-foreground",
+  "Additional Data Needed": "bg-secondary/60 text-muted-foreground",
+};
+
+// One row of Module 4's 14-factor table. status is server-enforced (see
+// enforceSiteFactorRealData) — this component just renders whatever it's
+// given, never re-decides Confirmed/Partial/Additional Data Needed itself.
+function SiteFactorRow({
+  factor,
+  onOpenModule,
+}: {
+  factor: SiteFactor;
+  onOpenModule: (moduleId: string) => void;
+}) {
+  return (
+    <div className="card-elev p-2.5">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-sm font-semibold">{factor.factor}</span>
+            <span
+              className={`shrink-0 whitespace-nowrap rounded-full px-1.5 py-0.5 text-[9px] font-semibold ${SITE_FACTOR_STATUS_TONE[factor.status]}`}
+            >
+              {factor.status}
+            </span>
           </div>
-          <div className="w-full truncate text-[9px] font-semibold">{b.value || "—"}</div>
+          <p className="mt-0.5 text-xs text-muted-foreground">{factor.finding}</p>
+        </div>
+        {factor.severity !== "Unknown" && (
+          <span className="shrink-0 whitespace-nowrap text-[9px] font-semibold text-muted-foreground">
+            {factor.severity}
+          </span>
+        )}
+      </div>
+      {factor.evidenceNeeded && (
+        <div className="mt-1.5 flex min-w-0 items-center justify-between gap-2 text-xs">
+          <span className="min-w-0 flex-1 truncate text-muted-foreground">
+            {factor.evidenceNeeded}
+          </span>
+          <button
+            onClick={() => onOpenModule("evidence")}
+            className="shrink-0 whitespace-nowrap text-accent hover:underline"
+          >
+            Upload →
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// One tile of the compact "Needs More Data" grid — deliberately just an
+// icon + the factor's name, no paragraph, no per-item AI text visible at
+// a glance (evidenceNeeded is still there as a hover title for anyone who
+// wants it). The same generic icon on every tile, same rationale as
+// ChecklistIconRows: nothing here is a specific categorized finding, so no
+// icon should look like one. Taps straight through to Module 8.
+function SiteFactorGapTile({
+  factor,
+  onOpenModule,
+}: {
+  factor: SiteFactor;
+  onOpenModule: (moduleId: string) => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() => onOpenModule("evidence")}
+      title={factor.evidenceNeeded ?? undefined}
+      className="flex flex-col items-center gap-1 rounded-lg border border-dashed border-border px-1.5 py-2 text-center transition-colors hover:border-accent hover:bg-secondary/40"
+    >
+      <FileWarning className="h-4 w-4 shrink-0 text-muted-foreground" />
+      <span className="line-clamp-2 text-[10px] font-medium leading-tight">{factor.factor}</span>
+    </button>
+  );
+}
+
+const BUILDING_CONDITION_TONE: Record<string, string> = {
+  Good: "bg-success/15 text-success",
+  Fair: "bg-warning/15 text-warning-foreground",
+  Poor: "bg-destructive/10 text-destructive",
+  Unknown: "bg-secondary/60 text-muted-foreground",
+};
+
+// One row of Module 5's Building Condition Overview. condition/hasPhoto are
+// server-enforced (see enforceBuildingComponentRealData) — this component
+// just renders whatever it's given, never re-decides "no photo" itself.
+function BuildingComponentRow({
+  c,
+  onUploadClick,
+}: {
+  c: ModuleResultMap["improvement"]["buildingComponents"][number];
+  // Optional — the modal already has the "Add Evidence" upload section in
+  // the same view, so its rows render without a redundant button; the
+  // card's rows pass onOpen (opens this module's own modal, where that
+  // section lives).
+  onUploadClick?: () => void;
+}) {
+  return (
+    <div className="card-elev p-2.5">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-sm font-semibold">{c.component}</span>
+            <span
+              className={`shrink-0 whitespace-nowrap rounded-full px-1.5 py-0.5 text-[9px] font-semibold ${BUILDING_CONDITION_TONE[c.condition]}`}
+            >
+              {c.hasPhoto ? c.condition : "No Photo Provided"}
+            </span>
+          </div>
+          {c.hasPhoto ? (
+            <>
+              {c.notes && <p className="mt-0.5 text-xs text-muted-foreground">{c.notes}</p>}
+              {c.actionNeeded && (
+                <p className="mt-0.5 text-xs font-medium text-foreground/80">{c.actionNeeded}</p>
+              )}
+            </>
+          ) : (
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Upload a photo showing the {c.component.toLowerCase()} to assess condition.
+            </p>
+          )}
+        </div>
+      </div>
+      {!c.hasPhoto && onUploadClick && (
+        <button onClick={onUploadClick} className="mt-1.5 text-xs text-accent hover:underline">
+          Upload Photo →
+        </button>
+      )}
+    </div>
+  );
+}
+
+// The reference's 5-step explainer strip — purely describes a pipeline that
+// now genuinely exists (this module's own real photo-grounded assessment +
+// deterministic depreciation math), not a claim about this property. Fixed,
+// not data-driven — same spirit as a product diagram, not an AI output.
+const PIPELINE_STEPS: { label: string; sub: string; icon: LucideIcon }[] = [
+  { label: "User Input", sub: "Building Data, Photos", icon: FileText },
+  { label: "AI Processing", sub: "Condition Analyzer", icon: Wrench },
+  { label: "Logic/Decision", sub: "Depreciation Model", icon: BarChart3 },
+  { label: "AI Output", sub: "Condition Assessment", icon: Activity },
+  { label: "Next Step", sub: "Apply to Value Model", icon: ArrowRight },
+];
+
+function PipelineDiagram() {
+  return (
+    <div className="grid grid-cols-5 gap-1">
+      {PIPELINE_STEPS.map((step, i) => (
+        <div key={step.label} className="flex flex-col items-center gap-1 text-center">
+          <div className="flex items-center gap-1">
+            <div className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-secondary/60 text-muted-foreground">
+              <step.icon className="h-3.5 w-3.5" />
+            </div>
+            {i < PIPELINE_STEPS.length - 1 && (
+              <ArrowRight className="hidden h-3 w-3 shrink-0 text-muted-foreground sm:block" />
+            )}
+          </div>
+          <div className="text-[9px] font-semibold uppercase tracking-wide">{step.label}</div>
+          <div className="line-clamp-2 text-[8px] leading-tight text-muted-foreground">
+            {step.sub}
+          </div>
         </div>
       ))}
     </div>
@@ -2390,7 +2968,7 @@ function moduleInsight(
     }
     case "executive": {
       const d = moduleState.data as ModuleResultMap["executive"];
-      return d.recommendation;
+      return d.recommendedAction;
     }
     default:
       return null;
@@ -2412,10 +2990,11 @@ function InsightBanner({ text, color }: { text: string; color: IconColor }) {
   );
 }
 
-// Generic icon+text row for free-text AI checklist items (Site/Improvement
-// Condition) — deliberately the SAME icon for every row rather than
-// guessing a specific category (floodplain vs. easement vs. drainage) from
-// unstructured text the AI never actually categorized.
+// Generic icon+text row for free-text AI checklist items (Improvement
+// Condition — Site Condition moved to a real structured 14-factor table,
+// see SiteFactorRow) — deliberately the SAME icon for every row rather than
+// guessing a specific category from unstructured text the AI never actually
+// categorized.
 // Real satellite thumbnail for Site Condition, reusing the subject
 // property's own coordinates — already loaded for every visitor via the
 // comps fetch (see loadCompsMap() in Report()), not a second API call.
@@ -2476,39 +3055,197 @@ function SiteMapThumb({ lat, lng, height = 140 }: { lat: number; lng: number; he
   );
 }
 
-// Central building icon with up to 4 checklist items as small icon badges
-// at its corners — same generic-icon principle as ChecklistIconRows (the
-// checklist is free AI text, not typed defect categories, so every badge
-// uses the same icon rather than guessing "this one is roof damage").
-// Full item text is always available via each badge's title tooltip and,
-// in full, via ChecklistIconRows in the modal.
-function ImprovementIconRing({ items, color }: { items: string[]; color: IconColor }) {
-  const corners = items.slice(0, 4);
-  const positions = [
-    "-top-1 -left-1",
-    "-top-1 -right-1",
-    "-bottom-1 -left-1",
-    "-bottom-1 -right-1",
+// A generic multi-story commercial building — deliberately not a photo or a
+// rendering of THIS specific property (this app has no building imagery for
+// any property, and Street View Static API isn't enabled on this project's
+// Google Cloud key — confirmed live, not something to fake). A static
+// illustration instead, made to actually read as a building: two lit faces
+// (front + side, gradient-shaded for depth) with mullioned, reflective
+// windows, a stepped rooftop with a mechanical unit and cornice line, an
+// entrance canopy over real double doors, and a soft ground shadow.
+// Colored entirely from the app's own theme tokens, gradients included, so
+// it never needs its own light/dark variant.
+function BuildingIllustration({ className }: { className?: string }) {
+  const windowRows = [26, 38, 50, 62, 74];
+  const windowCols = [25, 39, 53];
+  return (
+    <svg viewBox="0 0 120 105" className={className} aria-hidden="true">
+      <defs>
+        <linearGradient id="bldgFront" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0%" stopColor="var(--card)" />
+          <stop offset="100%" stopColor="var(--secondary)" />
+        </linearGradient>
+        <linearGradient id="bldgSide" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0%" stopColor="var(--muted-foreground)" stopOpacity="0.22" />
+          <stop offset="100%" stopColor="var(--muted-foreground)" stopOpacity="0.48" />
+        </linearGradient>
+        <linearGradient id="bldgGlass" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="var(--accent)" stopOpacity="0.4" />
+          <stop offset="100%" stopColor="var(--muted-foreground)" stopOpacity="0.28" />
+        </linearGradient>
+        <radialGradient id="bldgShadow" cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stopColor="var(--border)" stopOpacity="0.55" />
+          <stop offset="100%" stopColor="var(--border)" stopOpacity="0" />
+        </radialGradient>
+      </defs>
+
+      <ellipse cx="57" cy="97" rx="48" ry="6" fill="url(#bldgShadow)" />
+
+      {/* Roof */}
+      <polygon points="19,26 65,26 91,15 45,15" fill="var(--border)" />
+      <polygon points="19,26 65,26 63,29 21,29" fill="var(--muted-foreground)" opacity="0.25" />
+      <rect x="48" y="8" width="14" height="8" rx="1" fill="var(--border)" />
+      <rect
+        x="50"
+        y="6"
+        width="10"
+        height="3"
+        rx="0.5"
+        fill="var(--muted-foreground)"
+        opacity="0.4"
+      />
+      <line x1="77" y1="15" x2="77" y2="4" stroke="var(--muted-foreground)" strokeWidth="1.25" />
+      <circle cx="77" cy="4" r="1.5" fill="var(--muted-foreground)" opacity="0.6" />
+
+      {/* Side face */}
+      <polygon points="65,26 91,15 91,85 65,96" fill="url(#bldgSide)" />
+      <polygon points="65,26 91,15 91,20 65,31" fill="var(--muted-foreground)" opacity="0.15" />
+
+      {/* Front face */}
+      <rect x="19" y="26" width="46" height="70" fill="url(#bldgFront)" />
+      <rect
+        x="19"
+        y="26"
+        width="46"
+        height="70"
+        fill="none"
+        stroke="var(--border)"
+        strokeWidth="0.75"
+      />
+      {/* Cornice */}
+      <rect x="19" y="26" width="46" height="3" fill="var(--border)" />
+
+      {windowRows.map((y) =>
+        windowCols.map((x) => (
+          <g key={`${x}-${y}`}>
+            <rect x={x} y={y} width="9" height="8" rx="0.5" fill="url(#bldgGlass)" />
+            <line
+              x1={x + 4.5}
+              y1={y}
+              x2={x + 4.5}
+              y2={y + 8}
+              stroke="var(--card)"
+              strokeWidth="0.5"
+              opacity="0.6"
+            />
+            <line
+              x1={x}
+              y1={y + 4}
+              x2={x + 9}
+              y2={y + 4}
+              stroke="var(--card)"
+              strokeWidth="0.5"
+              opacity="0.6"
+            />
+            <line
+              x1={x + 1}
+              y1={y + 1}
+              x2={x + 3.5}
+              y2={y + 1}
+              stroke="var(--card)"
+              strokeWidth="0.8"
+              opacity="0.7"
+            />
+          </g>
+        )),
+      )}
+
+      {/* Entrance canopy + double doors */}
+      <rect x="32" y="85" width="22" height="2" fill="var(--border)" />
+      <rect
+        x="35"
+        y="87"
+        width="8"
+        height="9"
+        rx="0.5"
+        fill="var(--muted-foreground)"
+        opacity="0.55"
+      />
+      <rect
+        x="43"
+        y="87"
+        width="8"
+        height="9"
+        rx="0.5"
+        fill="var(--muted-foreground)"
+        opacity="0.55"
+      />
+      <line x1="43" y1="87" x2="43" y2="96" stroke="var(--border)" strokeWidth="0.75" />
+    </svg>
+  );
+}
+
+// Real FEMA flood zone, floated over the site map's corner — a point fact
+// (this app has no parcel boundary to shade an actual overlay polygon with),
+// never shown at all when siteGis hasn't resolved a real zone (see
+// loadSiteGis() in Report()). Colored by inSFHA — the real Special Flood
+// Hazard Area boolean FEMA returns, not a guess.
+function FloodZoneBadge({ floodZone }: { floodZone: SiteGisResult["floodZone"] | undefined }) {
+  if (!floodZone) return null;
+  return (
+    <div
+      className={`absolute left-1.5 top-1.5 rounded-full px-1.5 py-0.5 text-[9px] font-semibold text-white shadow ${
+        floodZone.inSFHA ? "bg-destructive" : "bg-success"
+      }`}
+      title={floodZone.label}
+    >
+      Zone {floodZone.zone}
+    </div>
+  );
+}
+
+// Card's condensed constraint -> impact chain (the card's own version of
+// Module 4's full "AI Impact Analysis" flow in the modal) — only ever built
+// from a factor that pickHeadlineFactor() already confirmed has real/partial
+// data, so this never shows a fabricated finding.
+// Card's own version of the reference's "AI Impact Analysis" vertical
+// arrow chain — built entirely from the SAME real structured fields the
+// modal's table shows for this one factor (finding -> potentialImpact ->
+// a severity-derived relevance label -> evidenceNeeded as the recommended
+// next step), not new AI output. Only ever called with a factor
+// pickHeadlineFactor() already confirmed has real/partial data.
+function SiteImpactChain({ factor }: { factor: SiteFactor }) {
+  const tone =
+    factor.severity === "High"
+      ? "text-destructive"
+      : factor.severity === "Moderate"
+        ? "text-warning-foreground"
+        : "text-success";
+  const relevance =
+    factor.severity === "High"
+      ? "High Valuation Relevance"
+      : factor.severity === "Moderate"
+        ? "Moderate Valuation Relevance"
+        : "Low Valuation Relevance";
+  const steps: { text: string; tone?: string }[] = [
+    { text: `${factor.factor}: ${factor.finding}`, tone },
+    ...(factor.potentialImpact ? [{ text: factor.potentialImpact }] : []),
+    { text: relevance, tone },
+    ...(factor.evidenceNeeded ? [{ text: `Next: ${factor.evidenceNeeded}` }] : []),
   ];
   return (
-    <div className="mx-auto flex flex-col items-center gap-1">
-      <div className="relative grid h-20 w-20 place-items-center">
-        <Building2 className="h-9 w-9 text-muted-foreground" />
-        {corners.map((item, i) => (
-          <span
-            key={i}
-            title={item}
-            className={`absolute grid h-6 w-6 place-items-center rounded-full border-2 border-card ${color.bg} ${color.text} ${positions[i]}`}
+    <div className="grid gap-0.5">
+      {steps.map((step, i) => (
+        <div key={i} className="grid justify-items-center gap-0.5">
+          {i > 0 && <ArrowDown className="h-2.5 w-2.5 text-muted-foreground" />}
+          <div
+            className={`w-full truncate rounded-md bg-secondary/40 px-1.5 py-1 text-center text-[9px] font-medium ${step.tone ?? "text-foreground"}`}
+            title={step.text}
           >
-            <AlertTriangle className="h-3 w-3" />
-          </span>
-        ))}
-      </div>
-      {items.length > 0 && (
-        <div className="text-[10px] text-muted-foreground">
-          {items.length} factor{items.length === 1 ? "" : "s"} worth documenting
+            {step.text}
+          </div>
         </div>
-      )}
+      ))}
     </div>
   );
 }
@@ -2534,6 +3271,26 @@ function ChecklistIconRows({ items, color }: { items: string[]; color: IconColor
 // strategies (so "Comparable Sales" shows the same icon as the Market Value
 // module card, etc.) via relatedModules; falls back to a generic icon for an
 // AI-added "Other: ..." strategy, which doesn't map to any of Modules 3-7.
+// Visual cue for Module 10's Recommended Action banner — a glance-able icon
+// standing in for reading the category string closely.
+function RecommendedActionIcon({
+  action,
+  className,
+}: {
+  action: ModuleResultMap["executive"]["recommendedAction"];
+  className?: string;
+}) {
+  const Icon =
+    action === "Proceed with Protest"
+      ? ShieldCheck
+      : action === "Proceed with Protest After Completing Recommended Evidence"
+        ? FileWarning
+        : action === "Limited Protest Opportunity Based on Available Information"
+          ? AlertTriangle
+          : HelpCircle;
+  return <Icon className={className} />;
+}
+
 function strategyIcon(s: StrategyEntry): LucideIcon {
   const relatedId = s.relatedModules[0];
   const mod = relatedId ? MODULES.find((mm) => mm.id === relatedId) : undefined;
@@ -3122,9 +3879,9 @@ const DATA_REQUIREMENTS: DataRequirementRow[] = [
   {
     category: "Site Conditions",
     required: "Lot shape, access, flood zone, topography, easements",
-    source: "CAD GIS + FEMA/public GIS",
-    usedFor: "Would identify site issues that could support a lower value",
-    status: "Not integrated",
+    source: "FEMA NFHL (flood zone) + USGS (elevation) — real, point-level only",
+    usedFor: "Flood zone and a single elevation point; every other factor still needs upload",
+    status: "Partial",
   },
   {
     category: "Improvement Condition",
@@ -3245,6 +4002,7 @@ function ModulePreviewContent({
   moduleState,
   moduleData,
   compsMap,
+  siteGisMap,
   onRetry,
   allowEvidenceUpload,
   evidenceDocs,
@@ -3252,6 +4010,11 @@ function ModulePreviewContent({
   onUploadEvidence,
   onForceReload,
   onAnswerStrategy,
+  existingProtest,
+  resolvedProperty,
+  onOpenModule,
+  onStartProtest,
+  onViewCase,
 }: {
   m: Module;
   estimated: {
@@ -3264,6 +4027,7 @@ function ModulePreviewContent({
   moduleState: ModuleAsyncState | undefined;
   moduleData: Record<string, ModuleAsyncState>;
   compsMap: { data: CompsResult | null; loading: boolean };
+  siteGisMap: { data: SiteGisResult | null; loading: boolean };
   onRetry: () => void;
   allowEvidenceUpload: boolean;
   evidenceDocs: DocumentRecord[];
@@ -3272,6 +4036,14 @@ function ModulePreviewContent({
   onForceReload: () => void;
   onAnswerStrategy: (strategyId: string, answer: string) => void;
   onAskQuestion: (moduleId: string, question: string) => Promise<string>;
+  // Module 10 only — real case state + navigation, so it can show real
+  // filing readiness and a genuinely working "View Analysis"/CTA without a
+  // page reload (just switches which module is open in this same modal).
+  existingProtest: ProtestRecord | null;
+  resolvedProperty: PropertyRecord | null;
+  onOpenModule: (moduleId: string) => void;
+  onStartProtest: () => void;
+  onViewCase: () => void;
 }) {
   if (m.requiresUserData) {
     return (
@@ -3766,18 +4538,114 @@ function ModulePreviewContent({
     case "site": {
       const d = moduleState.data as ModuleResultMap["site"];
       const subject = compsMap.data?.subject;
+      const siteGis = siteGisMap.data;
+      const gaps = countDataGaps(d.factors);
+      const nextModule = MODULES.find((mm) => mm.id === "improvement");
       return (
-        <div className="mt-4">
-          {subject && <SiteMapThumb lat={subject.latitude} lng={subject.longitude} height={220} />}
-          <div className="mt-3">
-            <MiniMeter value={d.priorityScore} label="Documentation priority" />
+        <div className="mt-4 grid gap-4">
+          <div>
+            <div className="relative">
+              {subject ? (
+                <SiteMapThumb lat={subject.latitude} lng={subject.longitude} height={220} />
+              ) : (
+                <div className="grid h-[220px] place-items-center rounded-lg bg-secondary/40">
+                  <MapPin className="h-8 w-8 text-muted-foreground" />
+                </div>
+              )}
+              <FloodZoneBadge floodZone={siteGis?.floodZone} />
+            </div>
+            {/* Real "Site Facts" strip — only ever the two point facts this
+                app can actually fetch (FEMA/USGS); nothing else is claimed. */}
+            {(siteGis?.floodZone || siteGis?.elevationFt != null) && (
+              <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                {siteGis?.floodZone && (
+                  <span>
+                    Flood zone:{" "}
+                    <strong className="text-foreground">{siteGis.floodZone.label}</strong>
+                  </span>
+                )}
+                {siteGis?.elevationFt != null && (
+                  <span>
+                    Elevation:{" "}
+                    <strong className="text-foreground">
+                      {Math.round(siteGis.elevationFt)} ft
+                    </strong>{" "}
+                    (single point, not a full survey)
+                  </span>
+                )}
+              </div>
+            )}
           </div>
-          <div className="mt-3">
-            <AiVerdictLine icon={m.icon} text={d.guidance} color={m.color} />
-          </div>
-          <div className="mt-3">
-            <ChecklistIconRows items={d.checklist} color={m.color} />
-          </div>
+
+          <MiniMeter value={d.priorityScore} label="Documentation priority" />
+
+          {d.guidance && <AiVerdictLine icon={m.icon} text={d.guidance} color={m.color} />}
+
+          {/* Split, not one flat 14-row list — see MODULE_SPECS.site and
+              enforceSiteFactorRealData in the edge function. The 1-2 factors
+              with a real/partial finding (almost always just Floodplain/
+              Grade) get full detail cards, since there's genuine substance
+              to read; the remaining "Additional Data Needed" majority — a
+              near-duplicate explanation each — collapses into one compact,
+              tappable icon grid instead of 12 more full-text cards nobody
+              would actually read through. */}
+          {(() => {
+            const withData = d.factors.filter((f) => f.status !== "Additional Data Needed");
+            const missing = d.factors.filter((f) => f.status === "Additional Data Needed");
+            return (
+              <>
+                {withData.length > 0 && (
+                  <div>
+                    <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      What We Found
+                    </div>
+                    <div className="grid gap-1.5">
+                      {withData.map((f) => (
+                        <SiteFactorRow key={f.factor} factor={f} onOpenModule={onOpenModule} />
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {missing.length > 0 && (
+                  <div>
+                    <div className="mb-1.5 flex items-center justify-between gap-2">
+                      <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        Needs More Data
+                      </div>
+                      <span className="shrink-0 whitespace-nowrap text-xs text-muted-foreground">
+                        {gaps} of {d.factors.length}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-4">
+                      {missing.map((f) => (
+                        <SiteFactorGapTile key={f.factor} factor={f} onOpenModule={onOpenModule} />
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </>
+            );
+          })()}
+
+          {d.keyFinding && (
+            <div className={`rounded-lg p-4 ${m.color.bg}`}>
+              <div className={`text-[10px] font-semibold uppercase tracking-wide ${m.color.text}`}>
+                Key Finding
+              </div>
+              <p className="mt-1 text-sm text-foreground/90">{d.keyFinding}</p>
+            </div>
+          )}
+
+          {nextModule && (
+            <button
+              type="button"
+              onClick={() => onOpenModule(nextModule.id)}
+              className="flex items-center justify-between gap-2 rounded-lg bg-secondary/40 px-4 py-2.5 text-sm font-semibold transition-colors hover:bg-secondary/60"
+            >
+              <span>Next Step: Evaluate {nextModule.shortName}</span>
+              <ArrowRight className="h-4 w-4" />
+            </button>
+          )}
         </div>
       );
     }
@@ -3786,18 +4654,128 @@ function ModulePreviewContent({
       const improvementDocs = evidenceDocs.filter(
         (doc) => doc.documentType === EVIDENCE_DOCUMENT_TYPE,
       );
+      const economicLife = getTypicalEconomicLife(state.propertyType);
+      const depreciation = computeDepreciation(
+        d.effectiveAgeYears,
+        economicLife,
+        d.functionalObsolescencePct,
+        d.externalObsolescencePct,
+        state.improvementValue ?? null,
+      );
       return (
-        <div className="mt-4">
-          <ImprovementIconRing items={d.checklist} color={m.color} />
-          <div className="mt-3">
-            <MiniMeter value={d.priorityScore} label="Condition priority" />
+        <div className="mt-4 grid gap-4">
+          <PipelineDiagram />
+
+          <div className="flex flex-col items-center">
+            <SpeedometerGauge value={d.priorityScore} size="md" />
+            <div className="-mt-1 text-xs text-muted-foreground">Condition Priority</div>
           </div>
-          <div className="mt-3">
-            <AiVerdictLine icon={m.icon} text={d.guidance} color={m.color} />
+
+          {d.guidance && <AiVerdictLine icon={m.icon} text={d.guidance} color={m.color} />}
+
+          {/* Building Condition Overview — 4 fixed components, real photo-
+              grounded findings (see MODULE_SPECS.improvement and
+              enforceBuildingComponentRealData). "No Photo Provided" is
+              honest, never a guessed condition. */}
+          <div>
+            <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Building Condition Overview
+            </div>
+            <div className="grid gap-1.5">
+              {d.buildingComponents.map((c) => (
+                <BuildingComponentRow key={c.component} c={c} />
+              ))}
+            </div>
           </div>
-          <div className="mt-3">
-            <ChecklistIconRows items={d.checklist} color={m.color} />
+
+          {/* Condition Metrics — Physical Depreciation and Total
+              Depreciation are real deterministic math (see
+              computeDepreciation in improvement-condition.ts), never
+              AI-computed; Effective Age/Functional/External Obsolescence
+              are the AI's own photo-grounded estimates, honestly null when
+              there's no real basis. */}
+          <div>
+            <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Condition Metrics
+            </div>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+              <ExecutiveStat
+                label="Effective Age"
+                value={
+                  d.effectiveAgeYears != null
+                    ? `${d.effectiveAgeYears} yrs`
+                    : "Additional Data Needed"
+                }
+              />
+              <ExecutiveStat
+                label="Economic Life"
+                value={`${economicLife.typical} yrs (${economicLife.min}-${economicLife.max} typical)`}
+              />
+              <ExecutiveStat
+                label="Physical Depreciation"
+                value={
+                  depreciation.physicalDepreciationPct != null
+                    ? `${depreciation.physicalDepreciationPct}%`
+                    : "Additional Data Needed"
+                }
+              />
+              <ExecutiveStat
+                label="Functional Obsolescence"
+                value={
+                  d.functionalObsolescencePct != null
+                    ? `${d.functionalObsolescencePct}%`
+                    : "Additional Data Needed"
+                }
+              />
+              <ExecutiveStat
+                label="External Obsolescence"
+                value={
+                  d.externalObsolescencePct != null
+                    ? `${d.externalObsolescencePct}%`
+                    : "Additional Data Needed"
+                }
+              />
+              <ExecutiveStat
+                label="Total Depreciation"
+                value={
+                  depreciation.totalDepreciationPct != null
+                    ? `${depreciation.totalDepreciationPct}%`
+                    : "Additional Data Needed"
+                }
+              />
+            </div>
           </div>
+
+          {/* Value Impact — only ever rendered once computeDepreciation()
+              actually returned real numbers; never a placeholder row. */}
+          {depreciation.conditionAdjustedValue != null && state.improvementValue != null && (
+            <div>
+              <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Value Impact
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <FactBox label="CAD Improvement Value" value={currency(state.improvementValue)} />
+                <FactBox
+                  label="Condition-Adjusted Value"
+                  value={currency(depreciation.conditionAdjustedValue)}
+                />
+                <FactBox
+                  label="Impact"
+                  value={`${currency(depreciation.impactDollar ?? 0)} (${depreciation.impactPct}%)`}
+                />
+              </div>
+            </div>
+          )}
+
+          {d.keyFinding && (
+            <div className={`rounded-lg p-4 ${m.color.bg}`}>
+              <div className={`text-[10px] font-semibold uppercase tracking-wide ${m.color.text}`}>
+                Key Finding
+              </div>
+              <p className="mt-1 text-sm text-foreground/90">{d.keyFinding}</p>
+            </div>
+          )}
+
           {allowEvidenceUpload && (
             <div className="mt-4 border-t border-border/60 pt-4 print:hidden">
               <div className="text-sm font-medium">Add Evidence</div>
@@ -3932,42 +4910,295 @@ function ModulePreviewContent({
       const d = moduleState.data as ModuleResultMap["executive"];
       const strategyData = moduleData.strategy?.data as ModuleResultMap["strategy"] | undefined;
       const evidenceData = moduleData.evidence?.data as ModuleResultMap["evidence"] | undefined;
-      const keyEvidence =
-        evidenceData?.items.find((i) => i.importance === "High")?.item ??
-        evidenceData?.items[0]?.item ??
-        null;
-      const comps =
-        compsMap.data?.comps.filter(
-          (c): c is typeof c & { marketValue: number } => c.marketValue != null,
-        ) ?? [];
-      const valueRange =
-        comps.length > 0
-          ? `${compactCurrency(Math.min(...comps.map((c) => c.marketValue)))}–${compactCurrency(Math.max(...comps.map((c) => c.marketValue)))}`
+      const evidenceItems = evidenceData?.items ?? [];
+      const execStats = computeComparableStats(
+        compsMap.data?.subject ?? null,
+        compsMap.data?.comps ?? [],
+        state.totalValue,
+      );
+      const preFilingItems =
+        existingProtest && resolvedProperty
+          ? getPreFilingCheck(resolvedProperty, existingProtest)
           : null;
+      const summary = getExecutiveSummary(
+        execStats,
+        estimated.savings,
+        evidenceItems,
+        preFilingItems,
+      );
+      const defenseScore = getDefenseReadinessScore(d.defenseQA);
+      const criticalMissing = evidenceItems.filter(
+        (i) => i.importance === "High" && i.availability === "Low",
+      );
+
+      // Single primary CTA, deterministic — never more than one rendered.
+      let cta: { label: string; onClick: () => void } | null = null;
+      if (preFilingItems && isPreFilingBlocked(preFilingItems)) {
+        cta = null; // "Complete Missing Information" — see the Properties link below instead
+      } else if (criticalMissing.length > 0) {
+        cta = { label: "Complete Missing Evidence", onClick: () => onOpenModule("evidence") };
+      } else if (!existingProtest) {
+        cta = { label: "Prepare My Protest", onClick: onStartProtest };
+      } else {
+        cta = { label: "Review Case", onClick: onViewCase };
+      }
+
       return (
-        <div className="mt-4 grid gap-3">
-          <div className="flex justify-center">
-            <span
-              className={`grid h-14 w-14 place-items-center rounded-full ${m.color.bg} ${m.color.text}`}
-            >
-              <Award className="h-7 w-7" />
-            </span>
+        <div className="mt-4 grid gap-4">
+          {/* 2. Executive Protest Summary — real numbers only, see
+              src/lib/executive-summary.ts for the exact formulas. */}
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <ExecutiveStat label="Protest Opportunity" value={summary.protestOpportunity} />
+            {summary.currentCadValue != null && (
+              <ExecutiveStat label="Current CAD Value" value={currency(summary.currentCadValue)} />
+            )}
+            {summary.indicatedValueRange && (
+              <ExecutiveStat
+                label="Market Value Range"
+                value={`${compactCurrency(summary.indicatedValueRange.min)}–${compactCurrency(summary.indicatedValueRange.max)}`}
+              />
+            )}
+            {summary.potentialValueReduction != null && (
+              <ExecutiveStat
+                label="Potential Reduction"
+                value={compactCurrency(summary.potentialValueReduction)}
+              />
+            )}
+            {summary.estimatedAnnualSavings != null && summary.estimatedAnnualSavings > 0 && (
+              <ExecutiveStat
+                label="Est. Annual Savings"
+                value={compactCurrency(summary.estimatedAnnualSavings)}
+              />
+            )}
+            <ExecutiveStat label="Evidence Readiness" value={summary.evidenceReadiness} />
+            <ExecutiveStat label="Protest Readiness" value={summary.protestReadiness} />
           </div>
-          <ExecutiveBadges
-            strategy={strategyData?.strategies[0]?.name ?? null}
-            keyEvidence={keyEvidence}
-            valueRange={valueRange}
-            nextStep={d.nextStep}
-          />
-          <div className={`rounded-lg p-4 text-center ${m.color.bg}`}>
-            <div className={`text-[10px] font-semibold uppercase tracking-wide ${m.color.text}`}>
-              Recommended Action
+          {summary.overallConfidencePct != null && (
+            <div className="flex flex-col items-center">
+              <SpeedometerGauge value={summary.overallConfidencePct} size="sm" />
+              <div className="-mt-1 text-xs text-muted-foreground">Overall Case Assessment</div>
             </div>
-            <div className="mt-1 font-serif text-xl font-bold">{d.recommendation}</div>
+          )}
+
+          {/* 3. Final Protest Recommendation — icon + the action itself carry
+              the message; explanation is now capped to one short phrase
+              server-side, not a paragraph (see MODULE_SPECS.executive). */}
+          <div className={`flex items-start gap-3 rounded-lg p-4 ${m.color.bg}`}>
+            <RecommendedActionIcon
+              action={d.recommendedAction}
+              className={`mt-0.5 h-6 w-6 shrink-0 ${m.color.text}`}
+            />
+            <div className="min-w-0 flex-1">
+              <div className={`text-[10px] font-semibold uppercase tracking-wide ${m.color.text}`}>
+                Recommended Action
+              </div>
+              <div className="mt-0.5 font-serif text-lg font-bold">{d.recommendedAction}</div>
+              {d.recommendationExplanation && (
+                <p className="mt-1 text-sm text-foreground/90">{d.recommendationExplanation}</p>
+              )}
+            </div>
           </div>
+          {d.conflictNote && (
+            <div className="flex items-start gap-2 rounded-lg bg-warning/15 p-3 text-sm text-warning-foreground">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <p className="min-w-0 flex-1">{d.conflictNote}</p>
+            </div>
+          )}
+
+          {/* 4. Recommended Protest Strategy — the same StrategyBar visual
+              (icon + score bar + number) Module 6's own ranked list already
+              uses, so strength reads at a glance instead of via prose; the
+              AI's phrase (now capped to ~10 words server-side) is a caption
+              under the bar, not a paragraph. */}
+          {(strategyData?.strategies[0] || strategyData?.strategies[1]) && (
+            <div className="card-elev grid gap-3 p-3">
+              <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Recommended Protest Strategy
+              </div>
+              {strategyData.strategies[0] && (
+                <div>
+                  <StrategyBar s={strategyData.strategies[0]} />
+                  {d.primaryStrategyExplanation && (
+                    <p className="mt-1 pl-6 text-xs text-muted-foreground">
+                      {d.primaryStrategyExplanation}
+                    </p>
+                  )}
+                </div>
+              )}
+              {strategyData.strategies[1] && d.secondaryStrategyExplanation && (
+                <div>
+                  <StrategyBar s={strategyData.strategies[1]} />
+                  <p className="mt-1 pl-6 text-xs text-muted-foreground">
+                    {d.secondaryStrategyExplanation}
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 5. Major Supporting Findings — icon-led, one short line each
+              (whyItMatters capped to ~8 words server-side), not paragraphs. */}
+          {d.majorFindings.length > 0 && (
+            <div>
+              <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Major Supporting Findings
+              </div>
+              <div className="grid gap-1.5">
+                {d.majorFindings.map((f, i) => (
+                  <FindingCard key={i} finding={f} onOpenModule={onOpenModule} />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* 6. Value Recommendation + 7. Financial Opportunity */}
           <div className="grid gap-2 sm:grid-cols-2">
-            <FactBox label="Basis" value={d.basis} />
-            <FactBox label="Next Step" value={d.nextStep} />
+            <FactBox
+              label="Recommended Protest Value"
+              value={
+                d.recommendedProtestValue != null
+                  ? currency(d.recommendedProtestValue)
+                  : "Additional Analysis Required"
+              }
+            />
+            <FactBox
+              label="Value Basis"
+              value={d.recommendedProtestValueBasis || "Not enough data yet."}
+            />
+          </div>
+          {estimated.savings > 0 && <CostBenefitRow savings={estimated.savings} />}
+
+          {/* 8. Evidence Readiness */}
+          <div className="card-elev p-3">
+            <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Evidence Readiness
+            </div>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {evidenceItems.length === 0
+                ? "Evidence checklist not generated yet."
+                : criticalMissing.length === 0
+                  ? "No top-priority evidence gaps remain."
+                  : `${criticalMissing.length} top-priority item${criticalMissing.length === 1 ? "" : "s"} still outstanding.`}
+            </p>
+            {criticalMissing.length > 0 && (
+              <ul className="mt-2 grid gap-1">
+                {criticalMissing.map((i, idx) => (
+                  <li key={idx} className="flex items-center justify-between gap-2 text-sm">
+                    <span className="min-w-0 flex-1 truncate">{i.item}</span>
+                    <button
+                      onClick={() => onOpenModule("evidence")}
+                      className="shrink-0 text-xs text-accent hover:underline"
+                    >
+                      Upload →
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          {/* 9. Missing Information */}
+          {d.missingInformation.length > 0 && (
+            <div className="card-elev p-3">
+              <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Missing Information
+              </div>
+              <ul className="mt-1.5 grid gap-1">
+                {d.missingInformation.map((mi, i) => (
+                  <li key={i} className="flex items-center justify-between gap-2 text-sm">
+                    <span className="min-w-0 flex-1">{mi.item}</span>
+                    <span
+                      className={`shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-semibold ${
+                        mi.severity === "Critical"
+                          ? "bg-destructive/10 text-destructive"
+                          : mi.severity === "Important"
+                            ? "bg-warning/15 text-warning-foreground"
+                            : "bg-secondary/60 text-muted-foreground"
+                      }`}
+                    >
+                      {mi.severity}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* 10. County-Specific Protest Readiness */}
+          {preFilingItems ? (
+            <div className="card-elev p-3">
+              <div className="flex items-center justify-between">
+                <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  County-Specific Protest Readiness
+                </div>
+                <span
+                  className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                    isPreFilingBlocked(preFilingItems)
+                      ? "bg-warning/15 text-warning-foreground"
+                      : "bg-success/15 text-success"
+                  }`}
+                >
+                  {isPreFilingBlocked(preFilingItems)
+                    ? "Additional Filing Information Required"
+                    : "Ready to File"}
+                </span>
+              </div>
+              <div className="mt-2 grid gap-1 sm:grid-cols-2">
+                {preFilingItems.map((item) => (
+                  <div key={item.label} className="flex items-center justify-between gap-2 text-xs">
+                    <span className="text-muted-foreground">{item.label}</span>
+                    <span
+                      className={item.status === "confirmed" ? "text-success" : "text-destructive"}
+                    >
+                      {item.status === "confirmed" ? (item.value ?? "Confirmed") : "Missing"}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="card-elev p-3 text-sm text-muted-foreground">
+              Start a protest to see filing readiness for your county.
+            </div>
+          )}
+
+          {/* 19-23. Protest Defense Readiness — first version: AI-generated
+              property-specific Q&A + a real, deterministically-scored
+              readiness gauge (see getDefenseReadinessScore). Read-only in
+              this version — editing an answer or reassessing after new
+              evidence is a follow-up. */}
+          {d.defenseQA.length > 0 && (
+            <div>
+              <div className="mb-1.5 flex items-center justify-between">
+                <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Protest Defense Readiness
+                </div>
+                {defenseScore != null && (
+                  <span className="text-sm font-bold" style={{ color: scoreColor(defenseScore) }}>
+                    {defenseScore}/100
+                  </span>
+                )}
+              </div>
+              <div className="grid gap-2">
+                {d.defenseQA.map((qa, i) => (
+                  <DefenseQARow key={i} qa={qa} onOpenModule={onOpenModule} />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* 11 & 32. Next Action + single primary CTA */}
+          {d.nextAction && <AiVerdictLine icon={ArrowRight} text={d.nextAction} color={m.color} />}
+          <div className="flex justify-center">
+            {cta ? (
+              <button onClick={cta.onClick} className="btn-accent">
+                {cta.label}
+              </button>
+            ) : (
+              <Link to="/dashboard/properties" className="btn-accent">
+                Complete Missing Information
+              </Link>
+            )}
           </div>
         </div>
       );

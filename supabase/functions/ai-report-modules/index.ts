@@ -62,6 +62,57 @@ type ModulesInput = {
     marketValue: number | null;
     similarity: number;
   }[];
+  // Only for moduleId "executive" — real outputs Modules 2/3/8/9 already
+  // computed client-side (never regenerated here), so the executive module
+  // can actually reconcile them. See loadModule()'s executive branch and its
+  // sequencing effect (waits for strategy + evidence to resolve) in
+  // ai-report.tsx.
+  topStrategies?: {
+    name: string;
+    primaryReason?: string;
+    strengthScore: number;
+    whySelected?: string;
+    existingEvidence?: string[];
+    missingEvidence?: string[];
+  }[];
+  evidenceReadiness?: {
+    criticalMissing: string[];
+    importantMissing: string[];
+    uploadedCount: number;
+  };
+  compsIndicated?: {
+    min: number;
+    median: number;
+    max: number;
+    gapPct: number | null;
+    confidencePct: number | null;
+  } | null;
+  financialSummary?: {
+    savings: number;
+    basis: "comps" | "formula";
+    reductionPct: number | null;
+  } | null;
+  preFilingStatus?: { missingBlocking: string[] } | null;
+  // Only for moduleId "site" — real point data the site-gis edge function
+  // already fetched (FEMA NFHL flood zone + USGS elevation) for the
+  // subject's real lat/lng, when one exists (see loadSiteGis() in
+  // ai-report.tsx). Absent entirely — not just null fields — whenever no
+  // real lat/lng exists for this property/county; never guessed. The
+  // handler re-clamps every site factor's status against this exact field
+  // after parsing (see enforceSiteFactorRealData below), so even if the AI
+  // ignored the instruction and claimed a real finding anyway, the response
+  // sent to the client can't say "Confirmed" without this being populated.
+  siteGis?: {
+    floodZone: { zone: string; label: string; inSFHA: boolean } | null;
+    elevationFt: number | null;
+  } | null;
+  // Only for moduleId "improvement" — the real typical economic-life range
+  // for this property's type (src/lib/improvement-condition.ts,
+  // getTypicalEconomicLife()), grounding the AI's effective-age estimate in
+  // an honest industry-general figure rather than an unmoored guess. Not
+  // gated on anything (unlike evidenceImages) — always sent for this
+  // module.
+  economicLifeYears?: { min: number; max: number; typical: number } | null;
   // Question-mode fields (see Deno.serve below) — when `question` is set, this
   // request is a Q&A follow-up, not a module-analysis request.
   question?: string;
@@ -74,7 +125,9 @@ report module.
 
 Reason only from what's given plus general knowledge of Texas commercial property appraisal
 practice. Do NOT invent specific comparable sale prices, specific building square footage,
-specific site defects, or a specific effective age — none of that was provided. Where this
+specific site defects, or a specific effective age unless real grounding for it (e.g. real
+attached photos, a real site-condition data point) was actually given below — that grounding
+won't exist for most calls, so treat "none of that was provided" as the default. Where this
 module would normally need data this record doesn't include (actual comparable sales, a site
 inspection, a building condition survey), give general guidance and a checklist of what to
 gather instead of fabricated specific findings.
@@ -134,6 +187,14 @@ const checklist = (v: unknown): string[] =>
 const score100 = (v: unknown, fallback = 50): number =>
   Math.max(0, Math.min(100, Math.round(Number(v)) || fallback));
 
+// Same clamp, but null (not a fallback midpoint) when the AI didn't return
+// a usable number — for fields where "unknown" must stay honestly unknown
+// rather than defaulting to 50 (e.g. Module 5's obsolescence percentages,
+// which feed a real depreciation calculation client-side and would silently
+// corrupt it if a missing value read as "50%").
+const score100OrNull = (v: unknown): number | null =>
+  typeof v === "number" && Number.isFinite(v) ? Math.max(0, Math.min(100, Math.round(v))) : null;
+
 const strList = (v: unknown, max: number, len: number): string[] =>
   Array.isArray(v)
     ? v
@@ -184,6 +245,273 @@ const evidenceItems = (
         .filter((x) => x.item.length > 0)
         .slice(0, 6)
     : [];
+
+// Module 10 (executive) parsers — real modules only, so a bad/invented
+// relatedModule value from the AI can never deep-link the UI somewhere
+// nonsensical.
+const RELATED_MODULE_IDS = ["comps", "site", "improvement", "zoning", "income", "evidence"];
+const relatedModule = (v: unknown): string | null =>
+  typeof v === "string" && RELATED_MODULE_IDS.includes(v) ? v : null;
+
+const RECOMMENDED_ACTIONS = [
+  "Proceed with Protest",
+  "Proceed with Protest After Completing Recommended Evidence",
+  "Additional Information Needed Before Proceeding",
+  "Limited Protest Opportunity Based on Available Information",
+];
+const isValidRecommendedAction = (v: unknown): v is string =>
+  typeof v === "string" && RECOMMENDED_ACTIONS.includes(v);
+
+const majorFindings = (
+  v: unknown,
+): { finding: string; whyItMatters: string; relatedModule: string | null }[] =>
+  Array.isArray(v)
+    ? v
+        .filter((x): x is Record<string, unknown> => typeof x === "object" && x !== null)
+        .map((x) => ({
+          finding: str(x.finding, 100),
+          whyItMatters: str(x.whyItMatters, 200),
+          relatedModule: relatedModule(x.relatedModule),
+        }))
+        .filter((x) => x.finding.length > 0)
+        .slice(0, 5)
+    : [];
+
+const missingInformation = (
+  v: unknown,
+): { item: string; severity: "Critical" | "Important" | "Supporting" }[] =>
+  Array.isArray(v)
+    ? v
+        .filter((x): x is Record<string, unknown> => typeof x === "object" && x !== null)
+        .map((x) => ({
+          item: str(x.item, 120),
+          severity:
+            x.severity === "Critical" || x.severity === "Important"
+              ? (x.severity as "Critical" | "Important")
+              : ("Supporting" as const),
+        }))
+        .filter((x) => x.item.length > 0)
+        .slice(0, 8)
+    : [];
+
+const DEFENSE_QA_STATUSES = [
+  "Supported",
+  "Partially Supported",
+  "Evidence Needed",
+  "User Input Needed",
+];
+const defenseQA = (
+  v: unknown,
+): {
+  question: string;
+  suggestedAnswer: string;
+  status: "Supported" | "Partially Supported" | "Evidence Needed" | "User Input Needed";
+  relatedModule: string | null;
+}[] =>
+  Array.isArray(v)
+    ? v
+        .filter((x): x is Record<string, unknown> => typeof x === "object" && x !== null)
+        .map((x) => ({
+          question: str(x.question, 160),
+          suggestedAnswer: str(x.suggestedAnswer, 300),
+          status: DEFENSE_QA_STATUSES.includes(x.status as string)
+            ? (x.status as
+                "Supported" | "Partially Supported" | "Evidence Needed" | "User Input Needed")
+            : ("User Input Needed" as const),
+          relatedModule: relatedModule(x.relatedModule),
+        }))
+        .filter((x) => x.question.length > 0 && x.suggestedAnswer.length > 0)
+        .slice(0, 6)
+    : [];
+
+// Module 4 (site) — the 14 factors from the spec, in a fixed order. Enforced
+// as an allow-list (not left to the AI to name/omit/invent categories) so
+// the UI's table always has exactly 14 rows in a stable order.
+const SITE_FACTORS = [
+  "Floodplain",
+  "Easements",
+  "Drainage",
+  "Sewer",
+  "Water Availability",
+  "Buildability",
+  "Ponds",
+  "Streams",
+  "Road Frontage",
+  "Visibility",
+  "Traffic Counts / VPD",
+  "Grade",
+  "Topography",
+  "Access Limitations",
+] as const;
+type SiteFactorName = (typeof SITE_FACTORS)[number];
+type SiteFactorStatus = "Confirmed" | "Partial Data" | "Additional Data Needed";
+type SiteFactorSeverity = "High" | "Moderate" | "Low" | "Unknown";
+type SiteFactorConfidence = "High" | "Moderate" | "Low";
+type SiteFactor = {
+  factor: SiteFactorName;
+  status: SiteFactorStatus;
+  finding: string;
+  severity: SiteFactorSeverity;
+  confidence: SiteFactorConfidence;
+  potentialImpact: string;
+  evidenceNeeded: string | null;
+};
+const SITE_FACTOR_STATUSES: SiteFactorStatus[] = [
+  "Confirmed",
+  "Partial Data",
+  "Additional Data Needed",
+];
+const SITE_FACTOR_SEVERITIES: SiteFactorSeverity[] = ["High", "Moderate", "Low", "Unknown"];
+const SITE_FACTOR_CONFIDENCES: SiteFactorConfidence[] = ["High", "Moderate", "Low"];
+
+// First pass — validates the AI's raw factor array into exactly 14 typed
+// entries (one per SITE_FACTORS name, in order), defaulting anything
+// missing/malformed to a safe "Additional Data Needed" row. Does NOT yet
+// know about real siteGis data — see enforceSiteFactorRealData below, which
+// runs after this in the request handler (spec.parse only receives the AI's
+// own JSON, not the original request input, matching every other module).
+function siteFactors(v: unknown): SiteFactor[] {
+  const byName = new Map<string, Record<string, unknown>>();
+  if (Array.isArray(v)) {
+    for (const x of v) {
+      if (
+        typeof x === "object" &&
+        x !== null &&
+        typeof (x as Record<string, unknown>).factor === "string"
+      ) {
+        byName.set((x as Record<string, unknown>).factor as string, x as Record<string, unknown>);
+      }
+    }
+  }
+  return SITE_FACTORS.map((factor) => {
+    const x = byName.get(factor) ?? {};
+    const status = SITE_FACTOR_STATUSES.includes(x.status as SiteFactorStatus)
+      ? (x.status as SiteFactorStatus)
+      : "Additional Data Needed";
+    return {
+      factor,
+      status,
+      finding:
+        str(x.finding, 90) ||
+        (status === "Additional Data Needed" ? "Additional data needed to assess." : ""),
+      severity: SITE_FACTOR_SEVERITIES.includes(x.severity as SiteFactorSeverity)
+        ? (x.severity as SiteFactorSeverity)
+        : "Unknown",
+      confidence: SITE_FACTOR_CONFIDENCES.includes(x.confidence as SiteFactorConfidence)
+        ? (x.confidence as SiteFactorConfidence)
+        : "Moderate",
+      potentialImpact: str(x.potentialImpact, 70),
+      evidenceNeeded: str(x.evidenceNeeded, 90) || null,
+    };
+  });
+}
+
+// Second pass — the real enforcement. Runs in the request handler (has
+// access to the original input.siteGis, unlike spec.parse). Floodplain can
+// only read "Confirmed" when a real FEMA zone was actually fetched for this
+// property; Grade can only read "Partial Data" (never "Confirmed" — a
+// single elevation point is not a contour survey) when a real USGS
+// elevation was fetched; every other factor is hard-clamped to "Additional
+// Data Needed" with "Low" confidence no matter what the AI returned — this
+// app has no real source for any of them yet, and the AI's own discipline
+// alone isn't trusted to guarantee that.
+function enforceSiteFactorRealData(
+  factors: SiteFactor[],
+  siteGis: ModulesInput["siteGis"],
+): SiteFactor[] {
+  return factors.map((f) => {
+    if (f.factor === "Floodplain") {
+      if (!siteGis?.floodZone) return { ...f, status: "Additional Data Needed", confidence: "Low" };
+      return { ...f, status: "Confirmed" };
+    }
+    if (f.factor === "Grade") {
+      if (siteGis?.elevationFt == null)
+        return { ...f, status: "Additional Data Needed", confidence: "Low" };
+      return { ...f, status: "Partial Data" };
+    }
+    return { ...f, status: "Additional Data Needed", confidence: "Low" };
+  });
+}
+
+// Module 5 (improvement) — the 4 fixed building components, in a fixed
+// order. Same allow-list discipline as SITE_FACTORS: the AI can't omit or
+// invent a row, so the UI's 4-row layout is always stable.
+const BUILDING_COMPONENTS = ["Roof", "HVAC", "Exterior", "Interior"] as const;
+type BuildingComponentName = (typeof BUILDING_COMPONENTS)[number];
+type BuildingComponentCondition = "Good" | "Fair" | "Poor" | "Unknown";
+type BuildingComponent = {
+  component: BuildingComponentName;
+  hasPhoto: boolean;
+  condition: BuildingComponentCondition;
+  actionNeeded: string | null;
+  notes: string;
+};
+const BUILDING_COMPONENT_CONDITIONS: BuildingComponentCondition[] = [
+  "Good",
+  "Fair",
+  "Poor",
+  "Unknown",
+];
+
+// First pass — validates the AI's raw array into exactly 4 typed entries.
+// Does not yet know whether any evidence images were actually sent (that's
+// only visible in the request handler, not here) — see
+// enforceBuildingComponentRealData below.
+function buildingComponents(v: unknown): BuildingComponent[] {
+  const byName = new Map<string, Record<string, unknown>>();
+  if (Array.isArray(v)) {
+    for (const x of v) {
+      if (
+        typeof x === "object" &&
+        x !== null &&
+        typeof (x as Record<string, unknown>).component === "string"
+      ) {
+        byName.set(
+          (x as Record<string, unknown>).component as string,
+          x as Record<string, unknown>,
+        );
+      }
+    }
+  }
+  return BUILDING_COMPONENTS.map((component) => {
+    const x = byName.get(component) ?? {};
+    const hasPhoto = x.hasPhoto === true;
+    // Belt-and-suspenders: the model's own "no photo" admission always wins
+    // over a stray non-"Unknown" condition it might have filled in anyway.
+    const condition = !hasPhoto
+      ? "Unknown"
+      : BUILDING_COMPONENT_CONDITIONS.includes(x.condition as BuildingComponentCondition)
+        ? (x.condition as BuildingComponentCondition)
+        : "Unknown";
+    return {
+      component,
+      hasPhoto,
+      condition,
+      actionNeeded: hasPhoto ? str(x.actionNeeded, 60) || null : null,
+      notes: hasPhoto ? str(x.notes, 70) : "",
+    };
+  });
+}
+
+// Second pass — the real enforcement, run in the request handler where
+// input.evidenceImages is visible (spec.parse only ever sees the AI's raw
+// JSON, matching every other module). When literally zero photos were
+// sent, every component is hard-clamped to "no photo" regardless of what
+// the AI returned — this app has nothing real to show it, and the model's
+// own discipline alone isn't trusted to guarantee that.
+function enforceBuildingComponentRealData(
+  components: BuildingComponent[],
+  hadAnyPhotos: boolean,
+): BuildingComponent[] {
+  if (hadAnyPhotos) return components;
+  return components.map((c) => ({
+    ...c,
+    hasPhoto: false,
+    condition: "Unknown",
+    actionNeeded: null,
+    notes: "",
+  }));
+}
 
 const MODULE_SPECS: Record<string, ModuleSpec> = {
   strategy: {
@@ -241,29 +569,101 @@ const MODULE_SPECS: Record<string, ModuleSpec> = {
   },
   site: {
     instruction:
-      "Give guidance on site-condition factors (access, drainage, easements) worth documenting. " +
-      "Also give an overall 0-100 documentation-priority score for how worthwhile pursuing site-" +
-      "condition evidence looks for this specific property (based on its value profile and property " +
-      "type — not a claim about a specific defect you haven't observed).",
-    schema: `{"guidance": "<ONE short sentence, max ~18 words — a headline, the checklist below carries the detail>", "checklist": ["<short item>", ...], "priorityScore": <integer 0-100>}`,
+      "Assess this property's site conditions across exactly these 14 factors, in this exact " +
+      "order: Floodplain, Easements, Drainage, Sewer, Water Availability, Buildability, Ponds, " +
+      "Streams, Road Frontage, Visibility, Traffic Counts / VPD, Grade, Topography, Access " +
+      "Limitations. Only Floodplain and Grade can ever be backed by real data (given above, " +
+      "when present) — for every other factor you have no real source, so briefly explain what " +
+      "the factor is, why it could matter for THIS property type/value, and what to upload to " +
+      "assess it (a plat, a drainage plan, a utility letter, a traffic study, a topo survey, " +
+      "etc.); never claim a specific site condition you weren't given real data for. For " +
+      "Floodplain, state the real zone/Special Flood Hazard Area status given above; for Grade, " +
+      "state the real elevation given above but note a single point isn't a full topographic " +
+      "assessment. Also give an overall 0-100 documentation-priority score for how worthwhile " +
+      "pursuing site-condition evidence looks for this property (its value profile and property " +
+      "type), and a one-sentence key finding grounded only in whichever factors have real/" +
+      "partial data — say plainly that more data is needed if nothing real was found, never " +
+      "assert a valuation impact you can't back with a real fact.",
+    schema:
+      `{"guidance": "<ONE short sentence, max ~18 words>", ` +
+      `"factors": [{"factor": "<one of the 14 exact names above>", "status": "<Confirmed | ` +
+      `Partial Data | Additional Data Needed>", "finding": "<short factual statement, max ~10 ` +
+      `words>", "severity": "<High | Moderate | Low | Unknown>", "confidence": "<High | ` +
+      `Moderate | Low>", "potentialImpact": "<short phrase, max ~8 words>", "evidenceNeeded": ` +
+      `"<short phrase, or null if nothing further is needed>"}, ...] (exactly 14 entries, one ` +
+      `per factor, in the order listed above), ` +
+      `"keyFinding": "<max 2 short sentences>", "priorityScore": <integer 0-100>}`,
     parse: (p) => ({
       guidance: str(p.guidance, 160),
-      checklist: checklist(p.checklist),
+      // Real-data enforcement (Floodplain/Grade clamped to what siteGis
+      // actually gave, every other factor hard-clamped to "Additional Data
+      // Needed") happens in the request handler via
+      // enforceSiteFactorRealData — this parse() only has the AI's raw
+      // JSON, not the original input, matching every other module's parse.
+      factors: siteFactors(p.factors),
+      // 320, not the ~180 chars "2 short sentences" implies — same fix
+      // comps.recommendedUse already needed: confirmed live the model's
+      // real output regularly ran a bit over its own instruction, and a
+      // hard character slice mid-sentence reads as a broken/cut-off UI, not
+      // just "a bit long." Generous headroom over the target is safer than
+      // a tight cut.
+      keyFinding: str(p.keyFinding, 320),
       priorityScore: score100(p.priorityScore),
     }),
   },
   improvement: {
     instruction:
-      "Give guidance on building condition / functional obsolescence factors worth documenting. " +
-      "Also give an overall 0-100 documentation-priority score for how worthwhile pursuing " +
-      "improvement-condition evidence looks for this specific property (based on its value profile " +
-      "and property type — not a claim about a specific defect you haven't observed).",
-    schema: `{"guidance": "<ONE short sentence, max ~18 words — a headline, the checklist below carries the detail>", "checklist": ["<short item>", ...], "priorityScore": <integer 0-100>}`,
-    parse: (p) => ({
-      guidance: str(p.guidance, 160),
-      checklist: checklist(p.checklist),
-      priorityScore: score100(p.priorityScore),
-    }),
+      "Assess this property's building condition across exactly these 4 components, in this " +
+      "exact order: Roof, HVAC, Exterior, Interior. Set hasPhoto true for a component ONLY when " +
+      "an attached photo/document actually shows it — if none does, set hasPhoto false and leave " +
+      "condition/actionNeeded/notes at their defaults; never guess a condition for a component " +
+      "you can't actually see. For a component you DO have a real photo of, state condition " +
+      "(Good/Fair/Poor) and actionNeeded (e.g. Repair Needed, Replacement, Maintenance, or null " +
+      "if nothing is needed) based only on what's visible. Also estimate effectiveAgeYears ONLY " +
+      "if photos/documents give a real basis for it (visible wear, stated renovation history, " +
+      "etc.) — ground it using the typical economic life range given above, never invent an age " +
+      "from property type or value alone; leave it null with an honest effectiveAgeBasis " +
+      "otherwise. Same discipline for functionalObsolescencePct (outdated layout/systems/design " +
+      "visible in what was given) and externalObsolescencePct (market/locational factors you can " +
+      "reasonably infer from the record) — null with an honest basis when there's no real " +
+      "grounding for either. Also give an overall 0-100 documentation-priority score for how " +
+      "worthwhile pursuing improvement-condition evidence looks for this property, and a " +
+      "one-sentence key finding grounded only in whichever components/metrics have real data — " +
+      "say plainly that more data is needed if nothing real was found.",
+    schema:
+      `{"guidance": "<ONE short sentence, max ~18 words>", ` +
+      `"buildingComponents": [{"component": "<one of: Roof | HVAC | Exterior | Interior>", ` +
+      `"hasPhoto": <true|false>, "condition": "<Good | Fair | Poor | Unknown>", "actionNeeded": ` +
+      `"<short phrase, e.g. Repair Needed | Replacement | Maintenance, or null>", "notes": ` +
+      `"<max ~8 words>"}, ...] (exactly 4 entries, in the order listed above), ` +
+      `"effectiveAgeYears": <number, or null if not reliably supported>, ` +
+      `"effectiveAgeBasis": "<max ~10 words, or 'Additional Data Needed — upload property ` +
+      `photos' if the value above is null>", ` +
+      `"functionalObsolescencePct": <integer 0-100, or null>, ` +
+      `"functionalObsolescenceBasis": "<max ~10 words>", ` +
+      `"externalObsolescencePct": <integer 0-100, or null>, ` +
+      `"externalObsolescenceBasis": "<max ~10 words>", ` +
+      `"keyFinding": "<max 2 short sentences>", "priorityScore": <integer 0-100>}`,
+    parse: (p) => {
+      const hasAge =
+        typeof p.effectiveAgeYears === "number" && Number.isFinite(p.effectiveAgeYears);
+      return {
+        guidance: str(p.guidance, 160),
+        // Real-data enforcement (every component clamped to "no photo" when
+        // zero evidence images were sent at all) happens in the request
+        // handler via enforceBuildingComponentRealData — this parse() only
+        // has the AI's raw JSON, matching every other module's parse.
+        buildingComponents: buildingComponents(p.buildingComponents),
+        effectiveAgeYears: hasAge ? Math.max(0, Math.round(p.effectiveAgeYears as number)) : null,
+        effectiveAgeBasis: str(p.effectiveAgeBasis, 90),
+        functionalObsolescencePct: score100OrNull(p.functionalObsolescencePct),
+        functionalObsolescenceBasis: str(p.functionalObsolescenceBasis, 90),
+        externalObsolescencePct: score100OrNull(p.externalObsolescencePct),
+        externalObsolescenceBasis: str(p.externalObsolescenceBasis, 90),
+        keyFinding: str(p.keyFinding, 320),
+        priorityScore: score100(p.priorityScore),
+      };
+    },
   },
   zoning: {
     instruction:
@@ -287,17 +687,84 @@ const MODULE_SPECS: Record<string, ModuleSpec> = {
       "Produce a prioritized evidence checklist for the protest packet. For each item, judge its " +
       "importance to the case (High/Low) and how readily available it typically is to a property " +
       "owner (High/Low) — this powers a priority-quadrant view, so favor items that actually differ " +
-      "on these two axes rather than marking everything High/High.",
+      "on these two axes rather than marking everything High/High. importance is High only for an " +
+      "item that would materially change the strategy/value argument if missing, Low otherwise; " +
+      "availability is High only for something the owner already has or can obtain with no real " +
+      "effort (a photo, a bill), Low for something that takes real work to get (a certified " +
+      "appraisal, a rent roll). This checklist feeds a real completeness score shown to the user — " +
+      "given the same property record, always select the same real evidence types and classify them " +
+      "the same way, not a different list each time.",
     schema: `{"items": [{"item": "<short item>", "importance": "<High | Low>", "availability": "<High | Low>"}, ...]}`,
     parse: (p) => ({ items: evidenceItems(p.items) }),
   },
   executive: {
-    instruction: "Write the final executive recommendation, basis, and next step.",
-    schema: `{"recommendation": "<ONE short sentence, max ~15 words>", "basis": "<ONE short sentence, max ~15 words>", "nextStep": "<ONE short sentence, max ~12 words>"}`,
+    instruction:
+      "You are writing the FINAL conclusion after reviewing this property's complete case — " +
+      "not another independent module. Reconcile the real strategy, comparable-value, evidence, " +
+      "and financial findings already given in the record above into one recommendation. Name " +
+      "real strategies, comps, and evidence items from the record — never invent a different " +
+      "one. If the record's own signals genuinely disagree with each other (e.g. a strong " +
+      "strategy score alongside missing critical evidence, or a comps range that doesn't support " +
+      "the stated savings), say so in conflictNote instead of silently picking a side; leave " +
+      "conflictNote null when nothing actually conflicts. Do not guarantee an outcome, a specific " +
+      "reduction, or protest success. For defenseQA, generate 4-6 property-specific questions an " +
+      "appraisal district or ARB panel would realistically raise against THIS property's specific " +
+      "strategy/comps/evidence — not a generic FAQ — each with a fact-based suggested answer " +
+      "grounded only in the record. status is a real classification, not a feel — apply this rule " +
+      "strictly, in order: Supported only when the record's own evidence/comps/strategy data " +
+      "directly and fully backs the answer; Partially Supported when the record backs part of the " +
+      "answer but a real gap remains; Evidence Needed when the record names the needed evidence " +
+      "item but it isn't yet marked as uploaded/available; User Input Needed when answering fully " +
+      "requires a fact this record doesn't contain at all. This score feeds a real readiness gauge " +
+      "shown to the user — given the same record, always classify the same way, not a different " +
+      "call each time. This page is a visual dashboard, not a report to read top to bottom — every " +
+      "text field below is displayed next to real numbers/badges/gauges that already convey the " +
+      "figures (score, value, confidence). Never restate a number or fact the record already gave " +
+      "you; every field is the shortest possible phrase that adds NEW information a stat tile " +
+      "can't show, not a sentence justifying or explaining the stat.",
+    schema:
+      `{"recommendedAction": "<one of: Proceed with Protest | Proceed with Protest After ` +
+      `Completing Recommended Evidence | Additional Information Needed Before Proceeding | ` +
+      `Limited Protest Opportunity Based on Available Information>", ` +
+      `"recommendationExplanation": "<ONE short sentence, max ~15 words — the single most ` +
+      `important reason only, never restating a $ or % figure>", ` +
+      `"primaryStrategyExplanation": "<max ~10 words, a short phrase not a sentence — why this ` +
+      `strategy, in a few words, or null if none is clearly supported>", ` +
+      `"secondaryStrategyExplanation": "<max ~10 words, or null if no second strategy materially ` +
+      `contributes>", ` +
+      `"majorFindings": [{"finding": "<short title, max ~6 words>", "whyItMatters": "<max ~8 ` +
+      `words>", "relatedModule": "<one of: comps | site | improvement | zoning | income | ` +
+      `evidence | null>"}, ...] (3-5 items, most important first), ` +
+      `"missingInformation": [{"item": "<short item>", "severity": "<Critical | Important | ` +
+      `Supporting>"}, ...] (only real gaps, empty array if none), ` +
+      `"recommendedProtestValue": <number, the real indicated value to argue for, or null if not ` +
+      `reliably supported by the record>, ` +
+      `"recommendedProtestValueBasis": "<max ~10 words, or 'Additional analysis required' if the ` +
+      `value above is null>", ` +
+      `"nextAction": "<ONE short sentence, max ~12 words, the single most important next step>", ` +
+      `"conflictNote": "<1 short sentence describing a genuine conflict between the record's own ` +
+      `signals, or null>", ` +
+      `"defenseQA": [{"question": "<property-specific likely challenge>", "suggestedAnswer": ` +
+      `"<max ~20 words, fact-based, using only the record>", "status": "<one of: Supported | ` +
+      `Partially Supported | Evidence Needed | User Input Needed>", "relatedModule": "<one of: ` +
+      `comps | site | improvement | zoning | income | evidence | null>"}, ...] (4-6 items)}`,
     parse: (p) => ({
-      recommendation: str(p.recommendation, 140),
-      basis: str(p.basis, 140),
-      nextStep: str(p.nextStep, 100),
+      recommendedAction: isValidRecommendedAction(p.recommendedAction)
+        ? p.recommendedAction
+        : "Additional Information Needed Before Proceeding",
+      recommendationExplanation: str(p.recommendationExplanation, 140),
+      primaryStrategyExplanation: str(p.primaryStrategyExplanation, 90) || null,
+      secondaryStrategyExplanation: str(p.secondaryStrategyExplanation, 90) || null,
+      majorFindings: majorFindings(p.majorFindings),
+      missingInformation: missingInformation(p.missingInformation),
+      recommendedProtestValue:
+        typeof p.recommendedProtestValue === "number" && Number.isFinite(p.recommendedProtestValue)
+          ? p.recommendedProtestValue
+          : null,
+      recommendedProtestValueBasis: str(p.recommendedProtestValueBasis, 90),
+      nextAction: str(p.nextAction, 160),
+      conflictNote: str(p.conflictNote, 200) || null,
+      defenseQA: defenseQA(p.defenseQA),
     }),
   },
 };
@@ -319,6 +786,36 @@ function buildRecord(input: ModulesInput): string {
     input.totalValue != null && `Total assessed value: $${input.totalValue.toLocaleString()}`,
   ];
 
+  if (input.siteGis) {
+    const g = input.siteGis;
+    const parts: string[] = [];
+    if (g.floodZone) {
+      parts.push(
+        `Real FEMA flood zone at this property's exact location: Zone ${g.floodZone.zone} ` +
+          `(${g.floodZone.label})${g.floodZone.inSFHA ? ", inside a Special Flood Hazard Area" : ", not in a Special Flood Hazard Area"}.`,
+      );
+    }
+    if (g.elevationFt != null) {
+      parts.push(
+        `Real ground elevation at this exact point (USGS): ${Math.round(g.elevationFt)} ft — ` +
+          `a single point, not a full topographic survey.`,
+      );
+    }
+    if (parts.length > 0) {
+      lines.push(
+        `${parts.join(" ")} Use these exact real values — never invent a different zone or elevation.`,
+      );
+    }
+  }
+  if (input.economicLifeYears) {
+    const e = input.economicLifeYears;
+    lines.push(
+      `Typical economic life for this property type (general industry guidance, not a ` +
+        `precise or county-specific figure): ${e.min}-${e.max} years (${e.typical} typical). ` +
+        `Only estimate an effective age if photos/documents actually show the building's real ` +
+        `condition — ground it in what's visible, never in property type or value alone.`,
+    );
+  }
   if (input.compsSummary) {
     const c = input.compsSummary;
     lines.push(
@@ -371,6 +868,69 @@ function buildRecord(input: ModulesInput): string {
           .join("\n"),
     );
   }
+  if (input.topStrategies && input.topStrategies.length > 0) {
+    lines.push(
+      `The Protest Strategy module already analyzed this case in full — use these exact real ` +
+        `strategies and reasons, never invent a different one:\n` +
+        input.topStrategies
+          .map(
+            (s, i) =>
+              `${i + 1}. ${s.name} (strength ${s.strengthScore}/100)` +
+              (s.primaryReason ? ` — ${s.primaryReason}` : "") +
+              (s.whySelected ? `. Why: ${s.whySelected}` : "") +
+              (s.existingEvidence && s.existingEvidence.length > 0
+                ? `. Existing evidence: ${s.existingEvidence.join(", ")}`
+                : "") +
+              (s.missingEvidence && s.missingEvidence.length > 0
+                ? `. Missing evidence: ${s.missingEvidence.join(", ")}`
+                : ""),
+          )
+          .join("\n"),
+    );
+  }
+  if (input.evidenceReadiness) {
+    const e = input.evidenceReadiness;
+    lines.push(
+      `The Evidence Builder module already identified the case's real evidence gaps — ` +
+        `${e.uploadedCount} file${e.uploadedCount === 1 ? "" : "s"} uploaded so far. ` +
+        (e.criticalMissing.length > 0
+          ? `Still missing (top priority): ${e.criticalMissing.join(", ")}. `
+          : "No top-priority evidence gaps remain. ") +
+        (e.importantMissing.length > 0
+          ? `Also missing (lower priority): ${e.importantMissing.join(", ")}.`
+          : ""),
+    );
+  }
+  if (input.compsIndicated) {
+    const c = input.compsIndicated;
+    lines.push(
+      `The Market Value module's real comparable-property analysis indicates a value range of ` +
+        `$${c.min.toLocaleString()}-$${c.max.toLocaleString()} (median $${c.median.toLocaleString()})` +
+        (c.gapPct != null
+          ? `, ${c.gapPct > 0 ? "above" : "at or below"} this indicated range by ${Math.abs(c.gapPct)}%`
+          : "") +
+        (c.confidencePct != null ? `, ${c.confidencePct}/100 confidence` : "") +
+        ". Use this exact range — never invent a different indicated value.",
+    );
+  }
+  if (input.financialSummary) {
+    const f = input.financialSummary;
+    lines.push(
+      `The Estimated Savings module already calculated a real potential annual tax savings of ` +
+        `$${f.savings.toLocaleString()} (${f.basis === "comps" ? "based on real comparable properties" : "based on real county/category adjustments"}` +
+        (f.reductionPct != null ? `, ${f.reductionPct}% value reduction` : "") +
+        "). Use this exact figure — never recalculate or invent a different savings number.",
+    );
+  }
+  if (input.preFilingStatus) {
+    lines.push(
+      input.preFilingStatus.missingBlocking.length > 0
+        ? `A protest case is on file for this property, but filing is currently blocked on: ` +
+            `${input.preFilingStatus.missingBlocking.join(", ")}.`
+        : `A protest case is on file for this property and it is ready to file — no blocking ` +
+            `information is missing.`,
+    );
+  }
 
   return lines.filter((l): l is string => typeof l === "string").join("\n");
 }
@@ -397,18 +957,34 @@ async function generateJson(
   apiKey: string,
   system: string,
   parts: GeminiPart[],
+  // Bounded, not left dynamic/unset — a fixed budget removes one source of
+  // worst-case blowup (an unset budget lets the model choose its own,
+  // unpredictable spend) and costs nothing when Gemini is responding
+  // normally. This model rejects a budget of exactly 0 with a 400, so 512
+  // is the smallest confirmed-working value — the default every module used
+  // until "executive" needed real reconciliation across several other
+  // modules' outputs plus property-specific Q&A generation, genuinely more
+  // reasoning than a single-topic module's short schema.
+  thinkingBudget = 512,
 ): Promise<Record<string, unknown>> {
   const body = {
     systemInstruction: { parts: [{ text: system }] },
     contents: [{ role: "user", parts }],
-    // Bounded, not left dynamic/unset — a fixed budget removes one source of
-    // worst-case blowup (an unset budget lets the model choose its own,
-    // unpredictable spend) and costs nothing when Gemini is responding
-    // normally. This model rejects a budget of exactly 0 with a 400, so 512
-    // is the smallest confirmed-working value.
     generationConfig: {
       responseMimeType: "application/json",
-      thinkingConfig: { thinkingBudget: 512 },
+      thinkingConfig: { thinkingBudget },
+      // 0, not left at Gemini's default (~1) — several downstream numbers
+      // (Module 10's Case Assessment / Defense Readiness gauges) are real
+      // deterministic formulas over classification fields the model itself
+      // assigns (evidence importance/availability, defenseQA status); at
+      // default sampling those classifications visibly drifted between two
+      // calls against the *same* underlying record, so a gauge could swing
+      // 20+ points with nothing about the actual case having changed. 0
+      // makes token selection always-greedy — not a mathematical guarantee
+      // of byte-identical output every time, but it removes sampling as a
+      // source of variance, leaving only genuine differences in the record
+      // fed in to move these numbers.
+      temperature: 0,
     },
   };
 
@@ -539,8 +1115,33 @@ Deno.serve(async (req: Request) => {
 
     const system = `${PREAMBLE}\n\n${instruction}\n\nReturn ONLY a JSON object with exactly this shape:\n${spec.schema}`;
 
-    const parsed = await generateJson(apiKey, system, [{ text: record }, ...evidenceParts]);
+    const parsed = await generateJson(
+      apiKey,
+      system,
+      [{ text: record }, ...evidenceParts],
+      input.moduleId === "executive" ? 1536 : undefined,
+    );
     const result = spec.parse(parsed ?? {});
+    // Real-data enforcement for Module 4 — see enforceSiteFactorRealData's
+    // own comment. Runs here, not inside spec.parse, because only the
+    // handler has the original request input (input.siteGis).
+    if (input.moduleId === "site") {
+      (result as { factors: SiteFactor[] }).factors = enforceSiteFactorRealData(
+        (result as { factors: SiteFactor[] }).factors,
+        input.siteGis,
+      );
+    }
+    // Real-data enforcement for Module 5 — see
+    // enforceBuildingComponentRealData's own comment. evidenceParts.length
+    // (not input.evidenceImages.length) is the real signal: it's already
+    // filtered down to only genuine image/PDF data URLs.
+    if (input.moduleId === "improvement") {
+      (result as { buildingComponents: BuildingComponent[] }).buildingComponents =
+        enforceBuildingComponentRealData(
+          (result as { buildingComponents: BuildingComponent[] }).buildingComponents,
+          evidenceParts.length > 0,
+        );
+    }
     return new Response(JSON.stringify(result), { status: 200, headers: corsHeaders });
   } catch (err) {
     const errStatus = (err as { status?: number } | null)?.status;
