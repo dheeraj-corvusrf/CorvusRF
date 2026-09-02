@@ -225,17 +225,34 @@ function coreStreetName(street: string): string {
 // the literal typed "FM1957" matches zero rows, but "FM 1957" (with a space) is
 // exactly how Bexar stores it — e.g. "11440 FM 1957 SAN ANTONIO, TX 78245", a
 // real match for this exact report. RM (Ranch-to-Market) and RR (Ranch Road) are
-// the same style of Texas road prefix, included here on the same pattern even
-// though only FM has been confirmed live so far.
+// the same style of Texas road prefix, included here on the same pattern.
+//
+// A second, separate form of the same problem, found 2026-09-02 chasing the
+// SAME report after the fix above shipped and the user still couldn't search
+// it: picking "FM1957, San Antonio, TX 78245" from the address autocomplete
+// dropdown (the realistic flow — not typing the abbreviated form and hitting
+// Validate directly) hands this app Google's own spelled-out street name —
+// confirmed live via Place Details: "FM1957" resolves to addressComponents
+// longText "Farm to Market Road 1957", and "RM2222"/"RR620" alike both
+// resolve to "Ranch to Market Road 2222"/"620" (Google doesn't distinguish
+// RM from RR by name at all). AddressAutocomplete.tsx deliberately prefers
+// this un-abbreviated longText over the abbreviated form for a different,
+// already-fixed bug (see buildAddressFromComponents's own comment — mid-word
+// abbreviations like "Market Pl" broke matching for "Market Place Blvd"), so
+// the fix belongs here, recognizing Google's spelled-out form as a variant
+// input rather than fighting that same abbreviation problem again.
 function coreVariants(core: string): string[] {
   const variants = new Set<string>([core]);
   const m = core.match(
-    /^(interstate|ih|i|u\.?s\.?|us|fm|rm|rr)\s*-?\s*(?:hy|hwy|highway)?\s*-?\s*(\d+)$/i,
+    /^(interstate|ih|i|u\.?s\.?|us|fm|rm|rr|farm[\s-]to[\s-]market(?:[\s-]road)?|ranch[\s-]to[\s-]market(?:[\s-]road)?|ranch[\s-]road)\s*-?\s*(?:hy|hwy|highway)?\s*-?\s*(\d+)$/i,
   );
   if (m) {
     const n = m[2];
-    const prefix = m[1].toLowerCase();
-    if (/^(interstate|ih|i)$/i.test(prefix)) {
+    const prefix = m[1]
+      .toLowerCase()
+      .replace(/[\s-]+/g, " ")
+      .trim();
+    if (/^(interstate|ih|i)$/.test(prefix)) {
       for (const v of [
         `I${n}`,
         `I ${n}`,
@@ -247,15 +264,23 @@ function coreVariants(core: string): string[] {
       ]) {
         variants.add(v);
       }
-    } else if (/^(us|u\.?s\.?)$/i.test(prefix)) {
+    } else if (/^(us|u s|u\.s\.)$/.test(prefix)) {
       for (const v of [`US ${n}`, `U S HY ${n}`, `US HWY ${n}`, `US HIGHWAY ${n}`, `HWY ${n}`]) {
         variants.add(v);
       }
-    } else {
-      // FM / RM / RR
-      const p = prefix.toUpperCase();
-      for (const v of [`${p}${n}`, `${p} ${n}`, `${p}-${n}`]) {
+    } else if (/^(fm|farm to market( road)?)$/.test(prefix)) {
+      for (const v of [`FM${n}`, `FM ${n}`, `FM-${n}`]) {
         variants.add(v);
+      }
+    } else {
+      // RM / RR, and Google's spelled-out "Ranch to Market Road" — which
+      // Google uses for both prefixes indistinguishably (confirmed live on
+      // RM2222 and RR620 alike), so generate both abbreviations rather than
+      // guess which one this particular county actually uses.
+      for (const p of ["RM", "RR"]) {
+        for (const v of [`${p}${n}`, `${p} ${n}`, `${p}-${n}`]) {
+          variants.add(v);
+        }
       }
     }
   }
@@ -356,7 +381,8 @@ async function queryCollin(address: string, mode: QueryMode = "exact"): Promise<
     "https://services2.arcgis.com/uXyoacYrZTPTKD3R/ArcGIS/rest/services/CCAD_Parcel_Feature_Set/FeatureServer/4/query" +
     `?where=${encodeURIComponent(where)}` +
     "&outFields=ownerName,situsConcat,currValLand,currValImprv,currValAppraised,currValYear,prevValLand,prevValImprv,prevValAppraised,prevValYear,PROP_ID,propType,propSubType,propCategoryCode,propYear" +
-    `&resultRecordCount=${mode === "nearby" ? NEARBY_LIMIT : MULTI_CANDIDATE_LIMIT}&f=json`;
+    `&resultRecordCount=${mode === "nearby" ? NEARBY_LIMIT : MULTI_CANDIDATE_LIMIT}` +
+    "&returnGeometry=false&f=json";
 
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Collin CAD query failed: ${res.status}`);
@@ -411,7 +437,8 @@ async function queryMontgomery(address: string, mode: QueryMode = "exact"): Prom
     "https://services1.arcgis.com/PRoAPGnMSUqvTrzq/arcgis/rest/services/Tax_Parcel_view/FeatureServer/0/query" +
     `?where=${encodeURIComponent(where)}` +
     "&outFields=ownerName,situs,legalDescription,PIN" +
-    `&resultRecordCount=${mode === "nearby" ? NEARBY_LIMIT : MULTI_CANDIDATE_LIMIT}&f=json`;
+    `&resultRecordCount=${mode === "nearby" ? NEARBY_LIMIT : MULTI_CANDIDATE_LIMIT}` +
+    "&returnGeometry=false&f=json";
 
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Montgomery CAD query failed: ${res.status}`);
@@ -454,7 +481,8 @@ async function queryDenton(address: string, mode: QueryMode = "exact"): Promise<
     "https://gis.dentoncounty.gov/arcgis/rest/services/Parcels_FC/MapServer/0/query" +
     `?where=${encodeURIComponent(where)}` +
     "&outFields=name,situs_full_address,landHSValue,landNHSValue,improvementValue,ownerMarketValue,pid,pYear,propType,stateCodes" +
-    `&resultRecordCount=${mode === "nearby" ? NEARBY_LIMIT : MULTI_CANDIDATE_LIMIT}&f=json`;
+    `&resultRecordCount=${mode === "nearby" ? NEARBY_LIMIT : MULTI_CANDIDATE_LIMIT}` +
+    "&returnGeometry=false&f=json";
 
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Denton CAD query failed: ${res.status}`);
@@ -500,7 +528,8 @@ async function queryHarris(address: string, mode: QueryMode = "exact"): Promise<
     "https://www.gis.hctx.net/arcgis/rest/services/HCAD/Parcels/MapServer/0/query" +
     `?where=${encodeURIComponent(where)}` +
     "&outFields=owner_name_1,site_str_num,site_str_pfx,site_str_name,site_str_sfx,site_city,land_value,bld_value,total_appraised_val,acct_num,tax_year" +
-    `&resultRecordCount=${mode === "nearby" ? NEARBY_LIMIT : MULTI_CANDIDATE_LIMIT}&f=json`;
+    `&resultRecordCount=${mode === "nearby" ? NEARBY_LIMIT : MULTI_CANDIDATE_LIMIT}` +
+    "&returnGeometry=false&f=json";
 
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Harris CAD query failed: ${res.status}`);
@@ -614,6 +643,7 @@ async function queryTarrant(address: string, mode: QueryMode = "exact"): Promise
     "https://tad.newedgeservices.com/arcgis/rest/services/OD_TAD/OD_ParcelView/MapServer/0/query" +
     `?where=${encodeURIComponent(where)}` +
     "&outFields=Owner_Name,Situs_Addr,City,Land_Value,Improvemen,Total_Valu,Appraised_,Account_Nu,Property_C" +
+    "&returnGeometry=false" +
     "&f=json"; // this endpoint doesn't support resultRecordCount ("Pagination is not supported") —
   // already returns every matching row unbounded, sliced client-side below.
 
@@ -651,7 +681,8 @@ async function queryFortBend(address: string, mode: QueryMode = "exact"): Promis
     "https://services2.arcgis.com/D4saGHECICkCeoJm/arcgis/rest/services/FBCAD_Public_Data/FeatureServer/0/query" +
     `?where=${encodeURIComponent(where)}` +
     "&outFields=OWNERNAME,SITUS,LANDVALUE,IMPVALUE,TOTALVALUE,PROPNUMBER,Building_Class" +
-    `&resultRecordCount=${mode === "nearby" ? NEARBY_LIMIT : MULTI_CANDIDATE_LIMIT}&f=json`;
+    `&resultRecordCount=${mode === "nearby" ? NEARBY_LIMIT : MULTI_CANDIDATE_LIMIT}` +
+    "&returnGeometry=false&f=json";
 
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Fort Bend CAD query failed: ${res.status}`);
@@ -683,7 +714,8 @@ async function queryWilliamson(address: string, mode: QueryMode = "exact"): Prom
     "https://services1.arcgis.com/Xff0bbfp6vwIWmlU/arcgis/rest/services/WCAD_Tax_Parcels/FeatureServer/0/query" +
     `?where=${encodeURIComponent(where)}` +
     "&outFields=OWNERNME1,SITEADDRESS,LNDVALUE,CNTASSDVAL,PARCELID,CLASSDSCRP" +
-    `&resultRecordCount=${mode === "nearby" ? NEARBY_LIMIT : MULTI_CANDIDATE_LIMIT}&f=json`;
+    `&resultRecordCount=${mode === "nearby" ? NEARBY_LIMIT : MULTI_CANDIDATE_LIMIT}` +
+    "&returnGeometry=false&f=json";
 
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Williamson CAD query failed: ${res.status}`);
@@ -716,7 +748,8 @@ async function queryGrayson(address: string, mode: QueryMode = "exact"): Promise
     "https://services1.arcgis.com/EVxyUkKpll765a5X/arcgis/rest/services/Grayson_Appraisal_Parcel_Map_WFL1/FeatureServer/13/query" +
     `?where=${encodeURIComponent(where)}` +
     "&outFields=OwnerName,SitusNumber,SitusStreetPrefix,SitusStreet,SitusStreetSufix,SitusCity,LandValue,ImprovementValue,MarketValue,PropertyNumber,Year" +
-    `&resultRecordCount=${mode === "nearby" ? NEARBY_LIMIT : MULTI_CANDIDATE_LIMIT}&f=json`;
+    `&resultRecordCount=${mode === "nearby" ? NEARBY_LIMIT : MULTI_CANDIDATE_LIMIT}` +
+    "&returnGeometry=false&f=json";
 
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Grayson CAD query failed: ${res.status}`);
@@ -768,7 +801,8 @@ async function queryTravis(address: string, mode: QueryMode = "exact"): Promise<
     "https://gis.traviscountytx.gov/server1/rest/services/Boundaries_and_Jurisdictions/TCAD_public/MapServer/0/query" +
     `?where=${encodeURIComponent(where)}` +
     "&outFields=situs_num,situs_street_prefx,situs_street,situs_street_suffix,situs_city,PROP_ID" +
-    `&resultRecordCount=${mode === "nearby" ? NEARBY_LIMIT : MULTI_CANDIDATE_LIMIT}&f=json`;
+    `&resultRecordCount=${mode === "nearby" ? NEARBY_LIMIT : MULTI_CANDIDATE_LIMIT}` +
+    "&returnGeometry=false&f=json";
 
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Travis CAD query failed: ${res.status}`);
@@ -844,7 +878,8 @@ async function queryBexar(address: string, mode: QueryMode = "exact"): Promise<C
     "https://maps.bcad.org/arcgis/rest/services/PAMapSearch/MapServer/6/query" +
     `?where=${encodeURIComponent(where)}` +
     `&outFields=${Object.values(BCAD_FIELDS).join(",")}` +
-    `&resultRecordCount=${mode === "nearby" ? NEARBY_LIMIT : MULTI_CANDIDATE_LIMIT}&f=json`;
+    `&resultRecordCount=${mode === "nearby" ? NEARBY_LIMIT : MULTI_CANDIDATE_LIMIT}` +
+    "&returnGeometry=false&f=json";
 
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Bexar CAD query failed: ${res.status}`);
@@ -885,7 +920,8 @@ async function queryDallas(address: string, mode: QueryMode = "exact"): Promise<
     "https://services3.arcgis.com/zqe2kwz79KUqUvxC/arcgis/rest/services/DCAD_PARCELS/FeatureServer/0/query" +
     `?where=${encodeURIComponent(where)}` +
     "&outFields=OWNER_NAME1,SiteAddress,PROPERTY_CITY,PROPERTY_ZIPCODE,ACCOUNT_NUM,APPRAISAL_YR" +
-    `&resultRecordCount=${mode === "nearby" ? NEARBY_LIMIT : MULTI_CANDIDATE_LIMIT}&f=json`;
+    `&resultRecordCount=${mode === "nearby" ? NEARBY_LIMIT : MULTI_CANDIDATE_LIMIT}` +
+    "&returnGeometry=false&f=json";
 
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Dallas CAD query failed: ${res.status}`);
@@ -1412,7 +1448,18 @@ function nearbyDedupeKey(r: CadRecord): string {
 // nearby query against a timeout instead of trusting Promise.allSettled alone
 // (which has no time bound) — a genuinely slow county just contributes
 // nothing this round rather than holding up the whole response for everyone.
-const NEARBY_QUERY_TIMEOUT_MS = 6000;
+//
+// Bumped 6000 -> 10000 on 2026-09-02 chasing a real, reproducible report
+// ("FM1957, San Antonio, TX 78245" via the address autocomplete dropdown,
+// not typed by hand): Bexar's own backend, timed directly and repeatedly
+// against its live endpoint with the exact WHERE clause this app generates
+// for that address, consistently took 6.5-6.8s for a broad highway-name LIKE
+// scan — just over the old 6000ms bound, so Bexar's real, correct results
+// (including the user's own property) were silently dropped by the timeout
+// on every single attempt, not an occasional flake. 10000ms clears that with
+// real margin while still bounding Tarrant's genuinely pathological ~19s case
+// above.
+const NEARBY_QUERY_TIMEOUT_MS = 10000;
 // The exact-match sweep is normally faster (a more selective, house-number-
 // anchored WHERE clause), but a single county source going slow or getting
 // rate-limited isn't otherwise bounded at all — found live 2026-08-25 that a
