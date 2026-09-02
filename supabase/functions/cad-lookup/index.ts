@@ -241,10 +241,54 @@ function coreStreetName(street: string): string {
 // abbreviations like "Market Pl" broke matching for "Market Place Blvd"), so
 // the fix belongs here, recognizing Google's spelled-out form as a variant
 // input rather than fighting that same abbreviation problem again.
+//
+// The same two-sided problem (abbreviated typed form vs. Google's spelled-out
+// form) applies to every other Texas highway-style road prefix this app
+// already space-normalizes client-side (see TX_ROAD_PREFIX in
+// AddressAutocomplete.tsx: FM/RM/CR/SH/US/IH/LP/LOOP/SPUR) but this function
+// didn't yet recognize. Extended 2026-09-02, each confirmed live the same way
+// as FM above — a real county record AND Google's real Place Details output
+// for a real road of that type. Kept deliberately minimal per variant (only
+// forms actually confirmed live, not every plausible spelling) after finding
+// that Loop 1604 — a genuinely huge, high-traffic road with thousands of real
+// records — pushed Tarrant's and Harris's already-known-slow wildcard scans
+// (see NEARBY_QUERY_TIMEOUT_MS's own history above) well past even the
+// bumped 10s timeout with the first, more generous variant list tried; a
+// leading-wildcard LIKE scan's cost scales with the number of OR'd variants
+// on these two backends specifically, so fewer-but-confirmed variants is both
+// more honest AND faster:
+// - Loop: Bexar stores "5040 E LOOP 1604 ELMENDORF" and Denton stores
+//   "1703 S LOOP 288, DENTON" — both spell "LOOP" out already (never
+//   abbreviated "LP" in any real record found, so no "LP" variants are
+//   generated despite TX_ROAD_PREFIX assuming the abbreviation exists
+//   somewhere — not confirmed, not guessed here). Google's own longText for
+//   a specific frontage-road segment can come back directional-QUALIFIED on
+//   both ends ("West Loop 1604 South" — confirmed live), not just prefixed —
+//   the trailing directional is tolerated below (matched, not captured) so it
+//   doesn't break the end-anchored match.
+// - State highways: Bexar has BOTH "S STATE HWY 16 VON ORMY" and
+//   "23167 SH 16 S VON ORMY" for the literal same road — two real, different
+//   stored forms in the very same county. Google's own longText resolves
+//   "SH16" to "Texas Highway 16" — a third real, confirmed form; all three
+//   are generated. "State Highway" and "TX Highway" were dropped — neither
+//   showed up in the real county data or Google's real output, only "guessed
+//   by analogy," which is exactly what this fix exists to avoid doing.
+// - County roads: Bexar stores "216 COUNTY ROAD 125 ELMENDORF" spelled out —
+//   no abbreviated "CR 125" form found in any real record — and Google's own
+//   longText for "CR125" independently resolves to "County Road 125", the
+//   same spelled-out form. The abbreviated "CR"/"CR-" variants are still
+//   generated for a directly-typed abbreviated address, which has no
+//   autocomplete resolution step to expand it.
+// Spur was NOT extended here — TX_ROAD_PREFIX assumes it exists, but no real
+// NUMBERED Spur route turned up in Bexar's or Denton's own data while
+// checking the above (only literal street NAMES containing the word "Spur",
+// a false-positive shape, not a highway prefix) — left alone rather than
+// guessed, per this file's own standing discipline (see the Sixth bug class
+// note in the texas_cad_data_sources memory).
 function coreVariants(core: string): string[] {
   const variants = new Set<string>([core]);
   const m = core.match(
-    /^(interstate|ih|i|u\.?s\.?|us|fm|rm|rr|farm[\s-]to[\s-]market(?:[\s-]road)?|ranch[\s-]to[\s-]market(?:[\s-]road)?|ranch[\s-]road)\s*-?\s*(?:hy|hwy|highway)?\s*-?\s*(\d+)$/i,
+    /^(interstate|ih|i|u\.?s\.?|us|fm|rm|rr|farm[\s-]to[\s-]market(?:[\s-]road)?|ranch[\s-]to[\s-]market(?:[\s-]road)?|ranch[\s-]road|loop|sh|state[\s-]hwy|texas[\s-]highway|cr|county[\s-]road)\s*-?\s*(?:hy|hwy|highway)?\s*-?\s*(\d+)(?:\s+(?:n|s|e|w|north|south|east|west))?$/i,
   );
   if (m) {
     const n = m[2];
@@ -272,7 +316,7 @@ function coreVariants(core: string): string[] {
       for (const v of [`FM${n}`, `FM ${n}`, `FM-${n}`]) {
         variants.add(v);
       }
-    } else {
+    } else if (/^(rm|rr|ranch to market( road)?|ranch road)$/.test(prefix)) {
       // RM / RR, and Google's spelled-out "Ranch to Market Road" — which
       // Google uses for both prefixes indistinguishably (confirmed live on
       // RM2222 and RR620 alike), so generate both abbreviations rather than
@@ -281,6 +325,19 @@ function coreVariants(core: string): string[] {
         for (const v of [`${p}${n}`, `${p} ${n}`, `${p}-${n}`]) {
           variants.add(v);
         }
+      }
+    } else if (/^loop$/.test(prefix)) {
+      for (const v of [`LOOP ${n}`, `LOOP${n}`, `LOOP-${n}`]) {
+        variants.add(v);
+      }
+    } else if (/^(sh|state hwy|texas highway)$/.test(prefix)) {
+      for (const v of [`SH ${n}`, `SH${n}`, `SH-${n}`, `STATE HWY ${n}`, `TEXAS HIGHWAY ${n}`]) {
+        variants.add(v);
+      }
+    } else {
+      // cr / county road
+      for (const v of [`CR ${n}`, `CR${n}`, `CR-${n}`, `COUNTY ROAD ${n}`]) {
+        variants.add(v);
       }
     }
   }
