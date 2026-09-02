@@ -548,12 +548,15 @@ body.doors-page footer {
 }
 /* Ajar peek on hover/focus — 30% of the way to the full -100deg swing-open
    the click animation plays (see .door.is-open below), so hovering visibly
-   opens the door partway rather than just tilting it a hair. Lifted up and
-   scaled up slightly too (not just rotated) so it visibly breaks past the
-   header line rather than just tilting in place. */
+   opens the door partway rather than just tilting it a hair. Pure rotateY
+   around the hinge (transform-origin: left center, set on .door-panel
+   above) — no added translateY/scale here: a real hinge doesn't move, only
+   the door swings on it, so the left edge/corners must stay exactly put.
+   The rotated leaf itself is what's now allowed to extend past the frame
+   (see the overflow:visible rule above), not any artificial lift. */
 .door:hover .door-panel,
 .door:focus-visible .door-panel {
-  transform: rotateY(-30deg) translateY(-1.25rem) scale(1.05);
+  transform: rotateY(-30deg);
   box-shadow:
     inset 0 0 0 1px oklch(1 0 0 / 0.14),
     1.5rem 0 3rem -1rem oklch(0 0 0 / 0.55);
@@ -571,7 +574,7 @@ body.doors-page footer {
    navigates, revealing the plain "hallway" behind it (.door's own
    background). Currently unreachable — see the comment on .door above. */
 .door.is-open .door-panel {
-  transform: rotateY(-100deg) translateY(-2.5rem) scale(1.1);
+  transform: rotateY(-100deg);
 }
 /* Every other door dims slightly once one has been chosen. */
 .doors.has-open .door:not(.is-open) {
