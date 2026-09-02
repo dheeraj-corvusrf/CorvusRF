@@ -8,6 +8,7 @@ import {
   updateUserPlan,
   updateUserAdminStatus,
   deleteUserAccount,
+  impersonateUser,
   createUserAccount,
   listAllProtests,
   updateProtestStatus,
@@ -201,6 +202,26 @@ function AdminPanel() {
     }
   }
 
+  // Opens a new tab signed in as the target user via a real one-time Supabase
+  // login link — this tab's own admin session is untouched. window.open() is
+  // called synchronously in the click handler (before the await resolves) to
+  // get a real user-gesture-backed tab handle, then navigated once the real
+  // link comes back — most browsers block a popup opened from inside an async
+  // callback, since by then it no longer looks like a direct response to the
+  // click.
+  async function handleImpersonateUser(userId: string) {
+    const tab = window.open("", "_blank", "noopener,noreferrer");
+    try {
+      const actionLink = await impersonateUser(userId);
+      if (tab) tab.location.href = actionLink;
+      else window.open(actionLink, "_blank", "noopener,noreferrer");
+      refreshAuditLog();
+    } catch (err) {
+      tab?.close();
+      toast.error(err instanceof Error ? err.message : "Could not log in as this user.");
+    }
+  }
+
   if (loading || !user || !isAdmin) return null;
 
   const TABS: { key: AdminTab; label: string; count: number | null }[] = [
@@ -279,6 +300,7 @@ function AdminPanel() {
                   onPlanChange={(plan) => handlePlanChange(u.id, plan)}
                   onToggleAdmin={(makeAdmin) => handleToggleAdmin(u.id, makeAdmin)}
                   onDelete={() => handleDeleteUser(u.id)}
+                  onImpersonate={() => handleImpersonateUser(u.id)}
                   delayMs={Math.min(i * 40, 320)}
                   protests={protests.filter((p) => p.userId === u.id)}
                   protestsLoading={protestsLoading}
@@ -709,6 +731,7 @@ function UserRow({
   onPlanChange,
   onToggleAdmin,
   onDelete,
+  onImpersonate,
   delayMs = 0,
   protests,
   protestsLoading,
@@ -725,6 +748,7 @@ function UserRow({
   onPlanChange: (plan: PlanValue) => void;
   onToggleAdmin: (makeAdmin: boolean) => void;
   onDelete: () => void;
+  onImpersonate: () => void;
   delayMs?: number;
   // Protest requests filed by this specific user — folded into this row's
   // own expanded panel (alongside UserProperties below) rather than a
@@ -777,6 +801,14 @@ function UserRow({
               </span>
             )}
           </button>
+          {/* Hidden for yourself — logging in as your own account is meaningless.
+              Shown for other admins too (not just customers), per an explicit
+              call that senior staff may need to access a junior admin's account. */}
+          {!isSelf && (
+            <button onClick={onImpersonate} className="btn-outline text-sm">
+              Log in as user
+            </button>
+          )}
           {/* Hidden for yourself so an admin can't accidentally revoke their own access. */}
           {!isSelf && (
             <button onClick={() => onToggleAdmin(!record.isAdmin)} className="btn-outline text-sm">
@@ -992,6 +1024,7 @@ const AUDIT_ACTION_LABELS: Record<string, string> = {
   update_admin_status: "Changed admin access",
   update_protest_status: "Updated protest status",
   update_protest_notes: "Updated protest notes",
+  impersonate_user: "Logged in as user",
 };
 
 function BetaLeadRow({

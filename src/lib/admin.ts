@@ -233,6 +233,18 @@ export async function deleteUserAccount(userId: string): Promise<void> {
   await invokeEdgeFunction("admin-delete-user", { userId });
 }
 
+// Returns a real one-time Supabase login link for the target user (see
+// admin-impersonate-user's own comment) — the caller opens this in a new
+// tab so the admin's own session is untouched. Server-side re-checks
+// is_admin and logs to admin_audit_log itself; this is just the invoke.
+export async function impersonateUser(userId: string): Promise<string> {
+  const result = await invokeEdgeFunction<{ actionLink: string }>("admin-impersonate-user", {
+    userId,
+    redirectPath: `${import.meta.env.BASE_URL}dashboard`,
+  });
+  return result.actionLink;
+}
+
 export async function createUserAccount(input: {
   email: string;
   firstName: string;
