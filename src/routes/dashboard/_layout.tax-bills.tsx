@@ -15,12 +15,30 @@ import {
 } from "@/lib/tax-bills";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Modal } from "@/components/Modal";
+import { ComingSoonLock } from "@/components/ComingSoonLock";
 
 export const Route = createFileRoute("/dashboard/_layout/tax-bills")({
   component: TaxBills,
 });
 
+// Locked per request — real page/logic below is untouched, just not
+// rendered. Flip to false (and remove the matching `locked: true` on this
+// item in AppShell.tsx's NAV) to bring it back.
+const LOCKED = true;
+
 function TaxBills() {
+  if (LOCKED) {
+    return (
+      <ComingSoonLock
+        title="Tax Bills"
+        description="Track what the county actually billed, whether it's paid, and any refund — per property, per tax year."
+      />
+    );
+  }
+  return <TaxBillsContent />;
+}
+
+function TaxBillsContent() {
   const { user } = useAuth();
   const [properties, setProperties] = useState<PropertyRecord[]>([]);
   const [bills, setBills] = useState<TaxBillRecord[]>([]);
@@ -155,8 +173,8 @@ function TaxBills() {
         <div>
           <h1 className="font-serif text-2xl font-semibold">Tax Bills</h1>
           <p className="text-muted-foreground text-sm">
-            Track what the county actually billed, whether it's paid, and any refund — per
-            property, per tax year.
+            Track what the county actually billed, whether it's paid, and any refund — per property,
+            per tax year.
           </p>
         </div>
         <button onClick={() => setShowAddForm((v) => !v)} className="btn-primary btn-primary-hover">
@@ -211,8 +229,11 @@ function TaxBills() {
             className="rounded-md border border-input bg-background px-3 py-2 text-sm sm:col-span-2"
           />
           <p className="text-xs text-muted-foreground sm:col-span-2">
-            Have the actual bill? <Link to="/intake" className="underline">Upload it</Link> instead
-            and AI will fill these fields in for you.
+            Have the actual bill?{" "}
+            <Link to="/intake" className="underline">
+              Upload it
+            </Link>{" "}
+            instead and AI will fill these fields in for you.
           </p>
           <button type="submit" disabled={saving} className="btn-accent w-fit disabled:opacity-60">
             {saving ? "Saving…" : "Save Tax Bill"}
@@ -249,7 +270,9 @@ function TaxBills() {
                               {bill.amountDue != null ? ` • ${currency(bill.amountDue)}` : ""}
                             </div>
                             <div className="text-xs text-muted-foreground">
-                              {bill.dueDate ? `Due ${new Date(bill.dueDate).toLocaleDateString()}` : "No due date on file"}
+                              {bill.dueDate
+                                ? `Due ${new Date(bill.dueDate).toLocaleDateString()}`
+                                : "No due date on file"}
                               {isPaid && bill.paidAt
                                 ? ` • Paid ${new Date(bill.paidAt).toLocaleDateString()}${
                                     bill.amountPaid != null ? ` (${currency(bill.amountPaid)})` : ""
@@ -261,18 +284,27 @@ function TaxBills() {
                             {isPaid ? (
                               <span className="badge-soft text-success">Paid</span>
                             ) : (
-                              <button onClick={() => openPayModal(bill)} className="btn-outline text-sm">
+                              <button
+                                onClick={() => openPayModal(bill)}
+                                className="btn-outline text-sm"
+                              >
                                 Mark Paid
                               </button>
                             )}
-                            <button onClick={() => openRefundModal(bill)} className="btn-outline text-sm">
+                            <button
+                              onClick={() => openRefundModal(bill)}
+                              className="btn-outline text-sm"
+                            >
                               {hasRefund ? "Update Refund" : "Record Refund"}
                             </button>
                           </div>
                         </div>
                         {hasRefund && (
                           <p className="mt-2 text-xs text-muted-foreground">
-                            Refund: {bill.refundAmount != null ? currency(bill.refundAmount) : "amount unknown"}
+                            Refund:{" "}
+                            {bill.refundAmount != null
+                              ? currency(bill.refundAmount)
+                              : "amount unknown"}
                             {bill.refundReceivedAt
                               ? ` • received ${new Date(bill.refundReceivedAt).toLocaleDateString()}`
                               : bill.refundExpectedAt
@@ -284,10 +316,15 @@ function TaxBills() {
                           <p
                             className={`mt-2 text-xs ${rec.flagged ? "text-warning-foreground font-medium" : "text-muted-foreground"}`}
                           >
-                            Estimated savings at intake: {rec.estimatedSavings != null ? currency(rec.estimatedSavings) : "—"}
+                            Estimated savings at intake:{" "}
+                            {rec.estimatedSavings != null ? currency(rec.estimatedSavings) : "—"}
                             {" • "}
-                            Actual vs. no-protest baseline ({currency(rec.expectedWithoutProtest)}): {currency(rec.actualSavings)}
-                            {rec.flagged ? " — differs a lot from the estimate, worth a second look." : ""}
+                            Actual vs. no-protest baseline ({currency(
+                              rec.expectedWithoutProtest,
+                            )}): {currency(rec.actualSavings)}
+                            {rec.flagged
+                              ? " — differs a lot from the estimate, worth a second look."
+                              : ""}
                           </p>
                         )}
                       </div>
@@ -344,10 +381,18 @@ function TaxBills() {
               />
             </label>
             <div className="mt-2 flex gap-2 justify-end">
-              <button type="button" onClick={() => setPayModal(null)} className="btn-outline text-sm">
+              <button
+                type="button"
+                onClick={() => setPayModal(null)}
+                className="btn-outline text-sm"
+              >
                 Cancel
               </button>
-              <button type="submit" disabled={paySaving} className="btn-accent text-sm disabled:opacity-60">
+              <button
+                type="submit"
+                disabled={paySaving}
+                className="btn-accent text-sm disabled:opacity-60"
+              >
                 {paySaving ? "Saving…" : "Save"}
               </button>
             </div>
@@ -387,7 +432,11 @@ function TaxBills() {
               />
             </label>
             <div className="mt-2 flex gap-2 justify-end">
-              <button type="button" onClick={() => setRefundModal(null)} className="btn-outline text-sm">
+              <button
+                type="button"
+                onClick={() => setRefundModal(null)}
+                className="btn-outline text-sm"
+              >
                 Cancel
               </button>
               <button
@@ -404,4 +453,3 @@ function TaxBills() {
     </div>
   );
 }
-

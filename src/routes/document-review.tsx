@@ -341,7 +341,7 @@ function DocumentReview() {
         <FlagBanner
           tone="error"
           title="Possible county or account mismatch."
-          body="AI detected a mismatch between this document and a prior property on file. Review before proceeding — final confirmation is blocked until resolved."
+          body="This document's county or account number doesn't match what you entered earlier in this session. Review before proceeding — final confirmation is blocked until resolved."
         />
       )}
 

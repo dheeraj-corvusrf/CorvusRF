@@ -2,14 +2,37 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
-import { listBppAccounts, addBppAccount, deleteBppAccount, type BppAccountRecord } from "@/lib/bpp-accounts";
+import {
+  listBppAccounts,
+  addBppAccount,
+  deleteBppAccount,
+  type BppAccountRecord,
+} from "@/lib/bpp-accounts";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ComingSoonLock } from "@/components/ComingSoonLock";
 
 export const Route = createFileRoute("/dashboard/_layout/bpp-accounts")({
   component: BppAccounts,
 });
 
+// Locked per request — real page/logic below is untouched, just not
+// rendered. Flip to false (and remove the matching `locked: true` on this
+// item in AppShell.tsx's NAV) to bring it back.
+const LOCKED = true;
+
 function BppAccounts() {
+  if (LOCKED) {
+    return (
+      <ComingSoonLock
+        title="BPP Accounts"
+        description="Business personal property tax accounts — separate from real estate you own."
+      />
+    );
+  }
+  return <BppAccountsContent />;
+}
+
+function BppAccountsContent() {
   const { user } = useAuth();
   const [accounts, setAccounts] = useState<BppAccountRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -26,7 +49,9 @@ function BppAccounts() {
     if (!user) return;
     listBppAccounts(user.id)
       .then(setAccounts)
-      .catch((err) => toast.error(err instanceof Error ? err.message : "Could not load BPP accounts."))
+      .catch((err) =>
+        toast.error(err instanceof Error ? err.message : "Could not load BPP accounts."),
+      )
       .finally(() => setLoading(false));
   }, [user]);
 
@@ -132,7 +157,10 @@ function BppAccounts() {
         ) : accounts.length > 0 ? (
           <div className="grid gap-4">
             {accounts.map((a) => (
-              <div key={a.id} className="card-elev row-hover p-5 flex items-start justify-between gap-4 flex-wrap">
+              <div
+                key={a.id}
+                className="card-elev row-hover p-5 flex items-start justify-between gap-4 flex-wrap"
+              >
                 <div>
                   <h3 className="font-semibold">{a.businessName}</h3>
                   <p className="text-sm text-muted-foreground">

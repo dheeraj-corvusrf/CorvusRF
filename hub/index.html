@@ -267,7 +267,6 @@
           </label>
           <fieldset class="beta-field beta-radio-group">
             <legend>What area are you most interested in?</legend>
-            <label><input type="checkbox" name="area_of_interest" value="Property Tax Protest" /><span>Property Tax Protest</span></label>
             <label><input type="checkbox" name="area_of_interest" value="Property Tax Management" /><span>Property Tax Management</span></label>
             <label><input type="checkbox" name="area_of_interest" value="Permitting, Design" /><span>Permitting, Design</span></label>
             <label><input type="checkbox" name="area_of_interest" value="Buying, Selling &amp; Leasing" /><span>Buying, Selling &amp; Leasing</span></label>
@@ -307,9 +306,8 @@
       if (!dialog || !form) return;
 
       // Each door maps to exactly one interest option except CorvusPT,
-      // which covers both "Property Tax Protest" and "Property Tax
-      // Management" — ambiguous, so PT is deliberately left out here and
-      // that door opens with nothing pre-selected.
+      // which is deliberately left out here and opens with nothing
+      // pre-selected (no door-specific default chosen for it).
       var DOOR_AREAS = {
         "door-bsl": "Buying, Selling & Leasing",
         "door-dp": "Permitting, Design",
