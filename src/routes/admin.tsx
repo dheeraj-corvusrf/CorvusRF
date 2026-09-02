@@ -210,7 +210,16 @@ function AdminPanel() {
   // callback, since by then it no longer looks like a direct response to the
   // click.
   async function handleImpersonateUser(userId: string) {
-    const tab = window.open("", "_blank", "noopener,noreferrer");
+    // "noopener" here would make window.open() return null (that's the spec'd
+    // behavior — it's what severs the opener link), which is exactly why this
+    // silently failed: the code fell into the "no tab" fallback and tried to
+    // open a SECOND tab after the await below, which browsers block as a
+    // non-gesture popup. Keep the real reference instead, and get the same
+    // opener-severing protection by nulling tab.opener manually right after —
+    // that works because we still hold the reference at this point, before
+    // the tab has navigated anywhere.
+    const tab = window.open("", "_blank");
+    if (tab) tab.opener = null;
     try {
       const actionLink = await impersonateUser(userId);
       if (tab) tab.location.href = actionLink;
