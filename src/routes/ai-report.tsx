@@ -2722,6 +2722,32 @@ function SiteFactorRow({
   );
 }
 
+// One tile of the compact "Needs More Data" grid — deliberately just an
+// icon + the factor's name, no paragraph, no per-item AI text visible at
+// a glance (evidenceNeeded is still there as a hover title for anyone who
+// wants it). The same generic icon on every tile, same rationale as
+// ChecklistIconRows: nothing here is a specific categorized finding, so no
+// icon should look like one. Taps straight through to Module 8.
+function SiteFactorGapTile({
+  factor,
+  onOpenModule,
+}: {
+  factor: SiteFactor;
+  onOpenModule: (moduleId: string) => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() => onOpenModule("evidence")}
+      title={factor.evidenceNeeded ?? undefined}
+      className="flex flex-col items-center gap-1 rounded-lg border border-dashed border-border px-1.5 py-2 text-center transition-colors hover:border-accent hover:bg-secondary/40"
+    >
+      <FileWarning className="h-4 w-4 shrink-0 text-muted-foreground" />
+      <span className="line-clamp-2 text-[10px] font-medium leading-tight">{factor.factor}</span>
+    </button>
+  );
+}
+
 // ---------- Reference-infographic chrome shared by every module: a
 // numbered badge (ModuleCard header + modal header) and a one-line colored
 // insight banner on each card, derived from data already loaded elsewhere
@@ -4322,26 +4348,51 @@ function ModulePreviewContent({
 
           {d.guidance && <AiVerdictLine icon={m.icon} text={d.guidance} color={m.color} />}
 
-          {/* Full 14-factor structured table — see MODULE_SPECS.site and
-              enforceSiteFactorRealData in the edge function. Only
-              Floodplain/Grade can ever read Confirmed/Partial Data; every
-              other row is honestly "Additional Data Needed" until a real
-              source exists for it. */}
-          <div>
-            <div className="mb-1.5 flex items-center justify-between gap-2">
-              <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                Site Factors
-              </div>
-              <span className="shrink-0 whitespace-nowrap text-xs text-muted-foreground">
-                {gaps} of {d.factors.length} need more data
-              </span>
-            </div>
-            <div className="grid gap-1.5">
-              {d.factors.map((f) => (
-                <SiteFactorRow key={f.factor} factor={f} onOpenModule={onOpenModule} />
-              ))}
-            </div>
-          </div>
+          {/* Split, not one flat 14-row list — see MODULE_SPECS.site and
+              enforceSiteFactorRealData in the edge function. The 1-2 factors
+              with a real/partial finding (almost always just Floodplain/
+              Grade) get full detail cards, since there's genuine substance
+              to read; the remaining "Additional Data Needed" majority — a
+              near-duplicate explanation each — collapses into one compact,
+              tappable icon grid instead of 12 more full-text cards nobody
+              would actually read through. */}
+          {(() => {
+            const withData = d.factors.filter((f) => f.status !== "Additional Data Needed");
+            const missing = d.factors.filter((f) => f.status === "Additional Data Needed");
+            return (
+              <>
+                {withData.length > 0 && (
+                  <div>
+                    <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      What We Found
+                    </div>
+                    <div className="grid gap-1.5">
+                      {withData.map((f) => (
+                        <SiteFactorRow key={f.factor} factor={f} onOpenModule={onOpenModule} />
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {missing.length > 0 && (
+                  <div>
+                    <div className="mb-1.5 flex items-center justify-between gap-2">
+                      <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        Needs More Data
+                      </div>
+                      <span className="shrink-0 whitespace-nowrap text-xs text-muted-foreground">
+                        {gaps} of {d.factors.length}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-4">
+                      {missing.map((f) => (
+                        <SiteFactorGapTile key={f.factor} factor={f} onOpenModule={onOpenModule} />
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </>
+            );
+          })()}
 
           {d.keyFinding && (
             <div className={`rounded-lg p-4 ${m.color.bg}`}>
