@@ -53,7 +53,9 @@ Deno.serve(async (req: Request) => {
           ],
         },
       ],
-      generationConfig: { responseMimeType: "application/json" },
+      // 0, not left at Gemini's default — this gates whether classify-document
+      // even runs; same rationale as classify-document's own temperature: 0.
+      generationConfig: { responseMimeType: "application/json", temperature: 0 },
     };
 
     const res = await fetch(

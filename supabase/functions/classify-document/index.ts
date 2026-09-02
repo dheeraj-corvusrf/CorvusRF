@@ -72,6 +72,7 @@ Rules:
 - refundAmount is the dollar amount of a refund on a "Refund Notice" — null on other document types.
 - documentType must be one of: "Real Property Appraisal Notice", "BPP Rendition Form", "BPP Appraisal Notice", "Tax Bill / Statement", "Hearing Notice / ARB", "Refund Notice", "EPIN / PIN Notice", "Exemption Notice", "Other".
 - confidence is a single 0..1 score for the overall extraction quality (OCR clarity + completeness of key fields).
+- This score gates whether the user can proceed — given the same document, always extract the same fields and report the same confidence, not a different read each time.
 - Return ONLY a JSON object matching the schema. No prose.`;
 
 const SCHEMA_HINT = `{"documentType":"...","ownerName":null,"propertyName":null,"propertyAddress":null,"situsAddress":null,"county":null,"cadName":null,"accountNumber":null,"parcelId":null,"taxYear":null,"noticeValue":null,"landValue":null,"improvementValue":null,"bppValue":null,"priorValue":null,"noticeDate":null,"mailDate":null,"protestDeadline":null,"hearingDate":null,"hearingTime":null,"hearingInstructions":null,"paymentDueDate":null,"taxAmountDue":null,"taxableValue":null,"taxRate":null,"penaltyDate":null,"refundAmount":null,"pinOrEpin":null,"exemptions":null,"confidence":0.0,"reasoning":null}`;
@@ -108,7 +109,16 @@ Deno.serve(async (req: Request) => {
           ],
         },
       ],
-      generationConfig: { responseMimeType: "application/json" },
+      // 0, not left at Gemini's default (~1) — this extraction directly
+      // gates the "Confirm Details" button (via the confidence score below
+      // LOW_CONFIDENCE_THRESHOLD) and feeds detectMismatch()'s comparison.
+      // Confirmed live: re-uploading the exact same file could flip a
+      // field between a real value and null, and the self-reported
+      // confidence across the 0.6 threshold, between two calls — greedy
+      // decoding removes sampling as a source of that variance (not a
+      // guarantee of byte-identical output every time, but the same real
+      // improvement already confirmed for ai-report-modules).
+      generationConfig: { responseMimeType: "application/json", temperature: 0 },
     };
 
     const res = await fetch(
