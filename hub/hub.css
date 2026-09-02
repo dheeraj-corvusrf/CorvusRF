@@ -3,7 +3,7 @@
    second framework build. Color tokens copied verbatim from src/styles.css's
    :root block for visual consistency with the CorvusPT app. */
 :root {
-  --background: oklch(0.995 0.003 90);
+  --background: oklch(0.98 0.01 155);
   --foreground: oklch(0.2 0.04 250);
   --card: oklch(1 0 0);
   --primary: oklch(0.29 0.08 255);
