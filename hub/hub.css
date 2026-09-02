@@ -348,16 +348,16 @@ body.doors-page footer {
 }
 
 /* ---------- Dark slab + glow-frame door style ----------
-   A near-black door leaf (a whisper of each door's own brand hue mixed in,
-   just enough to keep the five doors distinguishable up close) rather than
-   a bright painted swatch — the identity now reads mainly through the glow
-   frame (.door-panel::before above) and the handle, same as a moody, real
-   architectural doorway lit by a single LED strip. */
+   A dark door leaf with each door's own brand hue mixed in more heavily
+   than before (was 6%/2%, a near-black "whisper") — still reads as a door,
+   not a flat painted swatch, but the color itself is meant to be clearly
+   visible now, not just implied through the glow frame (.door-panel::before
+   above) and the handle. */
 .door-panel {
   background: linear-gradient(
     165deg,
-    color-mix(in oklch, var(--door-tint, #888) 6%, #12151c) 0%,
-    color-mix(in oklch, var(--door-tint, #888) 2%, #05060a) 100%
+    color-mix(in oklch, var(--door-tint, #888) 20%, #12151c) 0%,
+    color-mix(in oklch, var(--door-tint, #888) 9%, #05060a) 100%
   );
 }
 .door-pt {
