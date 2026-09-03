@@ -2,15 +2,14 @@
 // Notice of Protest form (see PreFilingCheckSection in CaseDetailModal.tsx).
 // Every row here is either a real field already on the property/protest
 // record, or static app copy — never a guessed or fabricated per-county
-// answer. In particular, Filing Method and County Contact are NOT
-// county-specific today (no real, verified per-county filing-method/contact
-// database exists anywhere in this app yet) — they show the app's own
-// honest, already-established default ("download and deliver it yourself")
-// rather than claiming an online/email/mail answer we haven't actually
-// confirmed for that county. See the plan this was built from for the
-// broader roadmap to replace this with real per-county data later.
+// answer. Filing Method (and, when available, ARB Contact) source from
+// county-protest-info.ts's real, hand-verified per-county dataset when that
+// county has an entry; otherwise this falls back to the app's own honest
+// default ("download and deliver it yourself") rather than claiming an
+// online/email/mail answer that isn't actually confirmed for that county.
 import type { PropertyRecord } from "./properties";
 import type { ProtestRecord } from "./protests";
+import { getCountyProtestInfo } from "./county-protest-info";
 
 export type PreFilingCheckItem = {
   label: string;
@@ -45,8 +44,18 @@ export function getPreFilingCheck(
       })
     : null;
   const taxYear = protest.taxYear ?? property.taxYear;
+  const countyInfo = getCountyProtestInfo(property.cad);
 
-  return [
+  const filingMethodValue = countyInfo?.filingMethod.portalUrl
+    ? `File online at ${countyInfo.filingMethod.portalUrl}`
+    : countyInfo?.filingMethod.address
+      ? `Mail or deliver to ${countyInfo.filingMethod.address}`
+      : // No verified per-county entry yet — the app's own honest default
+        // (see DocumentsSection's "download or deliver this PDF" copy),
+        // never a guessed online/mail/email answer.
+        "Download and deliver to your county";
+
+  const items: PreFilingCheckItem[] = [
     row("County", property.cad, true),
     row("Property Address", property.address, true),
     row("Account Number", property.accountNumber, true),
@@ -55,12 +64,18 @@ export function getPreFilingCheck(
     row("Protest Deadline", deadline, true),
     row("Property Type", property.propertyType ?? "Not on file", false),
     row("Applicable Form", "Comptroller Form 50-132 — Notice of Protest", false),
-    // The app's own current, honest default (see DocumentsSection's own
-    // "download or deliver this PDF to your appraisal district" copy) — not
-    // a per-county answer, since none is verified yet.
-    row("Filing Method", "Download and deliver to your county", false),
+    row("Filing Method", filingMethodValue, false),
     row("Signature Required", "Yes — property owner or authorized agent", false),
   ];
+
+  const arbContact = countyInfo?.arbContact;
+  if (arbContact && (arbContact.phone || arbContact.email)) {
+    items.push(
+      row("ARB Contact", [arbContact.phone, arbContact.email].filter(Boolean).join(" · "), false),
+    );
+  }
+
+  return items;
 }
 
 export function isPreFilingBlocked(items: PreFilingCheckItem[]): boolean {

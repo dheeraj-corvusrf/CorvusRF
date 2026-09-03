@@ -19,6 +19,8 @@ import {
   getCaseResults,
   type ProtestCase,
 } from "@/lib/protest-case";
+import { getCaseGuidance } from "@/lib/case-guidance";
+import { getCountyProtestInfo } from "@/lib/county-protest-info";
 import { uploadDocument } from "@/lib/documents";
 import { getAuthorization, type AuthorizationRecord } from "@/lib/protest-authorizations";
 import {
@@ -60,6 +62,10 @@ export function CaseDetailModal({
   const [loading, setLoading] = useState(true);
   const [current, setCurrent] = useState<ProtestRecord>(protest);
   const [acknowledging, setAcknowledging] = useState(false);
+  // Per-open, not per-case: the notice must appear every time the customer
+  // clicks View Case, not just the first time — deliberately not derived
+  // from corvusGuidanceAckAt below, since that would only show it once ever.
+  const [acknowledgedThisOpen, setAcknowledgedThisOpen] = useState(false);
 
   function load() {
     setLoading(true);
@@ -74,8 +80,12 @@ export function CaseDetailModal({
   async function handleAcknowledgeGuidance() {
     setAcknowledging(true);
     try {
+      // Still recorded on the case every time, for an audit trail of when the
+      // notice was shown/accepted — it just no longer gates whether the
+      // notice is shown again on the next open (see acknowledgedThisOpen).
       await acknowledgeGuidance(protest.id);
       setCurrent((prev) => ({ ...prev, corvusGuidanceAckAt: new Date().toISOString() }));
+      setAcknowledgedThisOpen(true);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not continue — please try again.");
     } finally {
@@ -84,11 +94,9 @@ export function CaseDetailModal({
   }
 
   // Gates entry into a not-yet-filed case until the customer acknowledges
-  // Corvus's guidance notice — once a case is past "requested" (i.e.
-  // filed), it never shows this again even if it was somehow never
-  // acknowledged, since the notice is specifically about the filing
-  // process ahead, not something relevant to an already-filed case.
-  const needsGuidanceAck = current.status === "requested" && !current.corvusGuidanceAckAt;
+  // Corvus's guidance notice for THIS open of the case — shown every time
+  // View Case is clicked on a not-yet-filed case, not just the first time.
+  const needsGuidanceAck = current.status === "requested" && !acknowledgedThisOpen;
 
   return (
     <Modal onClose={onClose} wide>
@@ -109,6 +117,8 @@ export function CaseDetailModal({
         />
       ) : (
         <>
+          <CorvusGuidancePanel property={property} protest={current} caseData={caseData} />
+
           <CasePlanSection
             userId={userId}
             property={property}
@@ -143,10 +153,11 @@ export function CaseDetailModal({
   );
 }
 
-// One-time consent screen gating entry into a not-yet-filed case — exact
-// copy per the product spec this was built from. An acknowledgment, not a
-// legal document, so a checkbox + button is enough (no signature capture,
-// unlike the real Service Agreement in ProtestAuthorizationFlow.tsx).
+// Consent screen gating entry into a not-yet-filed case, shown on every open
+// (not just the first) per explicit product direction — exact copy per the
+// spec this was built from. An acknowledgment, not a legal document, so a
+// checkbox + button is enough (no signature capture, unlike the real Service
+// Agreement in ProtestAuthorizationFlow.tsx).
 function CorvusGuidanceGate({
   onAcknowledge,
   acknowledging,
@@ -194,6 +205,128 @@ function CorvusGuidanceGate({
       >
         {acknowledging ? "Continuing…" : "Continue to Case"}
       </button>
+    </div>
+  );
+}
+
+// Ambient, ongoing guidance — purely additive, sits above the existing
+// sections on every visit once the notice above has been acknowledged for
+// this open. Every fact it shows comes from getCaseGuidance()'s
+// deterministic mapping of real case/property/county data — never
+// AI-generated. No checkbox, no gating: informational only, and nothing
+// below it is disabled or hidden by its presence.
+function CorvusGuidancePanel({
+  property,
+  protest,
+  caseData,
+}: {
+  property: PropertyRecord;
+  protest: ProtestRecord;
+  caseData: ProtestCase | null;
+}) {
+  const [countyOpen, setCountyOpen] = useState(false);
+  const countyInfo = getCountyProtestInfo(property.cad);
+  const guidance = getCaseGuidance(property, protest, caseData?.evidenceItems, countyInfo);
+
+  function goTo(anchor: string) {
+    if (anchor.startsWith("http")) {
+      window.open(anchor, "_blank", "noopener,noreferrer");
+      return;
+    }
+    document.getElementById(anchor)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  return (
+    <div className="mt-4 card-elev p-4">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          Corvus Guidance
+        </span>
+        <span className="badge-soft">{guidance.stageLabel}</span>
+      </div>
+      <p className="mt-2 text-sm">{guidance.summary}</p>
+
+      {guidance.nextSteps.length > 0 && (
+        <div className="mt-3 grid gap-2">
+          <h5 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            What to do next
+          </h5>
+          <ul className="grid gap-1.5">
+            {guidance.nextSteps.map((step, i) => (
+              <li key={i} className="text-sm">
+                <span className="font-medium">{step.label}</span>
+                {step.detail && <span className="text-muted-foreground"> — {step.detail}</span>}
+                {step.action && (
+                  <button
+                    onClick={() => goTo(step.action!.anchor)}
+                    className="ml-2 text-xs text-accent hover:underline"
+                  >
+                    {step.action.label} →
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {countyInfo && (
+        <div className="mt-3 border-t border-border pt-3">
+          <button
+            onClick={() => setCountyOpen((v) => !v)}
+            className="text-xs font-semibold text-accent hover:underline"
+          >
+            {countyOpen ? "Hide" : "Show"} your county's protest process
+          </button>
+          {countyOpen && (
+            <div className="mt-2 grid gap-2 text-xs text-muted-foreground">
+              <div>
+                <span className="font-medium text-foreground">Filing method: </span>
+                {countyInfo.filingMethod.portalUrl ? (
+                  <a
+                    href={countyInfo.filingMethod.portalUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-accent hover:underline"
+                  >
+                    {countyInfo.filingMethod.portalUrl}
+                  </a>
+                ) : (
+                  (countyInfo.filingMethod.address ?? "Not on file yet.")
+                )}
+                {countyInfo.filingMethod.notes && <span> — {countyInfo.filingMethod.notes}</span>}
+              </div>
+              {countyInfo.arbContact &&
+                (countyInfo.arbContact.phone || countyInfo.arbContact.email) && (
+                  <div>
+                    <span className="font-medium text-foreground">ARB contact: </span>
+                    {[countyInfo.arbContact.phone, countyInfo.arbContact.email]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </div>
+                )}
+              {countyInfo.informalReview && (
+                <div>
+                  <span className="font-medium text-foreground">Informal review: </span>
+                  {countyInfo.informalReview.howToRequest}
+                </div>
+              )}
+              <div className="pt-1">
+                Source:{" "}
+                <a
+                  href={countyInfo.sourceUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="hover:underline"
+                >
+                  {countyInfo.cad}
+                </a>{" "}
+                (verified {countyInfo.verifiedAt})
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -309,7 +442,7 @@ export function CasePlanSection({
         )}
       </section>
 
-      <section>
+      <section id="case-evidence-checklist">
         <div className="flex items-center justify-between">
           <h4 className="text-sm font-semibold">Evidence Checklist</h4>
           {totalCount > 0 && (
@@ -564,7 +697,7 @@ export function DocumentsSection({
   }
 
   return (
-    <div className="mt-5 border-t border-border pt-5">
+    <div id="case-documents" className="mt-5 border-t border-border pt-5">
       <h4 className="text-sm font-semibold">Documents</h4>
       <p className="text-xs text-muted-foreground">
         Official Texas Comptroller forms, pre-filled from this case. Review or edit every field
@@ -786,7 +919,7 @@ export function CaseProgress({
   const results = getCaseResults(protest, property);
 
   return (
-    <div className="mt-5 border-t border-border pt-5">
+    <div id="case-progress" className="mt-5 border-t border-border pt-5">
       <h4 className="text-sm font-semibold">Case Progress</h4>
 
       {protest.status === "resolved" ? (

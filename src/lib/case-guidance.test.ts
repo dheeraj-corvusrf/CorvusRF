@@ -1,0 +1,182 @@
+import { describe, it, expect } from "vitest";
+import { getCaseGuidance, type CaseStage } from "./case-guidance";
+import type { PropertyRecord } from "./properties";
+import type { ProtestRecord, ProtestStatus } from "./protests";
+import type { EvidenceItemRecord } from "./protest-case";
+import type { CountyProtestInfo } from "./county-protest-info";
+
+const property: PropertyRecord = {
+  id: "prop-1",
+  address: "123 Main St, Plano, TX 75023",
+  cad: "Collin Central Appraisal District",
+  accountNumber: "12345",
+  ownerName: "Test Owner LLC",
+  propertyType: "Commercial",
+  landValue: 100000,
+  improvementValue: 400000,
+  totalValue: 500000,
+  taxYear: 2026,
+  protestDeadline: "2099-05-15",
+  paymentDueDate: null,
+  taxAmountDue: null,
+  paidAt: null,
+  estimatedSavings: null,
+  savingsBasis: null,
+  createdAt: "2026-01-01T00:00:00Z",
+  valueHistory: null,
+};
+
+function protestWith(overrides: Partial<ProtestRecord>): ProtestRecord {
+  return {
+    id: "protest-1",
+    propertyId: "prop-1",
+    status: "requested",
+    notes: null,
+    requestedAt: "2026-01-01T00:00:00Z",
+    updatedAt: "2026-01-01T00:00:00Z",
+    originalValue: 500000,
+    settlementOfferValue: null,
+    settlementOfferReceivedAt: null,
+    hearingDate: null,
+    arbDecision: null,
+    arbDecisionDate: null,
+    finalValue: null,
+    escalationPath: null,
+    closedAt: null,
+    taxYear: 2026,
+    corvusGuidanceAckAt: "2026-01-01T00:00:00Z",
+    ...overrides,
+  };
+}
+
+const countyInfo: CountyProtestInfo = {
+  cad: "Collin Central Appraisal District",
+  filingMethod: {
+    kind: "online",
+    portalUrl: "https://www.collincad.org/file-a-protest",
+    address: null,
+    notes: null,
+  },
+  arbContact: { phone: "555-123-4567", email: "arb@example.org", office: null },
+  informalReview: { howToRequest: "Call the CAD to request an informal review.", notes: null },
+  sourceUrl: "https://www.collincad.org",
+  verifiedAt: "2026-09-03",
+};
+
+const ALL_STATUSES: ProtestStatus[] = [
+  "requested",
+  "filed",
+  "under_review",
+  "offer_received",
+  "hearing_scheduled",
+  "decision_received",
+  "appealing",
+  "arbitrating",
+  "resolved",
+];
+
+describe("getCaseGuidance", () => {
+  it("maps every real ProtestStatus to a stage with no crash and no null-field reference", () => {
+    for (const status of ALL_STATUSES) {
+      const guidance = getCaseGuidance(property, protestWith({ status }), [], countyInfo);
+      expect(guidance.stage).toBeTruthy();
+      expect(guidance.stageLabel).toBeTruthy();
+      expect(guidance.summary.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("stage 'prepare_file' includes a real deadline in the summary when the deadline is real and future", () => {
+    const guidance = getCaseGuidance(
+      property,
+      protestWith({ status: "requested" }),
+      [],
+      countyInfo,
+    );
+    expect(guidance.stage).toBe<CaseStage>("prepare_file");
+    expect(guidance.summary).toContain("May");
+    expect(guidance.summary).toContain("2099");
+  });
+
+  it("never mentions a deadline that has already passed", () => {
+    const past = { ...property, protestDeadline: "2020-01-01" };
+    const guidance = getCaseGuidance(past, protestWith({ status: "requested" }), [], countyInfo);
+    expect(guidance.summary).not.toContain("2020");
+  });
+
+  it("includes an evidence-upload step only when items are genuinely missing documents", () => {
+    const missing: EvidenceItemRecord[] = [
+      { id: "e1", protestId: "protest-1", label: "Photos", documents: [], createdAt: "2026-01-01" },
+    ];
+    const complete: EvidenceItemRecord[] = [
+      {
+        id: "e1",
+        protestId: "protest-1",
+        label: "Photos",
+        documents: [{ id: "d1", fileName: "photo.jpg" }],
+        createdAt: "2026-01-01",
+      },
+    ];
+    const withMissing = getCaseGuidance(
+      property,
+      protestWith({ status: "requested" }),
+      missing,
+      countyInfo,
+    );
+    const withComplete = getCaseGuidance(
+      property,
+      protestWith({ status: "requested" }),
+      complete,
+      countyInfo,
+    );
+    expect(withMissing.nextSteps.some((s) => s.label.includes("Upload evidence"))).toBe(true);
+    expect(withComplete.nextSteps.some((s) => s.label.includes("Upload evidence"))).toBe(false);
+  });
+
+  it("degrades gracefully with countyInfo null (a county not yet researched)", () => {
+    const guidance = getCaseGuidance(
+      property,
+      protestWith({ status: "hearing_scheduled" }),
+      [],
+      null,
+    );
+    expect(guidance.countyInfo).toBeNull();
+    for (const step of guidance.nextSteps) {
+      expect(step.detail).not.toContain("null");
+      expect(step.detail).not.toContain("undefined");
+    }
+  });
+
+  it("stage 'informal_review' names the real settlement offer value when present", () => {
+    const guidance = getCaseGuidance(
+      property,
+      protestWith({ status: "offer_received", settlementOfferValue: 425000 }),
+      [],
+      countyInfo,
+    );
+    expect(guidance.stage).toBe<CaseStage>("informal_review");
+    expect(guidance.summary).toContain("$425,000");
+  });
+
+  it("stage 'resolved' names the real final value when present", () => {
+    const guidance = getCaseGuidance(
+      property,
+      protestWith({ status: "resolved", finalValue: 460000 }),
+      [],
+      countyInfo,
+    );
+    expect(guidance.summary).toContain("$460,000");
+    expect(guidance.nextSteps).toHaveLength(0);
+  });
+
+  it("every action anchor references a real, already-existing section id", () => {
+    const KNOWN_ANCHORS = new Set(["case-documents", "case-evidence-checklist", "case-progress"]);
+    for (const status of ALL_STATUSES) {
+      const guidance = getCaseGuidance(property, protestWith({ status }), [], countyInfo);
+      for (const step of guidance.nextSteps) {
+        if (step.action && !step.action.anchor.startsWith("http")) {
+          expect(KNOWN_ANCHORS.has(step.action.anchor)).toBe(true);
+        }
+      }
+    }
+  });
+});
