@@ -98,6 +98,30 @@ describe("getCaseGuidance", () => {
     expect(guidance.summary).toContain("2099");
   });
 
+  it("never claims a signed Notice of Protest has been filed — it hasn't been delivered", () => {
+    const guidance = getCaseGuidance(
+      property,
+      protestWith({ status: "requested" }),
+      [],
+      countyInfo,
+      "2026-01-02T00:00:00Z",
+    );
+    expect(guidance.stage).toBe<CaseStage>("prepare_file");
+    expect(guidance.summary.toLowerCase()).toContain("doesn't file it");
+    expect(guidance.nextSteps[0].label.toLowerCase()).toContain("deliver");
+  });
+
+  it("still tells an unsigned case to review and sign, not to deliver", () => {
+    const guidance = getCaseGuidance(
+      property,
+      protestWith({ status: "requested" }),
+      [],
+      countyInfo,
+      null,
+    );
+    expect(guidance.summary).not.toContain("doesn't file it");
+  });
+
   it("never mentions a deadline that has already passed", () => {
     const past = { ...property, protestDeadline: "2020-01-01" };
     const guidance = getCaseGuidance(past, protestWith({ status: "requested" }), [], countyInfo);

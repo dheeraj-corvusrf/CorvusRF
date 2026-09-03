@@ -116,6 +116,15 @@ export function getCaseGuidance(
   protest: ProtestRecord,
   evidenceItems: EvidenceItemRecord[] | undefined,
   countyInfo: CountyProtestInfo | null,
+  // Real timestamp from protest_form_submissions.signed_at (see
+  // getSubmission() in protest-form-submissions.ts) — whether the customer
+  // has actually signed their Notice of Protest in-app. Signing is NOT the
+  // same as filing: this app has no e-filing integration with any county,
+  // so it can never truthfully claim a protest is "filed" the moment it's
+  // signed — only the customer, by actually delivering it, knows that. A
+  // signed-but-undelivered case stays at the "prepare_file" stage with
+  // different copy, rather than jumping to "filed" on its own say-so.
+  noticeSignedAt?: string | null,
 ): CaseGuidance {
   const stage = STAGE_BY_STATUS[protest.status];
   const stageLabel = STAGE_LABEL[stage];
@@ -126,25 +135,38 @@ export function getCaseGuidance(
     case "prepare_file": {
       const deadline = property.protestDeadline;
       const hasRealDeadline = deadline != null && isFutureDate(deadline);
-      summary = hasRealDeadline
-        ? `Your protest deadline is ${formatDate(deadline!)}. Review your case, gather evidence, and file your Notice of Protest before then.`
-        : "Review your case, gather evidence, and file your Notice of Protest when you're ready.";
-      if (hasRealDeadline) {
+      if (noticeSignedAt) {
+        summary =
+          "You've signed your Notice of Protest. Signing it here doesn't file it with the county — you still need to deliver it (online, by mail, or in person), then confirm below once you have.";
         nextSteps.push({
-          label: `File by ${formatDate(deadline!)}`,
-          detail: "Review and sign your Notice of Protest (Form 50-132) below.",
-          action: { label: "Review Notice of Protest", anchor: "case-documents" },
+          label: "Deliver your signed Notice of Protest, then confirm",
+          detail:
+            "Signing in this app only prepares the document — delivering it to your county is still on you.",
+          action: { label: "Go to Documents", anchor: "case-documents" },
         });
+        const methodStep = filingMethodStep(countyInfo);
+        if (methodStep) nextSteps.push(methodStep);
       } else {
-        nextSteps.push({
-          label: "Review and sign your Notice of Protest",
-          detail: "Form 50-132, pre-filled from your case's real data.",
-          action: { label: "Review Notice of Protest", anchor: "case-documents" },
-        });
+        summary = hasRealDeadline
+          ? `Your protest deadline is ${formatDate(deadline!)}. Review your case, gather evidence, and file your Notice of Protest before then.`
+          : "Review your case, gather evidence, and file your Notice of Protest when you're ready.";
+        if (hasRealDeadline) {
+          nextSteps.push({
+            label: `File by ${formatDate(deadline!)}`,
+            detail: "Review and sign your Notice of Protest (Form 50-132) below.",
+            action: { label: "Review Notice of Protest", anchor: "case-documents" },
+          });
+        } else {
+          nextSteps.push({
+            label: "Review and sign your Notice of Protest",
+            detail: "Form 50-132, pre-filled from your case's real data.",
+            action: { label: "Review Notice of Protest", anchor: "case-documents" },
+          });
+        }
+        nextSteps.push(...evidenceSteps(evidenceItems));
+        const methodStep = filingMethodStep(countyInfo);
+        if (methodStep) nextSteps.push(methodStep);
       }
-      nextSteps.push(...evidenceSteps(evidenceItems));
-      const methodStep = filingMethodStep(countyInfo);
-      if (methodStep) nextSteps.push(methodStep);
       break;
     }
     case "filed": {

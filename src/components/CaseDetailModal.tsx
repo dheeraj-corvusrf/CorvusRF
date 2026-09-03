@@ -75,6 +75,12 @@ export function CaseDetailModal({
   // clicks View Case, not just the first time — deliberately not derived
   // from corvusGuidanceAckAt below, since that would only show it once ever.
   const [acknowledgedThisOpen, setAcknowledgedThisOpen] = useState(false);
+  // Real signed_at off the Notice of Protest submission (see
+  // protest-form-submissions.ts) — the one honest signal this app has for
+  // "has the customer actually signed this," distinct from and never
+  // conflated with "filed." Lifted here (not local to DocumentsSection) so
+  // CorvusGuidancePanel/NextStepFooter can give correct guidance too.
+  const [noticeSignedAt, setNoticeSignedAt] = useState<string | null>(null);
 
   function load() {
     setLoading(true);
@@ -82,6 +88,9 @@ export function CaseDetailModal({
       .then(setCaseData)
       .catch((err) => toast.error(err instanceof Error ? err.message : "Could not load this case."))
       .finally(() => setLoading(false));
+    getSubmission(protest.id, "notice_of_protest")
+      .then((s) => setNoticeSignedAt(s?.signedAt ?? null))
+      .catch((err) => console.error("Could not load Notice of Protest signing status:", err));
   }
 
   useEffect(load, [protest.id]);
@@ -126,7 +135,12 @@ export function CaseDetailModal({
         />
       ) : (
         <>
-          <CorvusGuidancePanel property={property} protest={current} caseData={caseData} />
+          <CorvusGuidancePanel
+            property={property}
+            protest={current}
+            caseData={caseData}
+            noticeSignedAt={noticeSignedAt}
+          />
 
           <CasePlanSection
             userId={userId}
@@ -142,8 +156,10 @@ export function CaseDetailModal({
               property={property}
               protest={current}
               caseData={caseData}
+              noticeSignedAt={noticeSignedAt}
               onUpdate={(patch) => setCurrent((prev) => ({ ...prev, ...patch }))}
               onPropertyUpdate={(patch) => setProperty((prev) => ({ ...prev, ...patch }))}
+              onNoticeSigned={setNoticeSignedAt}
             />
           ) : (
             <DocumentsSection
@@ -151,7 +167,9 @@ export function CaseDetailModal({
               protest={current}
               property={property}
               strategyRecommendation={caseData?.strategyRecommendation ?? null}
+              noticeSignedAt={noticeSignedAt}
               onUpdate={(patch) => setCurrent((prev) => ({ ...prev, ...patch }))}
+              onNoticeSigned={setNoticeSignedAt}
             />
           )}
 
@@ -162,7 +180,12 @@ export function CaseDetailModal({
             onUpdate={(patch) => setCurrent((prev) => ({ ...prev, ...patch }))}
           />
 
-          <NextStepFooter property={property} protest={current} caseData={caseData} />
+          <NextStepFooter
+            property={property}
+            protest={current}
+            caseData={caseData}
+            noticeSignedAt={noticeSignedAt}
+          />
         </>
       )}
 
@@ -253,14 +276,22 @@ function CorvusGuidancePanel({
   property,
   protest,
   caseData,
+  noticeSignedAt,
 }: {
   property: PropertyRecord;
   protest: ProtestRecord;
   caseData: ProtestCase | null;
+  noticeSignedAt: string | null;
 }) {
   const [countyOpen, setCountyOpen] = useState(false);
   const countyInfo = getCountyProtestInfo(property.cad);
-  const guidance = getCaseGuidance(property, protest, caseData?.evidenceItems, countyInfo);
+  const guidance = getCaseGuidance(
+    property,
+    protest,
+    caseData?.evidenceItems,
+    countyInfo,
+    noticeSignedAt,
+  );
 
   return (
     <div className="mt-4 card-elev p-4">
@@ -368,13 +399,21 @@ function NextStepFooter({
   property,
   protest,
   caseData,
+  noticeSignedAt,
 }: {
   property: PropertyRecord;
   protest: ProtestRecord;
   caseData: ProtestCase | null;
+  noticeSignedAt: string | null;
 }) {
   const countyInfo = getCountyProtestInfo(property.cad);
-  const guidance = getCaseGuidance(property, protest, caseData?.evidenceItems, countyInfo);
+  const guidance = getCaseGuidance(
+    property,
+    protest,
+    caseData?.evidenceItems,
+    countyInfo,
+    noticeSignedAt,
+  );
   const next = guidance.nextSteps[0];
   if (!next) return null;
 
@@ -408,15 +447,19 @@ function PreFilingGate({
   property,
   protest,
   caseData,
+  noticeSignedAt,
   onUpdate,
   onPropertyUpdate,
+  onNoticeSigned,
 }: {
   userId: string;
   property: PropertyRecord;
   protest: ProtestRecord;
   caseData: ProtestCase | null;
+  noticeSignedAt: string | null;
   onUpdate: (patch: Partial<ProtestRecord>) => void;
   onPropertyUpdate: (patch: Partial<PropertyRecord>) => void;
+  onNoticeSigned: (signedAt: string | null) => void;
 }) {
   const items = getPreFilingCheck(property, protest, caseData?.evidenceItems);
   const blocked = isPreFilingBlocked(items);
@@ -444,7 +487,9 @@ function PreFilingGate({
           protest={protest}
           property={property}
           strategyRecommendation={caseData?.strategyRecommendation ?? null}
+          noticeSignedAt={noticeSignedAt}
           onUpdate={onUpdate}
+          onNoticeSigned={onNoticeSigned}
         />
       )}
     </>
@@ -792,7 +837,9 @@ export function DocumentsSection({
   protest,
   property,
   strategyRecommendation,
+  noticeSignedAt,
   onUpdate,
+  onNoticeSigned,
   // Staff must never sign a legal filing on a customer's behalf — the admin
   // panel's copy of this section (AdminCaseProgressModal) passes false to
   // hide signing entirely, keeping Save Progress/Download available for
@@ -803,9 +850,12 @@ export function DocumentsSection({
   protest: ProtestRecord;
   property: PropertyRecord;
   strategyRecommendation: string | null;
+  noticeSignedAt: string | null;
   onUpdate: (patch: Partial<ProtestRecord>) => void;
+  onNoticeSigned: (signedAt: string | null) => void;
   allowSigning?: boolean;
 }) {
+  const [markingFiled, setMarkingFiled] = useState(false);
   const [authorization, setAuthorization] = useState<AuthorizationRecord | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [editingForm, setEditingForm] = useState<"protest" | "agent" | null>(null);
@@ -961,22 +1011,43 @@ export function DocumentsSection({
         editingForm === "protest" ? "Signed Notice of Protest" : "Signed Appointment of Agent",
       );
       await signAndSubmit(userId, protest.id, formType, resolvedValues, signature, doc.id);
-      if (editingForm === "protest") {
-        await markFiled(protest.id);
-        onUpdate({ status: "filed" });
-      }
+      // Signing here is NOT the same as filing — this app has no e-filing
+      // integration with any county, so it can't truthfully claim the
+      // protest has been filed the moment it's signed. Status stays
+      // "requested"; the customer confirms filing themselves, once they've
+      // actually delivered it, via the "Mark as Filed" action below.
+      if (editingForm === "protest") onNoticeSigned(signedAt.toISOString());
       downloadPdf(bytes, fileName);
       setSigningOpen(false);
       setSignature(null);
       toast.success(
         editingForm === "protest"
-          ? "Signed and saved — this case is now marked Filed. Download or deliver this PDF to your appraisal district to complete filing."
+          ? 'Signed and saved. This does not file your protest — deliver it to your county (online, by mail, or in person), then click "Mark as Filed" below.'
           : "Signed and saved. Deliver this PDF to your appraisal district to put it into effect.",
       );
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not sign this document.");
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  // The customer's own explicit confirmation that they actually delivered
+  // the signed Notice of Protest to their county — this app has no way to
+  // verify that on its own (no e-filing integration with any county), so
+  // it never sets status to "filed" by itself; this is the one honest
+  // source of that fact. Only advances a case still at "requested" —
+  // markFiled() itself is a no-op if something else already moved it on.
+  async function handleMarkFiled() {
+    setMarkingFiled(true);
+    try {
+      await markFiled(protest.id);
+      onUpdate({ status: "filed" });
+      toast.success("Marked as filed.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not mark this case as filed.");
+    } finally {
+      setMarkingFiled(false);
     }
   }
 
@@ -1004,6 +1075,23 @@ export function DocumentsSection({
           Review Appointment of Agent (Form 50-162)
         </button>
       </div>
+
+      {noticeSignedAt && protest.status === "requested" && (
+        <div className="mt-3 rounded-md border border-accent/30 bg-accent/5 p-3 text-sm">
+          <p>
+            You've signed your Notice of Protest — that only prepares the document. It isn't filed
+            with {property.cad ?? "your county"} until you actually deliver it (online, by mail, or
+            in person). Once you have, confirm it below.
+          </p>
+          <button
+            onClick={handleMarkFiled}
+            disabled={markingFiled}
+            className="btn-accent mt-2 text-xs py-1.5 disabled:opacity-60"
+          >
+            {markingFiled ? "Saving…" : "I've delivered this — Mark as Filed"}
+          </button>
+        </div>
+      )}
 
       {editingForm && (
         <PdfFormEditor
