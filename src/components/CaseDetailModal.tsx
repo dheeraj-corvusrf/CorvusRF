@@ -1197,7 +1197,7 @@ export function CaseProgress({
                     className="grid gap-2 sm:grid-cols-[1fr_1fr_auto] items-end"
                   >
                     <label className="grid gap-1 text-xs">
-                      Offer amount
+                      Offer amount<span className="text-destructive"> *</span>
                       <input
                         required
                         value={offerValue}
@@ -1207,7 +1207,7 @@ export function CaseProgress({
                       />
                     </label>
                     <label className="grid gap-1 text-xs">
-                      Date received
+                      Date received<span className="text-destructive"> *</span>
                       <input
                         required
                         type="date"
@@ -1279,7 +1279,7 @@ export function CaseProgress({
                         </select>
                       </label>
                       <label className="grid gap-1 text-xs">
-                        Decision date
+                        Decision date<span className="text-destructive"> *</span>
                         <input
                           required
                           type="date"
@@ -1289,7 +1289,7 @@ export function CaseProgress({
                         />
                       </label>
                       <label className="grid gap-1 text-xs sm:col-span-2">
-                        Final determined value
+                        Final determined value<span className="text-destructive"> *</span>
                         <input
                           required
                           value={decisionValue}
@@ -1313,7 +1313,7 @@ export function CaseProgress({
                   {showHearingForm ? (
                     <form onSubmit={submitHearing} className="flex flex-wrap items-end gap-2">
                       <label className="grid gap-1 text-xs">
-                        Hearing date
+                        Hearing date<span className="text-destructive"> *</span>
                         <input
                           required
                           type="date"
@@ -1419,7 +1419,7 @@ export function CaseProgress({
               {showCloseForm ? (
                 <form onSubmit={submitClose} className="mt-2 flex flex-wrap items-end gap-2">
                   <label className="grid gap-1 text-xs">
-                    Final determined value
+                    Final determined value<span className="text-destructive"> *</span>
                     <input
                       required
                       value={closeValue}

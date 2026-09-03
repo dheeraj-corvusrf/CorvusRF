@@ -429,7 +429,9 @@ function AddUserForm({ onCreated }: { onCreated: (u: AdminUserRecord) => void })
   return (
     <form onSubmit={onSubmit} className="mt-6 card-elev p-6 grid gap-4 sm:grid-cols-2 max-w-2xl">
       <label className="grid gap-1 text-sm">
-        <span className="font-medium">First Name</span>
+        <span className="font-medium">
+          First Name<span className="text-destructive"> *</span>
+        </span>
         <input
           required
           value={firstName}
@@ -438,7 +440,9 @@ function AddUserForm({ onCreated }: { onCreated: (u: AdminUserRecord) => void })
         />
       </label>
       <label className="grid gap-1 text-sm">
-        <span className="font-medium">Last Name</span>
+        <span className="font-medium">
+          Last Name<span className="text-destructive"> *</span>
+        </span>
         <input
           required
           value={lastName}
@@ -447,7 +451,9 @@ function AddUserForm({ onCreated }: { onCreated: (u: AdminUserRecord) => void })
         />
       </label>
       <label className="grid gap-1 text-sm sm:col-span-2">
-        <span className="font-medium">Email</span>
+        <span className="font-medium">
+          Email<span className="text-destructive"> *</span>
+        </span>
         <input
           required
           type="email"
@@ -457,7 +463,9 @@ function AddUserForm({ onCreated }: { onCreated: (u: AdminUserRecord) => void })
         />
       </label>
       <label className="grid gap-1 text-sm">
-        <span className="font-medium">Phone</span>
+        <span className="font-medium">
+          Phone<span className="text-destructive"> *</span>
+        </span>
         <input
           required
           value={phone}

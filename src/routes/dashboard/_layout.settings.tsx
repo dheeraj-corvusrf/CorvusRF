@@ -44,7 +44,9 @@ function Settings() {
         setPhone(p.phone ?? "");
         setCompanyName(p.companyName ?? "");
       })
-      .catch((err) => toast.error(err instanceof Error ? err.message : "Could not load your profile."))
+      .catch((err) =>
+        toast.error(err instanceof Error ? err.message : "Could not load your profile."),
+      )
       .finally(() => setLoading(false));
   }, [user]);
 
@@ -138,7 +140,9 @@ function Settings() {
           </label>
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="grid gap-1">
-              <span className="text-xs font-medium text-muted-foreground">First name</span>
+              <span className="text-xs font-medium text-muted-foreground">
+                First name<span className="text-destructive"> *</span>
+              </span>
               <input
                 required
                 value={firstName}
@@ -147,7 +151,9 @@ function Settings() {
               />
             </label>
             <label className="grid gap-1">
-              <span className="text-xs font-medium text-muted-foreground">Last name</span>
+              <span className="text-xs font-medium text-muted-foreground">
+                Last name<span className="text-destructive"> *</span>
+              </span>
               <input
                 required
                 value={lastName}
@@ -157,7 +163,9 @@ function Settings() {
             </label>
           </div>
           <label className="grid gap-1">
-            <span className="text-xs font-medium text-muted-foreground">Phone</span>
+            <span className="text-xs font-medium text-muted-foreground">
+              Phone<span className="text-destructive"> *</span>
+            </span>
             <input
               required
               value={phone}
@@ -166,14 +174,20 @@ function Settings() {
             />
           </label>
           <label className="grid gap-1">
-            <span className="text-xs font-medium text-muted-foreground">Company name (optional)</span>
+            <span className="text-xs font-medium text-muted-foreground">
+              Company name (optional)
+            </span>
             <input
               value={companyName}
               onChange={(e) => setCompanyName(e.target.value)}
               className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
             />
           </label>
-          <button type="submit" disabled={saving} className="btn-primary btn-primary-hover w-fit disabled:opacity-60">
+          <button
+            type="submit"
+            disabled={saving}
+            className="btn-primary btn-primary-hover w-fit disabled:opacity-60"
+          >
             {saving ? "Saving…" : "Save Changes"}
           </button>
         </form>
@@ -186,7 +200,9 @@ function Settings() {
             <p className="text-sm text-muted-foreground">Update the password you sign in with.</p>
           </div>
           <label className="grid gap-1">
-            <span className="text-xs font-medium text-muted-foreground">Current password</span>
+            <span className="text-xs font-medium text-muted-foreground">
+              Current password<span className="text-destructive"> *</span>
+            </span>
             <input
               required
               type="password"
@@ -198,7 +214,9 @@ function Settings() {
           </label>
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="grid gap-1">
-              <span className="text-xs font-medium text-muted-foreground">New password</span>
+              <span className="text-xs font-medium text-muted-foreground">
+                New password<span className="text-destructive"> *</span>
+              </span>
               <input
                 required
                 type="password"
@@ -210,7 +228,9 @@ function Settings() {
               />
             </label>
             <label className="grid gap-1">
-              <span className="text-xs font-medium text-muted-foreground">Confirm new password</span>
+              <span className="text-xs font-medium text-muted-foreground">
+                Confirm new password<span className="text-destructive"> *</span>
+              </span>
               <input
                 required
                 type="password"

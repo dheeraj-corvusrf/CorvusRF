@@ -194,19 +194,24 @@ function TaxBillsContent() {
 
       {showAddForm && (
         <form onSubmit={handleAdd} className="mt-6 card-elev p-6 grid gap-3 sm:grid-cols-2">
-          <select
-            required
-            value={addPropertyId}
-            onChange={(e) => setAddPropertyId(e.target.value)}
-            className="rounded-md border border-input bg-background px-3 py-2 text-sm sm:col-span-2"
-          >
-            <option value="">Select a property…</option>
-            {properties.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.address}
-              </option>
-            ))}
-          </select>
+          <label className="grid gap-1 text-sm sm:col-span-2">
+            <span className="font-medium">
+              Property<span className="text-destructive"> *</span>
+            </span>
+            <select
+              required
+              value={addPropertyId}
+              onChange={(e) => setAddPropertyId(e.target.value)}
+              className="rounded-md border border-input bg-background px-3 py-2 text-sm"
+            >
+              <option value="">Select a property…</option>
+              {properties.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.address}
+                </option>
+              ))}
+            </select>
+          </label>
           <input
             value={addTaxYear}
             onChange={(e) => setAddTaxYear(e.target.value)}
@@ -353,7 +358,7 @@ function TaxBillsContent() {
           <h3 className="font-serif text-xl font-semibold">Mark as Paid</h3>
           <form onSubmit={handleRecordPayment} className="mt-4 grid gap-3">
             <label className="grid gap-1 text-sm">
-              Amount paid
+              Amount paid<span className="text-destructive"> *</span>
               <input
                 required
                 value={payAmount}
@@ -363,7 +368,7 @@ function TaxBillsContent() {
               />
             </label>
             <label className="grid gap-1 text-sm">
-              Date paid
+              Date paid<span className="text-destructive"> *</span>
               <input
                 required
                 type="date"

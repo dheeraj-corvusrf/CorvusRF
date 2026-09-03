@@ -88,7 +88,9 @@ function ResetPassword() {
       ) : (
         <form onSubmit={onSubmit} className="mt-8 card-elev p-6 grid gap-4">
           <label className="grid gap-1 text-sm">
-            <span className="font-medium">New Password</span>
+            <span className="font-medium">
+              New Password<span className="text-destructive"> *</span>
+            </span>
             <input
               required
               type="password"
@@ -100,7 +102,9 @@ function ResetPassword() {
             />
           </label>
           <label className="grid gap-1 text-sm">
-            <span className="font-medium">Confirm New Password</span>
+            <span className="font-medium">
+              Confirm New Password<span className="text-destructive"> *</span>
+            </span>
             <input
               required
               type="password"
