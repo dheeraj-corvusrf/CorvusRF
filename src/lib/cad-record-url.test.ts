@@ -29,10 +29,39 @@ describe("getCadRecordUrl", () => {
     ).toBe("https://travis.prodigycad.com/property-detail/230964");
   });
 
-  it("returns the real BIS Consultants deep-link pattern for Grayson", () => {
+  it("returns the real BIS Consultants deep-link pattern for Grayson and Kaufman", () => {
     expect(
       getCadRecordUrl({ cad: "Grayson Central Appraisal District", accountNumber: "142547" }),
     ).toBe("https://esearch.graysonappraisal.org/Property/View/142547");
+    expect(
+      getCadRecordUrl({ cad: "Kaufman Central Appraisal District", accountNumber: "6505" }),
+    ).toBe("https://esearch.kaufman-cad.org/Property/View/6505");
+  });
+
+  it("returns Williamson's real deep-link pattern", () => {
+    expect(
+      getCadRecordUrl({ cad: "Williamson Central Appraisal District", accountNumber: "R010784" }),
+    ).toBe("https://search.wcad.org/Property-Detail/PropertyQuickRefID/R010784");
+  });
+
+  it("returns Fort Bend's real deep-link pattern, but only once enrichment has supplied bisPropertyId", () => {
+    // accountNumber alone (BIS's geoId, from the primary ArcGIS match) is NOT
+    // enough — Fort Bend's own detail page needs BIS's separate numeric
+    // propertyId, only available once enrichBIS has run. See getCadRecordUrl's
+    // own comment.
+    expect(
+      getCadRecordUrl({
+        cad: "Fort Bend Central Appraisal District",
+        accountNumber: "0062-00-000-4026-907",
+        bisPropertyId: "R504849",
+      }),
+    ).toBe("https://esearch.fbcad.org/Property/View/R504849");
+    expect(
+      getCadRecordUrl({
+        cad: "Fort Bend Central Appraisal District",
+        accountNumber: "0062-00-000-4026-907",
+      }),
+    ).toBe(CAD_SEARCH_HOMEPAGE["Fort Bend Central Appraisal District"]);
   });
 
   it("falls back to the search homepage for every other supported county", () => {
@@ -42,15 +71,6 @@ describe("getCadRecordUrl", () => {
     expect(
       getCadRecordUrl({ cad: "Harris Central Appraisal District", accountNumber: "999" }),
     ).toBe(CAD_SEARCH_HOMEPAGE["Harris Central Appraisal District"]);
-    // Fort Bend runs the same BIS vendor as Grayson, but its accountNumber is
-    // BIS's geoId, not its numeric propertyId — see getCadRecordUrl's own
-    // comment. Deliberately still on the generic fallback, not the BIS path.
-    expect(
-      getCadRecordUrl({
-        cad: "Fort Bend Central Appraisal District",
-        accountNumber: "0062-00-000-4026-907",
-      }),
-    ).toBe(CAD_SEARCH_HOMEPAGE["Fort Bend Central Appraisal District"]);
   });
 
   it("falls back to the search homepage (or null) when there's no account number, even for a direct-link county", () => {
@@ -71,6 +91,8 @@ describe("isDirectCadRecordUrl", () => {
       "Montgomery Central Appraisal District",
       "Travis Central Appraisal District",
       "Grayson Central Appraisal District",
+      "Kaufman Central Appraisal District",
+      "Williamson Central Appraisal District",
     ]) {
       expect(isDirectCadRecordUrl(cad)).toBe(true);
     }

@@ -36,6 +36,9 @@ export type CadRecord = {
   mailingAddress?: string | null;
   ownershipPct?: number | null;
   protestStatus?: string | null;
+  // Fort Bend only — see the matching comment in supabase/functions/
+  // cad-lookup/index.ts and cad-record-url.ts's getCadRecordUrl().
+  bisPropertyId?: string | null;
   valueHistory?: CadValueHistoryEntry[];
   deeds?: CadDeed[];
 };
