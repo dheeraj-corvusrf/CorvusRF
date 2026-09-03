@@ -29,6 +29,12 @@ describe("getCadRecordUrl", () => {
     ).toBe("https://travis.prodigycad.com/property-detail/230964");
   });
 
+  it("returns the real BIS Consultants deep-link pattern for Grayson", () => {
+    expect(
+      getCadRecordUrl({ cad: "Grayson Central Appraisal District", accountNumber: "142547" }),
+    ).toBe("https://esearch.graysonappraisal.org/Property/View/142547");
+  });
+
   it("falls back to the search homepage for every other supported county", () => {
     expect(
       getCadRecordUrl({ cad: "Collin Central Appraisal District", accountNumber: "999" }),
@@ -36,6 +42,15 @@ describe("getCadRecordUrl", () => {
     expect(
       getCadRecordUrl({ cad: "Harris Central Appraisal District", accountNumber: "999" }),
     ).toBe(CAD_SEARCH_HOMEPAGE["Harris Central Appraisal District"]);
+    // Fort Bend runs the same BIS vendor as Grayson, but its accountNumber is
+    // BIS's geoId, not its numeric propertyId — see getCadRecordUrl's own
+    // comment. Deliberately still on the generic fallback, not the BIS path.
+    expect(
+      getCadRecordUrl({
+        cad: "Fort Bend Central Appraisal District",
+        accountNumber: "0062-00-000-4026-907",
+      }),
+    ).toBe(CAD_SEARCH_HOMEPAGE["Fort Bend Central Appraisal District"]);
   });
 
   it("falls back to the search homepage (or null) when there's no account number, even for a direct-link county", () => {
@@ -55,6 +70,7 @@ describe("isDirectCadRecordUrl", () => {
       "Tarrant Appraisal District",
       "Montgomery Central Appraisal District",
       "Travis Central Appraisal District",
+      "Grayson Central Appraisal District",
     ]) {
       expect(isDirectCadRecordUrl(cad)).toBe(true);
     }
@@ -63,5 +79,6 @@ describe("isDirectCadRecordUrl", () => {
   it("is false for counties still on the generic search-homepage fallback", () => {
     expect(isDirectCadRecordUrl("Collin Central Appraisal District")).toBe(false);
     expect(isDirectCadRecordUrl("Harris Central Appraisal District")).toBe(false);
+    expect(isDirectCadRecordUrl("Fort Bend Central Appraisal District")).toBe(false);
   });
 });

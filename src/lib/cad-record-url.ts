@@ -26,6 +26,24 @@ import type { CadRecord } from "./cad-lookup";
 //     own subdomain (travis.prodigycad.com) rather than under traviscad.org
 //     itself — easy to miss if you only check the county's main domain, as
 //     an earlier pass here did before this was corrected.
+//   - Grayson: a different vendor (BIS Consultants, esearch.graysonappraisal.org
+//     — see texas_cad_vendor_landscape memory) with its own real pattern,
+//     confirmed 2026-09-03 by reading the site's own JS (redirectWithParams())
+//     rather than guessing: {site}/Property/View/{accountNumber} — a cold,
+//     cookie-less request works (no year/session param needed, confirmed by
+//     testing with and without one). This app's own accountNumber for
+//     Grayson (queryGrayson's PropertyNumber field) is exactly BIS's internal
+//     numeric propertyId, so no extra plumbing was needed to wire it up.
+//     Fort Bend runs the SAME BIS vendor but was deliberately NOT added here
+//     even though the URL shape is identical: this app's Fort Bend
+//     accountNumber (queryFortBend's PROPNUMBER field, a dashed parcel/geo ID
+//     like "0062-00-000-4026-907") is BIS's geoId, not its internal numeric
+//     propertyId (see the long comment above BIS_CONFIG_BY_CAD in
+//     supabase/functions/cad-lookup/index.ts) — tried it live and it 404s.
+//     Fort Bend would need its own numeric propertyId captured separately
+//     (BIS's search response has one, per Grayson's "PropertyId:" search
+//     keyword prefix) before a real Fort Bend deep link can be built; left on
+//     the generic fallback rather than shipping a link that 404s.
 //
 // Every other county only gets that CAD's general property-search homepage
 // (a real, verified domain — not a guessed deep-link route this app has
@@ -57,6 +75,13 @@ const PRODIGYCAD_DETAIL_BASE: Record<string, string> = {
   "Travis Central Appraisal District": "https://travis.prodigycad.com",
 };
 
+// BIS Consultants counties whose own accountNumber field is confirmed to be
+// BIS's internal numeric propertyId (see the comment above) — currently just
+// Grayson; Fort Bend runs the same vendor but isn't included, see above.
+const BIS_DETAIL_BASE: Record<string, string> = {
+  "Grayson Central Appraisal District": "https://esearch.graysonappraisal.org",
+};
+
 export function getCadRecordUrl(record: Pick<CadRecord, "cad" | "accountNumber">): string | null {
   if (!record.accountNumber) return CAD_SEARCH_HOMEPAGE[record.cad] ?? null;
 
@@ -70,6 +95,10 @@ export function getCadRecordUrl(record: Pick<CadRecord, "cad" | "accountNumber">
   if (prodigyBase) {
     return `${prodigyBase}/property-detail/${encodeURIComponent(record.accountNumber)}`;
   }
+  const bisBase = BIS_DETAIL_BASE[record.cad];
+  if (bisBase) {
+    return `${bisBase}/Property/View/${encodeURIComponent(record.accountNumber)}`;
+  }
   return CAD_SEARCH_HOMEPAGE[record.cad] ?? null;
 }
 
@@ -81,7 +110,8 @@ export function isDirectCadRecordUrl(cad: string): boolean {
   return (
     cad === "Bexar Appraisal District" ||
     cad === "Dallas Central Appraisal District" ||
-    cad in PRODIGYCAD_DETAIL_BASE
+    cad in PRODIGYCAD_DETAIL_BASE ||
+    cad in BIS_DETAIL_BASE
   );
 }
 
