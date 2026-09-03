@@ -1,0 +1,145 @@
+import { describe, it, expect } from "vitest";
+import { getPreFilingCheck, isPreFilingBlocked } from "./pre-filing-check";
+import type { PropertyRecord } from "./properties";
+import type { ProtestRecord } from "./protests";
+import type { EvidenceItemRecord } from "./protest-case";
+
+const property: PropertyRecord = {
+  id: "prop-1",
+  address: "123 Main St, Plano, TX 75023",
+  cad: "Collin Central Appraisal District",
+  accountNumber: "12345",
+  ownerName: "Test Owner LLC",
+  propertyType: "Commercial",
+  landValue: 100000,
+  improvementValue: 400000,
+  totalValue: 500000,
+  taxYear: 2026,
+  protestDeadline: "2099-05-15",
+  paymentDueDate: null,
+  taxAmountDue: null,
+  paidAt: null,
+  estimatedSavings: null,
+  savingsBasis: null,
+  createdAt: "2026-01-01T00:00:00Z",
+  valueHistory: null,
+};
+
+const protest: ProtestRecord = {
+  id: "protest-1",
+  propertyId: "prop-1",
+  status: "requested",
+  notes: null,
+  requestedAt: "2026-01-01T00:00:00Z",
+  updatedAt: "2026-01-01T00:00:00Z",
+  originalValue: 500000,
+  settlementOfferValue: null,
+  settlementOfferReceivedAt: null,
+  hearingDate: null,
+  arbDecision: null,
+  arbDecisionDate: null,
+  finalValue: null,
+  escalationPath: null,
+  closedAt: null,
+  taxYear: 2026,
+  corvusGuidanceAckAt: "2026-01-01T00:00:00Z",
+};
+
+describe("getPreFilingCheck", () => {
+  it("returns all 16 items the product spec requires, each with a label", () => {
+    const items = getPreFilingCheck(property, protest);
+    expect(items).toHaveLength(16);
+    for (const item of items) {
+      expect(item.label.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("is not blocked when every blocking field is real", () => {
+    const items = getPreFilingCheck(property, protest);
+    expect(isPreFilingBlocked(items)).toBe(false);
+  });
+
+  it("blocks when a critical identity field is genuinely missing", () => {
+    const missingOwner = { ...property, ownerName: null };
+    const items = getPreFilingCheck(missingOwner, protest);
+    expect(isPreFilingBlocked(items)).toBe(true);
+    const ownerRow = items.find((i) => i.label === "Owner / Entity");
+    expect(ownerRow?.status).toBe("missing");
+  });
+
+  it("blocks when the protest deadline is missing", () => {
+    const noDeadline = { ...property, protestDeadline: null };
+    const items = getPreFilingCheck(noDeadline, protest);
+    expect(isPreFilingBlocked(items)).toBe(true);
+  });
+
+  it("never blocks on a non-blocking procedural row, even when unconfirmed for the county", () => {
+    // A property whose county has no county-protest-info.ts entry at all —
+    // every procedural row should degrade to an honest "Not confirmed" /
+    // generic-default value, never "missing"/blocking.
+    const unresearchedCounty = { ...property, cad: "Some Uncovered County CAD" };
+    const items = getPreFilingCheck(unresearchedCounty, protest);
+    expect(isPreFilingBlocked(items)).toBe(false);
+    for (const label of [
+      "Filing Method",
+      "Online Filing Available",
+      "Email Filing Available",
+      "Mail / In-Person Filing",
+      "County Contact Information",
+      "Applicable County Instructions",
+    ]) {
+      const row = items.find((i) => i.label === label);
+      expect(row?.blocking).toBe(false);
+      expect(row?.status).toBe("confirmed"); // always has a real fallback string
+    }
+  });
+
+  it("reflects real evidence-checklist completeness in Required Supporting Documents", () => {
+    const missing: EvidenceItemRecord[] = [
+      { id: "e1", protestId: "protest-1", label: "Photos", documents: [], createdAt: "2026-01-01" },
+      {
+        id: "e2",
+        protestId: "protest-1",
+        label: "Comps",
+        documents: [{ id: "d1", fileName: "comp.pdf" }],
+        createdAt: "2026-01-01",
+      },
+    ];
+    const items = getPreFilingCheck(property, protest, missing);
+    const row = items.find((i) => i.label === "Required Supporting Documents");
+    expect(row?.value).toBe("1 of 2 uploaded");
+  });
+
+  it("uses the real per-county filing method and portal for a county with data", () => {
+    const items = getPreFilingCheck(property, protest);
+    const row = items.find((i) => i.label === "Filing Method");
+    expect(row?.value).toContain("onlineportal.collincad.org");
+  });
+
+  it("reports the county's real, confirmed Email Filing Available answer", () => {
+    const dallasProperty = { ...property, cad: "Dallas Central Appraisal District" };
+    const graysonProperty = { ...property, cad: "Grayson Central Appraisal District" };
+    expect(
+      getPreFilingCheck(dallasProperty, protest).find((i) => i.label === "Email Filing Available")
+        ?.value,
+    ).toBe("No");
+    expect(
+      getPreFilingCheck(graysonProperty, protest).find((i) => i.label === "Email Filing Available")
+        ?.value,
+    ).toBe("Yes");
+  });
+});
+
+describe("isPreFilingBlocked", () => {
+  it("is true only when at least one blocking item is missing", () => {
+    expect(
+      isPreFilingBlocked([{ label: "x", value: "y", status: "confirmed", blocking: true }]),
+    ).toBe(false);
+    expect(
+      isPreFilingBlocked([{ label: "x", value: null, status: "missing", blocking: false }]),
+    ).toBe(false);
+    expect(
+      isPreFilingBlocked([{ label: "x", value: null, status: "missing", blocking: true }]),
+    ).toBe(true);
+  });
+});

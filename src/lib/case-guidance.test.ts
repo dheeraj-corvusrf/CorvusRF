@@ -56,6 +56,7 @@ const countyInfo: CountyProtestInfo = {
     portalUrl: "https://www.collincad.org/file-a-protest",
     address: null,
     notes: null,
+    emailAvailable: null,
   },
   arbContact: { phone: "555-123-4567", email: "arb@example.org", office: null },
   informalReview: { howToRequest: "Call the CAD to request an informal review.", notes: null },

@@ -1,14 +1,14 @@
-// Deterministic "Ready to File" checklist shown before a user can open the
-// Notice of Protest form (see PreFilingCheckSection in CaseDetailModal.tsx).
-// Every row here is either a real field already on the property/protest
-// record, or static app copy — never a guessed or fabricated per-county
-// answer. Filing Method (and, when available, ARB Contact) source from
-// county-protest-info.ts's real, hand-verified per-county dataset when that
-// county has an entry; otherwise this falls back to the app's own honest
-// default ("download and deliver it yourself") rather than claiming an
-// online/email/mail answer that isn't actually confirmed for that county.
+// Deterministic "Ready to File" checklist — the blocking gate Corvus runs
+// before a user can open the Notice of Protest form (see
+// PreFilingCheckSection in CaseDetailModal.tsx). Every row here is either a
+// real field already on the property/protest/evidence records, or a real,
+// hand-verified per-county fact from county-protest-info.ts — never a
+// guessed or fabricated answer. Where a fact genuinely isn't verified for a
+// county, the row honestly says "Not confirmed" rather than assuming a
+// typical answer.
 import type { PropertyRecord } from "./properties";
 import type { ProtestRecord } from "./protests";
+import type { EvidenceItemRecord } from "./protest-case";
 import { getCountyProtestInfo } from "./county-protest-info";
 
 export type PreFilingCheckItem = {
@@ -16,9 +16,12 @@ export type PreFilingCheckItem = {
   value: string | null;
   status: "confirmed" | "missing";
   // Blocking rows are this case's own real identity/deadline data — if any
-  // are missing, filing shouldn't proceed until they're fixed. Non-blocking
-  // rows are static, always-true app copy (the real form, the honest filing-
-  // method default) — never "missing" since nothing here is ever guessed.
+  // are missing, filing stops until they're fixed (isPreFilingBlocked /
+  // PreFilingCheckSection enforce this). Non-blocking rows are informational
+  // — procedural facts that are either always-true app copy or a real,
+  // possibly-unconfirmed per-county answer — never treated as a reason to
+  // stop filing, since the app's own generic form/instructions remain a
+  // valid fallback even when a specific county detail isn't confirmed.
   blocking: boolean;
 };
 
@@ -26,9 +29,16 @@ function row(label: string, value: string | null, blocking: boolean): PreFilingC
   return { label, value, status: value ? "confirmed" : "missing", blocking };
 }
 
+function yesNo(value: boolean | null, whenTrue: string, whenFalse: string): string {
+  if (value === true) return whenTrue;
+  if (value === false) return whenFalse;
+  return "Not confirmed";
+}
+
 export function getPreFilingCheck(
   property: PropertyRecord,
   protest: ProtestRecord,
+  evidenceItems?: EvidenceItemRecord[],
 ): PreFilingCheckItem[] {
   // protestDeadline is a date-only string ("2026-05-15") — parsing it as-is
   // is interpreted as UTC midnight, which toLocaleDateString then renders in
@@ -45,15 +55,26 @@ export function getPreFilingCheck(
     : null;
   const taxYear = protest.taxYear ?? property.taxYear;
   const countyInfo = getCountyProtestInfo(property.cad);
+  const filingMethod = countyInfo?.filingMethod ?? null;
 
-  const filingMethodValue = countyInfo?.filingMethod.portalUrl
-    ? `File online at ${countyInfo.filingMethod.portalUrl}`
-    : countyInfo?.filingMethod.address
-      ? `Mail or deliver to ${countyInfo.filingMethod.address}`
+  const filingMethodValue = filingMethod?.portalUrl
+    ? `Online — ${filingMethod.portalUrl}`
+    : filingMethod?.address
+      ? `Mail or deliver to ${filingMethod.address}`
       : // No verified per-county entry yet — the app's own honest default
         // (see DocumentsSection's "download or deliver this PDF" copy),
         // never a guessed online/mail/email answer.
         "Download and deliver to your county";
+
+  const evidenceStatus = !evidenceItems
+    ? null
+    : evidenceItems.length === 0
+      ? "Not generated yet"
+      : `${evidenceItems.filter((i) => i.documents.length > 0).length} of ${evidenceItems.length} uploaded`;
+
+  const contactValue = countyInfo?.arbContact
+    ? [countyInfo.arbContact.phone, countyInfo.arbContact.email].filter(Boolean).join(" · ") || null
+    : null;
 
   const items: PreFilingCheckItem[] = [
     row("County", property.cad, true),
@@ -61,19 +82,34 @@ export function getPreFilingCheck(
     row("Account Number", property.accountNumber, true),
     row("Tax Year", taxYear != null ? String(taxYear) : null, true),
     row("Owner / Entity", property.ownerName, true),
-    row("Protest Deadline", deadline, true),
     row("Property Type", property.propertyType ?? "Not on file", false),
+    row("Protest Deadline", deadline, true),
     row("Applicable Form", "Comptroller Form 50-132 — Notice of Protest", false),
     row("Filing Method", filingMethodValue, false),
     row("Signature Required", "Yes — property owner or authorized agent", false),
+    row(
+      "Required Supporting Documents",
+      evidenceStatus ?? "Generate a case plan to see your evidence checklist",
+      false,
+    ),
+    row("Applicable County Instructions", countyInfo?.sourceUrl ?? "Not on file", false),
+    row(
+      "Online Filing Available",
+      yesNo(filingMethod ? filingMethod.portalUrl != null : null, "Yes", "No"),
+      false,
+    ),
+    row("Email Filing Available", yesNo(filingMethod?.emailAvailable ?? null, "Yes", "No"), false),
+    row(
+      "Mail / In-Person Filing",
+      filingMethod?.address
+        ? filingMethod.portalUrl
+          ? "Available (alternative to online)"
+          : "Required (no confirmed online option)"
+        : "Not confirmed",
+      false,
+    ),
+    row("County Contact Information", contactValue ?? "Not confirmed", false),
   ];
-
-  const arbContact = countyInfo?.arbContact;
-  if (arbContact && (arbContact.phone || arbContact.email)) {
-    items.push(
-      row("ARB Contact", [arbContact.phone, arbContact.email].filter(Boolean).join(" · "), false),
-    );
-  }
 
   return items;
 }

@@ -20,6 +20,12 @@ export type CountyProtestInfo = {
     portalUrl: string | null;
     address: string | null;
     notes: string | null;
+    // Whether the county accepts a protest filed by plain email — distinct
+    // from an online e-file portal. Only ever true/false when a source
+    // explicitly says so (e.g. Dallas's PDF explicitly refuses email
+    // filings; Grayson's explicitly allows it); left null, not guessed,
+    // for every county where this specific question wasn't confirmed.
+    emailAvailable: boolean | null;
   };
   arbContact: { phone: string | null; email: string | null; office: string | null } | null;
   informalReview: { howToRequest: string; notes: string | null } | null;
@@ -40,6 +46,7 @@ export const COUNTY_PROTEST_INFO: Record<string, CountyProtestInfo> = {
       address: "2500 Handley-Ederville Road, Fort Worth, TX 76118",
       notes:
         "Online filing available via the Taxpayer Dashboard after logging in at tad.org; mail or in-person filing is also accepted, not required.",
+      emailAvailable: null,
     },
     arbContact: { phone: "817-284-8884", email: "RES@TAD.ORG", office: null },
     informalReview: {
@@ -59,6 +66,7 @@ export const COUNTY_PROTEST_INFO: Record<string, CountyProtestInfo> = {
       address: "2801 B.F. Terry Blvd., Rosenberg, TX 77471-5600",
       notes:
         "Filing by mail, email, or in person forfeits the ability to file this protest online — pick one method.",
+      emailAvailable: true,
     },
     arbContact: { phone: "(281) 344-8623", email: "info@fbcad.org", office: null },
     informalReview: {
@@ -77,6 +85,7 @@ export const COUNTY_PROTEST_INFO: Record<string, CountyProtestInfo> = {
       address: "625 FM 1460, Georgetown, TX 78626-8050",
       notes:
         "Online filing requires the Online Passcode printed on your Notice of Appraised Value, and is only open between the notice mailing and the May 15 deadline.",
+      emailAvailable: null,
     },
     arbContact: { phone: "512-930-3787", email: null, office: null },
     informalReview: {
@@ -96,6 +105,7 @@ export const COUNTY_PROTEST_INFO: Record<string, CountyProtestInfo> = {
       address: "512 N. Travis Street, Sherman, TX 75090",
       notes:
         "Requires state Form 50-132; may also be submitted by email or in person in addition to mail or the online portal.",
+      emailAvailable: true,
     },
     arbContact: {
       phone: "903-893-9673",
@@ -117,6 +127,7 @@ export const COUNTY_PROTEST_INFO: Record<string, CountyProtestInfo> = {
       portalUrl: "https://traviscad.org/portal",
       address: "P.O. Box 149012, Austin, TX 78714-9012",
       notes: "Physical/drop-off office: 850 East Anderson Lane, Austin, TX 78752.",
+      emailAvailable: null,
     },
     arbContact: { phone: "512-834-9317", email: "CSInfo@tcadcentral.org", office: null },
     informalReview: {
@@ -135,6 +146,7 @@ export const COUNTY_PROTEST_INFO: Record<string, CountyProtestInfo> = {
       address: "P.O. Box 830248, San Antonio, TX 78283",
       notes:
         "Physical/drop-off office: 411 North Frio Street, San Antonio, TX 78207. A notice is not required to file a protest.",
+      emailAvailable: null,
     },
     arbContact: { phone: "(210) 242-2432", email: "badtpl@bcad.org", office: null },
     informalReview: {
@@ -154,6 +166,7 @@ export const COUNTY_PROTEST_INFO: Record<string, CountyProtestInfo> = {
       address: "2949 N. Stemmons Freeway, Dallas, TX 75247",
       notes:
         "Online filing is via the uFile system after searching your account (requires a PIN). A 24/7 drop box is at the main entrance, west side. The ARB does not accept protest filings by fax or email.",
+      emailAvailable: false,
     },
     arbContact: { phone: "214-631-0910", email: "arbdocs@dcad.org", office: null },
     informalReview: {
@@ -172,6 +185,7 @@ export const COUNTY_PROTEST_INFO: Record<string, CountyProtestInfo> = {
       portalUrl: "https://eprotest.kaufman-cad.org",
       address: "P.O. Box 819, Kaufman, TX 75142",
       notes: "Physical office: 3950 S Houston St, Kaufman, TX 75142-3718.",
+      emailAvailable: null,
     },
     arbContact: { phone: "(972) 932-6081", email: "tlo@kaufman-cad.org", office: null },
     informalReview: {
@@ -191,6 +205,7 @@ export const COUNTY_PROTEST_INFO: Record<string, CountyProtestInfo> = {
       address: "250 Eldorado Pkwy, McKinney, TX 75069",
       notes:
         "Requires the Owner ID and eFile PIN printed on your Notice of Appraised Value; the PIN also serves as your digital signature.",
+      emailAvailable: null,
     },
     arbContact: { phone: "469.742.9200", email: null, office: null },
     informalReview: {
@@ -215,6 +230,7 @@ export const COUNTY_PROTEST_INFO: Record<string, CountyProtestInfo> = {
       address: "109 Gladstell St., Conroe, TX 77301 (mail: P.O. Box 2233, Conroe, TX 77305-2233)",
       notes:
         "MCAD's site references an online protest option at mcad-tx.org, but the portal subdomain could not be confirmed reachable — check mcad-tx.org directly before relying on an online filing link.",
+      emailAvailable: null,
     },
     arbContact: { phone: "936-756-3354", email: "inquiries@mcad-tx.org", office: null },
     informalReview: {
@@ -237,6 +253,7 @@ export const COUNTY_PROTEST_INFO: Record<string, CountyProtestInfo> = {
       address: "3911 Morse Street, Denton, TX 76208",
       notes:
         "DCAD advertises an E-file online protest option, but its portal address could not be confirmed reachable at research time — check dentoncad.com/how-to-protest directly for the current link before relying on it.",
+      emailAvailable: null,
     },
     arbContact: { phone: "940-349-3800", email: null, office: null },
     informalReview: {
@@ -256,6 +273,7 @@ export const COUNTY_PROTEST_INFO: Record<string, CountyProtestInfo> = {
       address: "13013 Northwest Freeway, Houston, TX 77040-6305",
       notes:
         'Start at hcad.org, enter your account number, and click "File a Protest" to reach the owners.hcad.org portal. Requires your iFile number (printed above your account number on your notice).',
+      emailAvailable: null,
     },
     arbContact: { phone: "(713) 812-5860", email: null, office: null },
     informalReview: {

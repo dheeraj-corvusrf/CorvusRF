@@ -21,6 +21,11 @@ import {
 } from "@/lib/protest-case";
 import { getCaseGuidance } from "@/lib/case-guidance";
 import { getCountyProtestInfo } from "@/lib/county-protest-info";
+import {
+  getPreFilingCheck,
+  isPreFilingBlocked,
+  type PreFilingCheckItem,
+} from "@/lib/pre-filing-check";
 import { uploadDocument } from "@/lib/documents";
 import { getAuthorization, type AuthorizationRecord } from "@/lib/protest-authorizations";
 import {
@@ -127,13 +132,23 @@ export function CaseDetailModal({
             onReload={load}
           />
 
-          <DocumentsSection
-            userId={userId}
-            protest={current}
-            property={property}
-            strategyRecommendation={caseData?.strategyRecommendation ?? null}
-            onUpdate={(patch) => setCurrent((prev) => ({ ...prev, ...patch }))}
-          />
+          {current.status === "requested" ? (
+            <PreFilingGate
+              userId={userId}
+              property={property}
+              protest={current}
+              caseData={caseData}
+              onUpdate={(patch) => setCurrent((prev) => ({ ...prev, ...patch }))}
+            />
+          ) : (
+            <DocumentsSection
+              userId={userId}
+              protest={current}
+              property={property}
+              strategyRecommendation={caseData?.strategyRecommendation ?? null}
+              onUpdate={(patch) => setCurrent((prev) => ({ ...prev, ...patch }))}
+            />
+          )}
 
           <CaseProgress
             protest={current}
@@ -327,6 +342,91 @@ function CorvusGuidancePanel({
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// Runs before the user can reach Documents/filing at all. Every fact comes
+// from getPreFilingCheck() — real case/property/evidence fields, plus real
+// per-county data from county-protest-info.ts, never AI-invented. If a
+// blocking field (case identity/deadline) is missing, filing stops here and
+// DocumentsSection is not rendered until it's corrected — the non-blocking
+// procedural rows (filing method, county contact, etc.) are informational
+// and never stop filing on their own, since the app's own generic form is
+// always a valid fallback even where a specific county detail isn't
+// confirmed.
+function PreFilingGate({
+  userId,
+  property,
+  protest,
+  caseData,
+  onUpdate,
+}: {
+  userId: string;
+  property: PropertyRecord;
+  protest: ProtestRecord;
+  caseData: ProtestCase | null;
+  onUpdate: (patch: Partial<ProtestRecord>) => void;
+}) {
+  const items = getPreFilingCheck(property, protest, caseData?.evidenceItems);
+  const blocked = isPreFilingBlocked(items);
+
+  return (
+    <>
+      <div className="mt-5 border-t border-border pt-5">
+        <PreFilingCheckList items={items} blocked={blocked} />
+        {blocked && (
+          <div className="mt-3 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
+            Corvus can't confirm this case is ready to file —{" "}
+            {items
+              .filter((i) => i.blocking && i.status === "missing")
+              .map((i) => i.label)
+              .join(", ")}{" "}
+            {items.filter((i) => i.blocking && i.status === "missing").length === 1 ? "is" : "are"}{" "}
+            missing. Please correct or confirm this information on your property before filing —
+            documents are hidden until this is resolved.
+          </div>
+        )}
+      </div>
+      {!blocked && (
+        <DocumentsSection
+          userId={userId}
+          protest={protest}
+          property={property}
+          strategyRecommendation={caseData?.strategyRecommendation ?? null}
+          onUpdate={onUpdate}
+        />
+      )}
+    </>
+  );
+}
+
+function PreFilingCheckList({ items, blocked }: { items: PreFilingCheckItem[]; blocked: boolean }) {
+  return (
+    <div>
+      <div className="flex items-center justify-between gap-2">
+        <h4 className="text-sm font-semibold">Pre-Filing Check</h4>
+        <span
+          className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+            blocked ? "bg-destructive/10 text-destructive" : "bg-success/15 text-success"
+          }`}
+        >
+          {blocked ? "Action Needed" : "Ready to File"}
+        </span>
+      </div>
+      <div className="mt-2 grid gap-1 sm:grid-cols-2">
+        {items.map((item) => (
+          <div key={item.label} className="flex items-center justify-between gap-2 text-xs">
+            <span className="text-muted-foreground">{item.label}</span>
+            <span
+              className={`truncate ${item.status === "confirmed" ? "text-success" : "text-destructive"}`}
+              title={item.value ?? undefined}
+            >
+              {item.status === "confirmed" ? (item.value ?? "Confirmed") : "Missing"}
+            </span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
