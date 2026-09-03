@@ -48,6 +48,14 @@ type CadRecord = {
   mailingAddress?: string | null;
   ownershipPct?: number | null;
   protestStatus?: string | null;
+  // Fort Bend only (see enrichBIS) — that county's own accountNumber is BIS's
+  // "geoId" field, a different internal identifier than the numeric
+  // "propertyId" BIS's own property-detail page URL actually needs. Captured
+  // here, separately from accountNumber, purely so a real direct CAD-record
+  // link can be built for Fort Bend — see cad-record-url.ts. Grayson and
+  // Kaufman don't need this: their own accountNumber already IS BIS's
+  // propertyId directly (confirmed live 2026-09-03).
+  bisPropertyId?: string | null;
   valueHistory?: Array<{
     year: number;
     landValue: number | null;
@@ -1301,6 +1309,11 @@ async function enrichBIS(
       ownershipPct:
         match.percentOwnership != null ? parseFloat(String(match.percentOwnership)) : null,
       protestStatus: (match.status as string) || (match.arbStatus as string) || null,
+      // Fort Bend-only field (see the CadRecord type comment) — captured
+      // unconditionally here since it costs nothing when accountNumber
+      // already equals it (Grayson/Kaufman), and getCadRecordUrl only
+      // actually consumes it for Fort Bend.
+      bisPropertyId: match.propertyId != null ? String(match.propertyId) : null,
     };
   } catch {
     return null;

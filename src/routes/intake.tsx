@@ -188,6 +188,7 @@ function Intake() {
       mailingAddress: record.mailingAddress ?? undefined,
       ownershipPct: record.ownershipPct ?? undefined,
       protestStatus: record.protestStatus ?? undefined,
+      bisPropertyId: record.bisPropertyId ?? undefined,
       valueHistory: record.valueHistory ?? undefined,
       deeds: record.deeds ?? undefined,
     });
@@ -342,7 +343,11 @@ function Intake() {
   // CadRecord.cad's required string — guarded here rather than widening
   // that shared type just for this one optional-at-first caller.
   const confirmCadRecordUrl = state.cad
-    ? getCadRecordUrl({ cad: state.cad, accountNumber: state.accountNumber ?? null })
+    ? getCadRecordUrl({
+        cad: state.cad,
+        accountNumber: state.accountNumber ?? null,
+        bisPropertyId: state.bisPropertyId,
+      })
     : null;
 
   return (

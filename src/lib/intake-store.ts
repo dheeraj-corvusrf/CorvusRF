@@ -58,6 +58,8 @@ export type IntakeState = {
   mailingAddress?: string | null;
   ownershipPct?: number | null;
   protestStatus?: string | null;
+  // Fort Bend only — see the matching comment in cad-record-url.ts.
+  bisPropertyId?: string | null;
   valueHistory?: CadValueHistoryEntry[];
   deeds?: CadDeed[];
   // Caches the computed savings estimate against the specific property it was
