@@ -654,12 +654,15 @@ function Intake() {
           <p className="mt-1 text-muted-foreground">
             Please enter a valid property address, or upload your appraisal notice instead.
           </p>
-          <div className="mt-4 flex gap-2">
+          <div className="mt-4 flex flex-wrap gap-2">
             <button onClick={() => setStep("address")} className="btn-outline">
               Edit Address
             </button>
             <button onClick={() => setStep("address")} className="btn-primary btn-primary-hover">
               Search Again
+            </button>
+            <button type="button" onClick={() => setManualLookupOpen(true)} className="btn-outline">
+              Didn't find your property? Enter account number
             </button>
           </div>
 
@@ -719,14 +722,6 @@ function Intake() {
                   );
                 })}
               </div>
-
-              <button
-                type="button"
-                onClick={() => setManualLookupOpen(true)}
-                className="mt-4 text-sm font-medium text-accent hover:underline"
-              >
-                Didn't find your property? Enter account number and county
-              </button>
             </div>
           )}
         </section>
