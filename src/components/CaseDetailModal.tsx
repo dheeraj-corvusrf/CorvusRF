@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { ChangeEvent, FormEvent } from "react";
 import { toast } from "sonner";
-import type { PropertyRecord } from "@/lib/properties";
+import { updatePropertyIdentity, type PropertyRecord } from "@/lib/properties";
 import { acknowledgeGuidance, type ProtestRecord } from "@/lib/protests";
 import { currency } from "@/lib/intake-store";
 import {
@@ -20,7 +20,7 @@ import {
   type ProtestCase,
 } from "@/lib/protest-case";
 import { getCaseGuidance } from "@/lib/case-guidance";
-import { getCountyProtestInfo } from "@/lib/county-protest-info";
+import { getCountyProtestInfo, COUNTY_PROTEST_INFO } from "@/lib/county-protest-info";
 import {
   getPreFilingCheck,
   isPreFilingBlocked,
@@ -54,7 +54,7 @@ import type { SignatureValue } from "@/components/SignaturePad";
 
 export function CaseDetailModal({
   userId,
-  property,
+  property: propertyProp,
   protest,
   onClose,
 }: {
@@ -66,6 +66,10 @@ export function CaseDetailModal({
   const [caseData, setCaseData] = useState<ProtestCase | null>(null);
   const [loading, setLoading] = useState(true);
   const [current, setCurrent] = useState<ProtestRecord>(protest);
+  // Local, editable copy — the Pre-Filing Check gate lets the customer
+  // correct/confirm a missing identity field (see PreFilingGate) right
+  // where Corvus flags it as blocking, without leaving this modal.
+  const [property, setProperty] = useState<PropertyRecord>(propertyProp);
   const [acknowledging, setAcknowledging] = useState(false);
   // Per-open, not per-case: the notice must appear every time the customer
   // clicks View Case, not just the first time — deliberately not derived
@@ -139,6 +143,7 @@ export function CaseDetailModal({
               protest={current}
               caseData={caseData}
               onUpdate={(patch) => setCurrent((prev) => ({ ...prev, ...patch }))}
+              onPropertyUpdate={(patch) => setProperty((prev) => ({ ...prev, ...patch }))}
             />
           ) : (
             <DocumentsSection
@@ -361,12 +366,14 @@ function PreFilingGate({
   protest,
   caseData,
   onUpdate,
+  onPropertyUpdate,
 }: {
   userId: string;
   property: PropertyRecord;
   protest: ProtestRecord;
   caseData: ProtestCase | null;
   onUpdate: (patch: Partial<ProtestRecord>) => void;
+  onPropertyUpdate: (patch: Partial<PropertyRecord>) => void;
 }) {
   const items = getPreFilingCheck(property, protest, caseData?.evidenceItems);
   const blocked = isPreFilingBlocked(items);
@@ -374,17 +381,17 @@ function PreFilingGate({
   return (
     <>
       <div className="mt-5 border-t border-border pt-5">
-        <PreFilingCheckList items={items} blocked={blocked} />
+        <PreFilingCheckList
+          items={items}
+          blocked={blocked}
+          propertyId={property.id}
+          onFixed={onPropertyUpdate}
+        />
         {blocked && (
           <div className="mt-3 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
-            Corvus can't confirm this case is ready to file —{" "}
-            {items
-              .filter((i) => i.blocking && i.status === "missing")
-              .map((i) => i.label)
-              .join(", ")}{" "}
-            {items.filter((i) => i.blocking && i.status === "missing").length === 1 ? "is" : "are"}{" "}
-            missing. Please correct or confirm this information on your property before filing —
-            documents are hidden until this is resolved.
+            Corvus can't confirm this case is ready to file — please correct or confirm the field(s)
+            marked "Missing" above before filing. Use "Confirm/edit" next to each one. Documents are
+            hidden until this is resolved.
           </div>
         )}
       </div>
@@ -401,7 +408,37 @@ function PreFilingGate({
   );
 }
 
-function PreFilingCheckList({ items, blocked }: { items: PreFilingCheckItem[]; blocked: boolean }) {
+// Maps a blocking PreFilingCheckItem's label to the real property field it
+// corrects and the input shape that field needs — County uses a closed
+// dropdown of the exact cad strings the rest of the app recognizes (a
+// free-typed county would silently break every county-specific lookup),
+// everything else is free text/number/date.
+const BLOCKING_FIELD_MAP: Record<
+  string,
+  {
+    key: "cad" | "address" | "accountNumber" | "ownerName" | "taxYear" | "protestDeadline";
+    type: "select" | "text" | "number" | "date";
+  }
+> = {
+  County: { key: "cad", type: "select" },
+  "Property Address": { key: "address", type: "text" },
+  "Account Number": { key: "accountNumber", type: "text" },
+  "Tax Year": { key: "taxYear", type: "number" },
+  "Owner / Entity": { key: "ownerName", type: "text" },
+  "Protest Deadline": { key: "protestDeadline", type: "date" },
+};
+
+function PreFilingCheckList({
+  items,
+  blocked,
+  propertyId,
+  onFixed,
+}: {
+  items: PreFilingCheckItem[];
+  blocked: boolean;
+  propertyId: string;
+  onFixed: (patch: Partial<PropertyRecord>) => void;
+}) {
   return (
     <div>
       <div className="flex items-center justify-between gap-2">
@@ -414,19 +451,106 @@ function PreFilingCheckList({ items, blocked }: { items: PreFilingCheckItem[]; b
           {blocked ? "Action Needed" : "Ready to File"}
         </span>
       </div>
-      <div className="mt-2 grid gap-1 sm:grid-cols-2">
-        {items.map((item) => (
-          <div key={item.label} className="flex items-center justify-between gap-2 text-xs">
-            <span className="text-muted-foreground">{item.label}</span>
-            <span
-              className={`truncate ${item.status === "confirmed" ? "text-success" : "text-destructive"}`}
-              title={item.value ?? undefined}
-            >
-              {item.status === "confirmed" ? (item.value ?? "Confirmed") : "Missing"}
-            </span>
-          </div>
-        ))}
+      <div className="mt-2 grid gap-1.5 sm:grid-cols-2">
+        {items.map((item) => {
+          const missing = item.status === "missing";
+          const field = missing ? BLOCKING_FIELD_MAP[item.label] : undefined;
+          return (
+            <div key={item.label} className="grid gap-1 text-xs">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-muted-foreground">{item.label}</span>
+                <span
+                  className={`truncate ${missing ? "text-destructive" : "text-success"}`}
+                  title={item.value ?? undefined}
+                >
+                  {missing ? "Missing" : (item.value ?? "Confirmed")}
+                </span>
+              </div>
+              {field && (
+                <PreFilingFixRow
+                  label={item.label}
+                  field={field.key}
+                  inputType={field.type}
+                  propertyId={propertyId}
+                  onFixed={onFixed}
+                />
+              )}
+            </div>
+          );
+        })}
       </div>
+    </div>
+  );
+}
+
+// Lets the customer directly correct/confirm a missing blocking field,
+// right where Corvus flags it — the real fix for a property that never had
+// this data (e.g. added via CAD search rather than an uploaded notice AI
+// could extract a real deadline from). Saves via updatePropertyIdentity and
+// bubbles the real updated field back up so PreFilingGate re-evaluates
+// immediately, same pattern as CaseProgress's forms.
+function PreFilingFixRow({
+  label,
+  field,
+  inputType,
+  propertyId,
+  onFixed,
+}: {
+  label: string;
+  field: "cad" | "address" | "accountNumber" | "ownerName" | "taxYear" | "protestDeadline";
+  inputType: "select" | "text" | "number" | "date";
+  propertyId: string;
+  onFixed: (patch: Partial<PropertyRecord>) => void;
+}) {
+  const [value, setValue] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  async function handleSave() {
+    if (!value.trim()) return;
+    setSaving(true);
+    try {
+      const patch = field === "taxYear" ? { taxYear: Number(value) } : { [field]: value };
+      const updated = await updatePropertyIdentity(propertyId, patch);
+      onFixed(updated);
+      toast.success(`${label} saved.`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : `Could not save ${label}.`);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      {inputType === "select" ? (
+        <select
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          className="min-w-0 flex-1 rounded-md border border-input bg-background px-1.5 py-1 text-xs"
+        >
+          <option value="">Select {label}…</option>
+          {Object.keys(COUNTY_PROTEST_INFO).map((cad) => (
+            <option key={cad} value={cad}>
+              {cad}
+            </option>
+          ))}
+        </select>
+      ) : (
+        <input
+          type={inputType === "number" ? "number" : inputType === "date" ? "date" : "text"}
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder={`Enter ${label}`}
+          className="min-w-0 flex-1 rounded-md border border-input bg-background px-1.5 py-1 text-xs"
+        />
+      )}
+      <button
+        onClick={handleSave}
+        disabled={saving || !value.trim()}
+        className="shrink-0 btn-outline px-2 py-1 text-[11px] disabled:opacity-60"
+      >
+        {saving ? "Saving…" : "Confirm/edit"}
+      </button>
     </div>
   );
 }

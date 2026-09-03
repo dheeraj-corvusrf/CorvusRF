@@ -180,6 +180,40 @@ export async function updatePropertySavings(
   return fromRow(data as PropertyRow);
 }
 
+// Lets a user correct or confirm a genuinely-missing pre-filing field
+// directly from CaseDetailModal's Pre-Filing Check gate (see
+// PreFilingGate) — e.g. a property added via CAD-search intake never had a
+// Notice of Appraised Value document for the AI to extract a real
+// protestDeadline from, and until now there was no way to supply one.
+// Every field here is one PreFilingCheckItem already flags as "blocking".
+export async function updatePropertyIdentity(
+  id: string,
+  patch: {
+    cad?: string;
+    address?: string;
+    accountNumber?: string;
+    ownerName?: string;
+    taxYear?: number;
+    protestDeadline?: string;
+  },
+): Promise<PropertyRecord> {
+  const update: Record<string, unknown> = {};
+  if (patch.cad !== undefined) update.cad = patch.cad;
+  if (patch.address !== undefined) update.address = patch.address;
+  if (patch.accountNumber !== undefined) update.account_number = patch.accountNumber;
+  if (patch.ownerName !== undefined) update.owner_name = patch.ownerName;
+  if (patch.taxYear !== undefined) update.tax_year = patch.taxYear;
+  if (patch.protestDeadline !== undefined) update.protest_deadline = patch.protestDeadline;
+  const { data, error } = await supabase
+    .from("properties")
+    .update(update)
+    .eq("id", id)
+    .select(SELECT_COLUMNS)
+    .single();
+  if (error) throw error;
+  return fromRow(data as PropertyRow);
+}
+
 export async function deleteProperty(id: string): Promise<void> {
   const { error } = await supabase.from("properties").delete().eq("id", id);
   if (error) throw error;
