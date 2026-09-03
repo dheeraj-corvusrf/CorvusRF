@@ -97,12 +97,45 @@ type CadRecord = {
 const STREET_SUFFIX_ALT =
   "st|street|rd|road|dr|drive|ln|lane|ave|avenue|blvd|boulevard|ct|court|pl|place|plz|plaza|pkwy|parkway|hwy|highway|fwy|freeway|cir|circle|way|trl|trail|trce|trace|loop|cv|cove|bend|xing|crossing|walk|row|run|mnr|manor|holw|hollow|pt|point|rdg|ridge|grn|green|knl|knoll|pass|path|vlg|village";
 
+// A comma DOES exist somewhere in the address but not between the street and
+// the city specifically ("4220 S Preston Rd Celina, TX 75009" — the comma
+// only separates city from state/zip) — found live 2026-09-03 chasing a
+// real report where Collin genuinely has this exact road ("910 N Preston Rd,
+// Celina, TX 75009") but the naive withComma split above swallows "Celina"
+// into the STREET capture (everything before the FIRST comma), so `core`
+// ends up searching for a street literally named "Preston Rd Celina" —
+// real, but zero matches, and even the "nearby" fallback comes up empty
+// since nothing real contains that exact glued phrase. Fixed by finding the
+// LAST recognized street-suffix word in the captured street text (greedy,
+// not the first — a legitimate multi-suffix-looking name like "Park Circle
+// Drive" must still resolve to itself, not split at "Circle") and treating
+// anything genuinely left over after it as a glued-on city. Guarded against
+// a bare trailing directional ("107 Oak Dr E, Fort Worth" — a real, already-
+// supported input shape) being mistaken for one: a real city is never just
+// "E"/"N"/"NE"/etc. on its own.
+function splitGluedCity(rawStreet: string): { street: string; gluedCity: string } | null {
+  const m = rawStreet.match(new RegExp(`^(.*\\b(?:${STREET_SUFFIX_ALT})\\.?)\\b\\s+(\\S.*)$`, "i"));
+  if (!m) return null;
+  const extra = m[2].trim();
+  if (/^(n|s|e|w|ne|nw|se|sw|north|south|east|west)\.?$/i.test(extra)) return null;
+  return { street: m[1].trim(), gluedCity: extra };
+}
+
 function parseHouseAndStreet(
   address: string,
 ): { house: string; street: string; cityStateZip: string } | null {
   const withComma = address.match(/^\s*(\d+)\s+([^,]+?)\s*,(.*)$/);
   if (withComma) {
-    return { house: withComma[1], street: withComma[2].trim(), cityStateZip: withComma[3].trim() };
+    const rawStreet = withComma[2].trim();
+    const split = splitGluedCity(rawStreet);
+    if (split) {
+      return {
+        house: withComma[1],
+        street: split.street,
+        cityStateZip: `${split.gluedCity}, ${withComma[3].trim()}`,
+      };
+    }
+    return { house: withComma[1], street: rawStreet, cityStateZip: withComma[3].trim() };
   }
 
   // No comma (e.g. "900 Willowwood St Denton") — capture the house number and street
@@ -124,7 +157,13 @@ function parseHouseAndStreet(
 // name alone is still enough to search by and suggest real nearby options.
 function parseStreetOnly(address: string): { street: string; cityStateZip: string } | null {
   const withComma = address.match(/^\s*([^,]+?)\s*,(.*)$/);
-  if (withComma) return { street: withComma[1].trim(), cityStateZip: withComma[2].trim() };
+  if (withComma) {
+    const rawStreet = withComma[1].trim();
+    const split = splitGluedCity(rawStreet);
+    if (split)
+      return { street: split.street, cityStateZip: `${split.gluedCity}, ${withComma[2].trim()}` };
+    return { street: rawStreet, cityStateZip: withComma[2].trim() };
+  }
 
   const noComma = address.match(
     new RegExp(`^\\s*(.+?\\b(?:${STREET_SUFFIX_ALT})\\.?)\\b\\s*(.*)$`, "i"),
@@ -434,27 +473,82 @@ function coreClauseOr(field: string, core: string): string {
     .join(" OR ");
 }
 
+// Plain fetch+parse used by nearbyFeaturesWithFallback below — every ArcGIS
+// county's response shares this exact `{features: [{attributes}]}` shape.
+async function fetchFeatures(
+  url: string,
+): Promise<Array<{ attributes: Record<string, string | number | null> }>> {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`query failed: ${res.status}`);
+  const json = (await res.json()) as {
+    features?: Array<{ attributes: Record<string, string | number | null> }>;
+  };
+  return json.features ?? [];
+}
+
+// Nearby mode's coreClauseOr match is intentionally broad (bare, suffix-
+// stripped core, tolerant of Rd/Road-style spelling mismatches) — but for
+// the counties whose situs field concatenates house+street+CITY into one
+// string, that same breadth means a street whose core word ALSO happens to
+// be the city's own name (a real, common Texas pattern — Parker Rd in
+// Parker, Lucas Rd in Lucas, Anna Rd in Anna, ...) can have its entire
+// NEARBY_LIMIT-capped result window filled by unrelated ADDRESSES-IN-THAT-
+// CITY matches before a single genuine same-named-street row is ever
+// fetched. Confirmed live 2026-09-03 chasing a real report ("2514 Parker
+// Rd, Parker, TX"): Collin has 598 real rows containing bare "PARKER "
+// (nearly all just city-name matches), and the live nearby search for it
+// returned zero actual Parker Rd rows among 50. Only affects the combined-
+// field counties (Collin/Montgomery/Denton/Fort Bend/Williamson/Bexar/
+// Tarrant) — the split-field ones (Harris/Grayson/Travis/Dallas) query a
+// STREET-NAME-ONLY column that never contains the city at all, so they were
+// never at risk of this collision and don't call this helper.
+//
+// Fixed by trying a TIGHTER match first — the street's own suffix word
+// still attached ("Parker Rd", not just "Parker") — which can't collide
+// with a bare city name; only falling back to the broad suffix-stripped
+// search (for the Road/Rd spelling-mismatch case this whole match style
+// exists for) when the tight one comes back genuinely empty.
+async function nearbyFeaturesWithFallback(
+  baseUrl: string,
+  field: string,
+  rawStreet: string,
+  outFieldsParam: string,
+  limit: number | null,
+): Promise<Array<{ attributes: Record<string, string | number | null> }>> {
+  const limitParam = limit != null ? `&resultRecordCount=${limit}` : "";
+  const buildUrl = (where: string) =>
+    `${baseUrl}?where=${encodeURIComponent(where)}&outFields=${outFieldsParam}${limitParam}&returnGeometry=false&f=json`;
+  const core = coreStreetName(rawStreet);
+  if (rawStreet.trim().toUpperCase() !== core.toUpperCase()) {
+    const tight = await fetchFeatures(buildUrl(coreClauseOr(field, rawStreet.trim())));
+    if (tight.length > 0) return tight;
+  }
+  return fetchFeatures(buildUrl(coreClauseOr(field, core)));
+}
+
+const COLLIN_URL =
+  "https://services2.arcgis.com/uXyoacYrZTPTKD3R/ArcGIS/rest/services/CCAD_Parcel_Feature_Set/FeatureServer/4/query";
+const COLLIN_OUT_FIELDS =
+  "ownerName,situsConcat,currValLand,currValImprv,currValAppraised,currValYear,prevValLand,prevValImprv,prevValAppraised,prevValYear,PROP_ID,propType,propSubType,propCategoryCode,propYear";
+
 async function queryCollin(address: string, mode: QueryMode = "exact"): Promise<CadRecord[]> {
   const parsed = parseAddressForQuery(address, mode);
   if (!parsed) return [];
   const core = coreStreetName(parsed.street);
-  const where =
+  const features =
     mode === "nearby"
-      ? coreClauseOr("situsConcat", core)
-      : singleFieldWhere("situsConcat", parsed.house, core);
-  const url =
-    "https://services2.arcgis.com/uXyoacYrZTPTKD3R/ArcGIS/rest/services/CCAD_Parcel_Feature_Set/FeatureServer/4/query" +
-    `?where=${encodeURIComponent(where)}` +
-    "&outFields=ownerName,situsConcat,currValLand,currValImprv,currValAppraised,currValYear,prevValLand,prevValImprv,prevValAppraised,prevValYear,PROP_ID,propType,propSubType,propCategoryCode,propYear" +
-    `&resultRecordCount=${mode === "nearby" ? NEARBY_LIMIT : MULTI_CANDIDATE_LIMIT}` +
-    "&returnGeometry=false&f=json";
-
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Collin CAD query failed: ${res.status}`);
-  const json = (await res.json()) as {
-    features?: Array<{ attributes: Record<string, string | number | null> }>;
-  };
-  return (json.features ?? []).map(({ attributes: attrs }) => ({
+      ? await nearbyFeaturesWithFallback(
+          COLLIN_URL,
+          "situsConcat",
+          parsed.street,
+          COLLIN_OUT_FIELDS,
+          NEARBY_LIMIT,
+        )
+      : await fetchFeatures(
+          `${COLLIN_URL}?where=${encodeURIComponent(singleFieldWhere("situsConcat", parsed.house, core))}` +
+            `&outFields=${COLLIN_OUT_FIELDS}&resultRecordCount=${MULTI_CANDIDATE_LIMIT}&returnGeometry=false&f=json`,
+        );
+  return features.map(({ attributes: attrs }) => ({
     ownerName: (attrs.ownerName as string) ?? null,
     propertyAddress: (attrs.situsConcat as string) ?? address,
     cad: "Collin Central Appraisal District",
@@ -492,25 +586,28 @@ async function queryCollin(address: string, mode: QueryMode = "exact"): Promise<
   }));
 }
 
+const MONTGOMERY_URL =
+  "https://services1.arcgis.com/PRoAPGnMSUqvTrzq/arcgis/rest/services/Tax_Parcel_view/FeatureServer/0/query";
+const MONTGOMERY_OUT_FIELDS = "ownerName,situs,legalDescription,PIN";
+
 async function queryMontgomery(address: string, mode: QueryMode = "exact"): Promise<CadRecord[]> {
   const parsed = parseAddressForQuery(address, mode);
   if (!parsed) return [];
   const core = coreStreetName(parsed.street);
-  const where =
-    mode === "nearby" ? coreClauseOr("situs", core) : singleFieldWhere("situs", parsed.house, core);
-  const url =
-    "https://services1.arcgis.com/PRoAPGnMSUqvTrzq/arcgis/rest/services/Tax_Parcel_view/FeatureServer/0/query" +
-    `?where=${encodeURIComponent(where)}` +
-    "&outFields=ownerName,situs,legalDescription,PIN" +
-    `&resultRecordCount=${mode === "nearby" ? NEARBY_LIMIT : MULTI_CANDIDATE_LIMIT}` +
-    "&returnGeometry=false&f=json";
-
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Montgomery CAD query failed: ${res.status}`);
-  const json = (await res.json()) as {
-    features?: Array<{ attributes: Record<string, string | number | null> }>;
-  };
-  return (json.features ?? []).map(({ attributes: attrs }) => ({
+  const features =
+    mode === "nearby"
+      ? await nearbyFeaturesWithFallback(
+          MONTGOMERY_URL,
+          "situs",
+          parsed.street,
+          MONTGOMERY_OUT_FIELDS,
+          NEARBY_LIMIT,
+        )
+      : await fetchFeatures(
+          `${MONTGOMERY_URL}?where=${encodeURIComponent(singleFieldWhere("situs", parsed.house, core))}` +
+            `&outFields=${MONTGOMERY_OUT_FIELDS}&resultRecordCount=${MULTI_CANDIDATE_LIMIT}&returnGeometry=false&f=json`,
+        );
+  return features.map(({ attributes: attrs }) => ({
     ownerName: (attrs.ownerName as string) ?? null,
     propertyAddress: (attrs.situs as string) ?? address,
     cad: "Montgomery Central Appraisal District",
@@ -529,6 +626,10 @@ function parseMoneyField(v: string | number | null): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+const DENTON_URL = "https://gis.dentoncounty.gov/arcgis/rest/services/Parcels_FC/MapServer/0/query";
+const DENTON_OUT_FIELDS =
+  "name,situs_full_address,landHSValue,landNHSValue,improvementValue,ownerMarketValue,pid,pYear,propType,stateCodes";
+
 async function queryDenton(address: string, mode: QueryMode = "exact"): Promise<CadRecord[]> {
   const parsed = parseAddressForQuery(address, mode);
   if (!parsed) return [];
@@ -538,23 +639,20 @@ async function queryDenton(address: string, mode: QueryMode = "exact"): Promise<
   // Denton address) to be a single ~234-parcel subdivision extract, not county-wide
   // coverage. See texas-cad-data-sources memory for the full story.
   const core = coreStreetName(parsed.street);
-  const where =
+  const features =
     mode === "nearby"
-      ? coreClauseOr("situs_full_address", core)
-      : singleFieldWhere("situs_full_address", parsed.house, core);
-  const url =
-    "https://gis.dentoncounty.gov/arcgis/rest/services/Parcels_FC/MapServer/0/query" +
-    `?where=${encodeURIComponent(where)}` +
-    "&outFields=name,situs_full_address,landHSValue,landNHSValue,improvementValue,ownerMarketValue,pid,pYear,propType,stateCodes" +
-    `&resultRecordCount=${mode === "nearby" ? NEARBY_LIMIT : MULTI_CANDIDATE_LIMIT}` +
-    "&returnGeometry=false&f=json";
-
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Denton CAD query failed: ${res.status}`);
-  const json = (await res.json()) as {
-    features?: Array<{ attributes: Record<string, string | number | null> }>;
-  };
-  return (json.features ?? []).map(({ attributes: attrs }) => {
+      ? await nearbyFeaturesWithFallback(
+          DENTON_URL,
+          "situs_full_address",
+          parsed.street,
+          DENTON_OUT_FIELDS,
+          NEARBY_LIMIT,
+        )
+      : await fetchFeatures(
+          `${DENTON_URL}?where=${encodeURIComponent(singleFieldWhere("situs_full_address", parsed.house, core))}` +
+            `&outFields=${DENTON_OUT_FIELDS}&resultRecordCount=${MULTI_CANDIDATE_LIMIT}&returnGeometry=false&f=json`,
+        );
+  return features.map(({ attributes: attrs }) => {
     const situsAddr = (attrs.situs_full_address as string | null)?.trim();
     return {
       ownerName: (attrs.name as string)?.trim() || null,
@@ -696,28 +794,33 @@ const TARRANT_CITY_CODES: Record<string, string> = {
   "044": "Trophy Club",
 };
 
+const TARRANT_URL =
+  "https://tad.newedgeservices.com/arcgis/rest/services/OD_TAD/OD_ParcelView/MapServer/0/query";
+const TARRANT_OUT_FIELDS =
+  "Owner_Name,Situs_Addr,City,Land_Value,Improvemen,Total_Valu,Appraised_,Account_Nu,Property_C";
+
 async function queryTarrant(address: string, mode: QueryMode = "exact"): Promise<CadRecord[]> {
   const parsed = parseAddressForQuery(address, mode);
   if (!parsed) return [];
   const core = coreStreetName(parsed.street);
-  const where =
+  // This endpoint doesn't support resultRecordCount ("Pagination is not
+  // supported") — always returns every matching row unbounded, sliced
+  // client-side below (limit: null tells nearbyFeaturesWithFallback the
+  // same — omit the param rather than send one this backend rejects).
+  const features =
     mode === "nearby"
-      ? coreClauseOr("Situs_Addr", core)
-      : singleFieldWhere("Situs_Addr", parsed.house, core);
-  const url =
-    "https://tad.newedgeservices.com/arcgis/rest/services/OD_TAD/OD_ParcelView/MapServer/0/query" +
-    `?where=${encodeURIComponent(where)}` +
-    "&outFields=Owner_Name,Situs_Addr,City,Land_Value,Improvemen,Total_Valu,Appraised_,Account_Nu,Property_C" +
-    "&returnGeometry=false" +
-    "&f=json"; // this endpoint doesn't support resultRecordCount ("Pagination is not supported") —
-  // already returns every matching row unbounded, sliced client-side below.
-
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Tarrant CAD query failed: ${res.status}`);
-  const json = (await res.json()) as {
-    features?: Array<{ attributes: Record<string, string | number | null> }>;
-  };
-  return (json.features ?? [])
+      ? await nearbyFeaturesWithFallback(
+          TARRANT_URL,
+          "Situs_Addr",
+          parsed.street,
+          TARRANT_OUT_FIELDS,
+          null,
+        )
+      : await fetchFeatures(
+          `${TARRANT_URL}?where=${encodeURIComponent(singleFieldWhere("Situs_Addr", parsed.house, core))}` +
+            `&outFields=${TARRANT_OUT_FIELDS}&returnGeometry=false&f=json`,
+        );
+  return features
     .slice(0, mode === "nearby" ? NEARBY_LIMIT : MULTI_CANDIDATE_LIMIT)
     .map(({ attributes: attrs }) => {
       const situsAddr = (attrs.Situs_Addr as string | null)?.trim();
@@ -736,25 +839,29 @@ async function queryTarrant(address: string, mode: QueryMode = "exact"): Promise
     });
 }
 
+const FORT_BEND_URL =
+  "https://services2.arcgis.com/D4saGHECICkCeoJm/arcgis/rest/services/FBCAD_Public_Data/FeatureServer/0/query";
+const FORT_BEND_OUT_FIELDS =
+  "OWNERNAME,SITUS,LANDVALUE,IMPVALUE,TOTALVALUE,PROPNUMBER,Building_Class";
+
 async function queryFortBend(address: string, mode: QueryMode = "exact"): Promise<CadRecord[]> {
   const parsed = parseAddressForQuery(address, mode);
   if (!parsed) return [];
   const core = coreStreetName(parsed.street);
-  const where =
-    mode === "nearby" ? coreClauseOr("SITUS", core) : singleFieldWhere("SITUS", parsed.house, core);
-  const url =
-    "https://services2.arcgis.com/D4saGHECICkCeoJm/arcgis/rest/services/FBCAD_Public_Data/FeatureServer/0/query" +
-    `?where=${encodeURIComponent(where)}` +
-    "&outFields=OWNERNAME,SITUS,LANDVALUE,IMPVALUE,TOTALVALUE,PROPNUMBER,Building_Class" +
-    `&resultRecordCount=${mode === "nearby" ? NEARBY_LIMIT : MULTI_CANDIDATE_LIMIT}` +
-    "&returnGeometry=false&f=json";
-
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Fort Bend CAD query failed: ${res.status}`);
-  const json = (await res.json()) as {
-    features?: Array<{ attributes: Record<string, string | number | null> }>;
-  };
-  return (json.features ?? []).map(({ attributes: attrs }) => ({
+  const features =
+    mode === "nearby"
+      ? await nearbyFeaturesWithFallback(
+          FORT_BEND_URL,
+          "SITUS",
+          parsed.street,
+          FORT_BEND_OUT_FIELDS,
+          NEARBY_LIMIT,
+        )
+      : await fetchFeatures(
+          `${FORT_BEND_URL}?where=${encodeURIComponent(singleFieldWhere("SITUS", parsed.house, core))}` +
+            `&outFields=${FORT_BEND_OUT_FIELDS}&resultRecordCount=${MULTI_CANDIDATE_LIMIT}&returnGeometry=false&f=json`,
+        );
+  return features.map(({ attributes: attrs }) => ({
     ownerName: (attrs.OWNERNAME as string) ?? null,
     propertyAddress: (attrs.SITUS as string)?.trim() || address,
     cad: "Fort Bend Central Appraisal District",
@@ -767,27 +874,28 @@ async function queryFortBend(address: string, mode: QueryMode = "exact"): Promis
   }));
 }
 
+const WILLIAMSON_URL =
+  "https://services1.arcgis.com/Xff0bbfp6vwIWmlU/arcgis/rest/services/WCAD_Tax_Parcels/FeatureServer/0/query";
+const WILLIAMSON_OUT_FIELDS = "OWNERNME1,SITEADDRESS,LNDVALUE,CNTASSDVAL,PARCELID,CLASSDSCRP";
+
 async function queryWilliamson(address: string, mode: QueryMode = "exact"): Promise<CadRecord[]> {
   const parsed = parseAddressForQuery(address, mode);
   if (!parsed) return [];
   const core = coreStreetName(parsed.street);
-  const where =
+  const features =
     mode === "nearby"
-      ? coreClauseOr("SITEADDRESS", core)
-      : singleFieldWhere("SITEADDRESS", parsed.house, core);
-  const url =
-    "https://services1.arcgis.com/Xff0bbfp6vwIWmlU/arcgis/rest/services/WCAD_Tax_Parcels/FeatureServer/0/query" +
-    `?where=${encodeURIComponent(where)}` +
-    "&outFields=OWNERNME1,SITEADDRESS,LNDVALUE,CNTASSDVAL,PARCELID,CLASSDSCRP" +
-    `&resultRecordCount=${mode === "nearby" ? NEARBY_LIMIT : MULTI_CANDIDATE_LIMIT}` +
-    "&returnGeometry=false&f=json";
-
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Williamson CAD query failed: ${res.status}`);
-  const json = (await res.json()) as {
-    features?: Array<{ attributes: Record<string, string | number | null> }>;
-  };
-  return (json.features ?? []).map(({ attributes: attrs }) => ({
+      ? await nearbyFeaturesWithFallback(
+          WILLIAMSON_URL,
+          "SITEADDRESS",
+          parsed.street,
+          WILLIAMSON_OUT_FIELDS,
+          NEARBY_LIMIT,
+        )
+      : await fetchFeatures(
+          `${WILLIAMSON_URL}?where=${encodeURIComponent(singleFieldWhere("SITEADDRESS", parsed.house, core))}` +
+            `&outFields=${WILLIAMSON_OUT_FIELDS}&resultRecordCount=${MULTI_CANDIDATE_LIMIT}&returnGeometry=false&f=json`,
+        );
+  return features.map(({ attributes: attrs }) => ({
     ownerName: (attrs.OWNERNME1 as string) ?? null,
     propertyAddress: (attrs.SITEADDRESS as string)?.trim() || address,
     cad: "Williamson Central Appraisal District",
@@ -931,27 +1039,27 @@ const BCAD_FIELDS = {
   propId: "PAMaps.DBO.ParcelFabric_Parcels.PROP_ID",
 };
 
+const BEXAR_URL = "https://maps.bcad.org/arcgis/rest/services/PAMapSearch/MapServer/6/query";
+const BEXAR_OUT_FIELDS = Object.values(BCAD_FIELDS).join(",");
+
 async function queryBexar(address: string, mode: QueryMode = "exact"): Promise<CadRecord[]> {
   const parsed = parseAddressForQuery(address, mode);
   if (!parsed) return [];
   const core = coreStreetName(parsed.street);
-  const where =
+  const features =
     mode === "nearby"
-      ? coreClauseOr(BCAD_FIELDS.situs, core)
-      : singleFieldWhere(BCAD_FIELDS.situs, parsed.house, core);
-  const url =
-    "https://maps.bcad.org/arcgis/rest/services/PAMapSearch/MapServer/6/query" +
-    `?where=${encodeURIComponent(where)}` +
-    `&outFields=${Object.values(BCAD_FIELDS).join(",")}` +
-    `&resultRecordCount=${mode === "nearby" ? NEARBY_LIMIT : MULTI_CANDIDATE_LIMIT}` +
-    "&returnGeometry=false&f=json";
-
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Bexar CAD query failed: ${res.status}`);
-  const json = (await res.json()) as {
-    features?: Array<{ attributes: Record<string, string | number | null> }>;
-  };
-  return (json.features ?? []).map(({ attributes: attrs }) => ({
+      ? await nearbyFeaturesWithFallback(
+          BEXAR_URL,
+          BCAD_FIELDS.situs,
+          parsed.street,
+          BEXAR_OUT_FIELDS,
+          NEARBY_LIMIT,
+        )
+      : await fetchFeatures(
+          `${BEXAR_URL}?where=${encodeURIComponent(singleFieldWhere(BCAD_FIELDS.situs, parsed.house, core))}` +
+            `&outFields=${BEXAR_OUT_FIELDS}&resultRecordCount=${MULTI_CANDIDATE_LIMIT}&returnGeometry=false&f=json`,
+        );
+  return features.map(({ attributes: attrs }) => ({
     ownerName: (attrs[BCAD_FIELDS.owner] as string)?.trim() || null,
     propertyAddress: (attrs[BCAD_FIELDS.situs] as string)?.trim() || address,
     cad: "Bexar Appraisal District",
@@ -1087,6 +1195,390 @@ async function queryKaufman(address: string, mode: QueryMode = "exact"): Promise
   } catch {
     return [];
   }
+}
+
+// --- Direct account-number lookup (Phase 8, 2026-09-03) --------------------
+// A user who can't find their property in the address/nearby results (a
+// genuinely common real case — a bare-road commercial address with no house
+// number in the county's own data has several unrelated real accounts, see
+// texas_cad_data_sources memory's "PINNACLE MONTESSORI FRANCHISE COMPANY on
+// FM 1957" case) can instead type the account/parcel number straight off
+// their own appraisal notice, plus which county it's in. This bypasses
+// address parsing entirely — a single exact `field = value` match against
+// the SAME real per-county source each queryX above already uses, never a
+// second/different data source.
+//
+// Every county's ID field is filtered as `UPPER(field) = UPPER('value')`
+// EXCEPT Denton and Travis, confirmed live 2026-09-03 that both specifically
+// error ("Unable to complete operation") on that form against their own real
+// numeric-typed ID field (pid / PROP_ID) — every other county's numeric
+// field (Collin's PROP_ID, Montgomery's PIN, Travis's own situs fields
+// elsewhere in this file) tolerates UPPER() fine, so this isn't a numeric-
+// vs-string rule, just two specific backends' own SQL dialect being pickier.
+// Those two use a plain unquoted `field = 123` instead — gated on the input
+// actually being all-digits first (returns no match rather than ever
+// building an unquoted clause from unvalidated input, an injection risk).
+type AccountFieldMode = "quoted" | "numeric";
+
+type ArcgisAccountConfig = {
+  cad: string;
+  url: string;
+  idField: string;
+  mode: AccountFieldMode;
+  outFields: string;
+  mapRow: (attrs: Record<string, string | number | null>) => CadRecord;
+};
+
+function escapeSqlString(s: string): string {
+  return s.replace(/'/g, "''");
+}
+
+const ARCGIS_ACCOUNT_LOOKUP: ArcgisAccountConfig[] = [
+  {
+    cad: "Collin Central Appraisal District",
+    url: "https://services2.arcgis.com/uXyoacYrZTPTKD3R/ArcGIS/rest/services/CCAD_Parcel_Feature_Set/FeatureServer/4/query",
+    idField: "PROP_ID",
+    mode: "quoted",
+    outFields:
+      "ownerName,situsConcat,currValLand,currValImprv,currValAppraised,currValYear,prevValLand,prevValImprv,prevValAppraised,prevValYear,PROP_ID,propType,propSubType,propCategoryCode,propYear",
+    mapRow: (attrs) => ({
+      ownerName: (attrs.ownerName as string) ?? null,
+      propertyAddress: (attrs.situsConcat as string) ?? "",
+      cad: "Collin Central Appraisal District",
+      accountNumber: attrs.PROP_ID != null ? String(attrs.PROP_ID) : null,
+      propertyType:
+        (attrs.propSubType as string)?.trim() ||
+        (attrs.propCategoryCode as string)?.trim() ||
+        (attrs.propType as string)?.trim() ||
+        null,
+      landValue: (attrs.currValLand as number) ?? (attrs.prevValLand as number) ?? null,
+      improvementValue: (attrs.currValImprv as number) ?? (attrs.prevValImprv as number) ?? null,
+      totalValue: (attrs.currValAppraised as number) ?? (attrs.prevValAppraised as number) ?? null,
+      taxYear:
+        (attrs.currValYear as number) ??
+        (attrs.prevValYear as number) ??
+        (attrs.propYear as number) ??
+        null,
+    }),
+  },
+  {
+    cad: "Montgomery Central Appraisal District",
+    url: "https://services1.arcgis.com/PRoAPGnMSUqvTrzq/arcgis/rest/services/Tax_Parcel_view/FeatureServer/0/query",
+    idField: "PIN",
+    mode: "quoted",
+    outFields: "ownerName,situs,legalDescription,PIN",
+    mapRow: (attrs) => ({
+      ownerName: (attrs.ownerName as string) ?? null,
+      propertyAddress: (attrs.situs as string) ?? "",
+      cad: "Montgomery Central Appraisal District",
+      accountNumber: attrs.PIN != null ? String(attrs.PIN) : null,
+      propertyType: "Not published by county",
+      landValue: null,
+      improvementValue: null,
+      totalValue: null,
+      taxYear: null,
+    }),
+  },
+  {
+    cad: "Denton Central Appraisal District",
+    url: "https://gis.dentoncounty.gov/arcgis/rest/services/Parcels_FC/MapServer/0/query",
+    idField: "pid",
+    mode: "numeric",
+    outFields:
+      "name,situs_full_address,landHSValue,landNHSValue,improvementValue,ownerMarketValue,pid,pYear,propType,stateCodes",
+    mapRow: (attrs) => ({
+      ownerName: (attrs.name as string)?.trim() || null,
+      propertyAddress: (attrs.situs_full_address as string | null)?.trim() || "",
+      cad: "Denton Central Appraisal District",
+      accountNumber: attrs.pid != null ? String(attrs.pid) : null,
+      propertyType:
+        (attrs.stateCodes as string)?.trim() || (attrs.propType as string)?.trim() || null,
+      landValue:
+        (parseMoneyField(attrs.landHSValue) ?? 0) + (parseMoneyField(attrs.landNHSValue) ?? 0),
+      improvementValue: parseMoneyField(attrs.improvementValue),
+      totalValue: parseMoneyField(attrs.ownerMarketValue),
+      taxYear: attrs.pYear != null ? parseInt(String(attrs.pYear), 10) : null,
+    }),
+  },
+  {
+    cad: "Harris Central Appraisal District",
+    url: "https://www.gis.hctx.net/arcgis/rest/services/HCAD/Parcels/MapServer/0/query",
+    idField: "acct_num",
+    mode: "quoted",
+    outFields:
+      "owner_name_1,site_str_num,site_str_pfx,site_str_name,site_str_sfx,site_city,land_value,bld_value,total_appraised_val,acct_num,tax_year",
+    mapRow: (attrs) => {
+      const streetParts = [
+        attrs.site_str_num,
+        attrs.site_str_pfx,
+        attrs.site_str_name,
+        attrs.site_str_sfx,
+      ]
+        .map((v) => (typeof v === "string" ? v.trim() : v))
+        .filter(Boolean)
+        .join(" ");
+      return {
+        ownerName: (attrs.owner_name_1 as string) ?? null,
+        propertyAddress: streetParts
+          ? attrs.site_city
+            ? `${streetParts}, ${attrs.site_city}`
+            : streetParts
+          : "",
+        cad: "Harris Central Appraisal District",
+        accountNumber: (attrs.acct_num as string) ?? null,
+        propertyType: null,
+        landValue: parseMoneyField(attrs.land_value),
+        improvementValue: parseMoneyField(attrs.bld_value),
+        totalValue: parseMoneyField(attrs.total_appraised_val),
+        taxYear: attrs.tax_year != null ? parseInt(String(attrs.tax_year), 10) : null,
+      };
+    },
+  },
+  {
+    cad: "Tarrant Appraisal District",
+    url: "https://tad.newedgeservices.com/arcgis/rest/services/OD_TAD/OD_ParcelView/MapServer/0/query",
+    idField: "Account_Nu",
+    mode: "quoted",
+    outFields:
+      "Owner_Name,Situs_Addr,City,Land_Value,Improvemen,Total_Valu,Appraised_,Account_Nu,Property_C",
+    mapRow: (attrs) => {
+      const situsAddr = (attrs.Situs_Addr as string | null)?.trim();
+      const cityName = TARRANT_CITY_CODES[(attrs.City as string)?.trim()] ?? null;
+      return {
+        ownerName: (attrs.Owner_Name as string) ?? null,
+        propertyAddress: situsAddr ? (cityName ? `${situsAddr}, ${cityName}` : situsAddr) : "",
+        cad: "Tarrant Appraisal District",
+        accountNumber: (attrs.Account_Nu as string)?.trim() || null,
+        propertyType: (attrs.Property_C as string)?.trim() || null,
+        landValue: parseMoneyField(attrs.Land_Value),
+        improvementValue: parseMoneyField(attrs.Improvemen),
+        totalValue: parseMoneyField(attrs.Appraised_ ?? attrs.Total_Valu),
+        taxYear: null,
+      };
+    },
+  },
+  {
+    cad: "Fort Bend Central Appraisal District",
+    url: "https://services2.arcgis.com/D4saGHECICkCeoJm/arcgis/rest/services/FBCAD_Public_Data/FeatureServer/0/query",
+    idField: "PROPNUMBER",
+    mode: "quoted",
+    outFields: "OWNERNAME,SITUS,LANDVALUE,IMPVALUE,TOTALVALUE,PROPNUMBER,Building_Class",
+    mapRow: (attrs) => ({
+      ownerName: (attrs.OWNERNAME as string) ?? null,
+      propertyAddress: (attrs.SITUS as string)?.trim() || "",
+      cad: "Fort Bend Central Appraisal District",
+      accountNumber: (attrs.PROPNUMBER as string) ?? null,
+      propertyType: (attrs.Building_Class as string) ?? null,
+      landValue: parseMoneyField(attrs.LANDVALUE),
+      improvementValue: parseMoneyField(attrs.IMPVALUE),
+      totalValue: parseMoneyField(attrs.TOTALVALUE),
+      taxYear: null,
+    }),
+  },
+  {
+    cad: "Williamson Central Appraisal District",
+    url: "https://services1.arcgis.com/Xff0bbfp6vwIWmlU/arcgis/rest/services/WCAD_Tax_Parcels/FeatureServer/0/query",
+    idField: "PARCELID",
+    mode: "quoted",
+    outFields: "OWNERNME1,SITEADDRESS,LNDVALUE,CNTASSDVAL,PARCELID,CLASSDSCRP",
+    mapRow: (attrs) => ({
+      ownerName: (attrs.OWNERNME1 as string) ?? null,
+      propertyAddress: (attrs.SITEADDRESS as string)?.trim() || "",
+      cad: "Williamson Central Appraisal District",
+      accountNumber: (attrs.PARCELID as string) ?? null,
+      propertyType: (attrs.CLASSDSCRP as string) ?? null,
+      landValue: parseMoneyField(attrs.LNDVALUE),
+      improvementValue: null,
+      totalValue: parseMoneyField(attrs.CNTASSDVAL),
+      taxYear: null,
+    }),
+  },
+  {
+    cad: "Grayson Central Appraisal District",
+    url: "https://services1.arcgis.com/EVxyUkKpll765a5X/arcgis/rest/services/Grayson_Appraisal_Parcel_Map_WFL1/FeatureServer/13/query",
+    idField: "PropertyNumber",
+    mode: "quoted",
+    outFields:
+      "OwnerName,SitusNumber,SitusStreetPrefix,SitusStreet,SitusStreetSufix,SitusCity,LandValue,ImprovementValue,MarketValue,PropertyNumber,Year",
+    mapRow: (attrs) => {
+      const streetParts = [
+        attrs.SitusNumber,
+        attrs.SitusStreetPrefix,
+        attrs.SitusStreet,
+        attrs.SitusStreetSufix,
+      ]
+        .map((v) => (typeof v === "string" ? v.trim() : v))
+        .filter(Boolean)
+        .join(" ");
+      return {
+        ownerName: (attrs.OwnerName as string) ?? null,
+        propertyAddress: streetParts
+          ? attrs.SitusCity
+            ? `${streetParts}, ${attrs.SitusCity}`
+            : streetParts
+          : "",
+        cad: "Grayson Central Appraisal District",
+        accountNumber: attrs.PropertyNumber != null ? String(attrs.PropertyNumber) : null,
+        propertyType: null,
+        landValue: parseMoneyField(attrs.LandValue),
+        improvementValue: parseMoneyField(attrs.ImprovementValue),
+        totalValue: parseMoneyField(attrs.MarketValue),
+        taxYear: attrs.Year != null ? parseInt(String(attrs.Year), 10) : null,
+      };
+    },
+  },
+  {
+    cad: "Travis Central Appraisal District",
+    url: "https://gis.traviscountytx.gov/server1/rest/services/Boundaries_and_Jurisdictions/TCAD_public/MapServer/0/query",
+    idField: "PROP_ID",
+    mode: "numeric",
+    outFields: "situs_num,situs_street_prefx,situs_street,situs_street_suffix,situs_city,PROP_ID",
+    mapRow: (attrs) => {
+      const streetParts = [
+        attrs.situs_num,
+        attrs.situs_street_prefx,
+        attrs.situs_street,
+        attrs.situs_street_suffix,
+      ]
+        .filter(Boolean)
+        .join(" ");
+      return {
+        ownerName: null,
+        propertyAddress: streetParts
+          ? attrs.situs_city
+            ? `${streetParts}, ${attrs.situs_city}`
+            : streetParts
+          : "",
+        cad: "Travis Central Appraisal District",
+        accountNumber: attrs.PROP_ID != null ? String(attrs.PROP_ID) : null,
+        propertyType: "Not published by county",
+        landValue: null,
+        improvementValue: null,
+        totalValue: null,
+        taxYear: null,
+      };
+    },
+  },
+  {
+    cad: "Bexar Appraisal District",
+    url: "https://maps.bcad.org/arcgis/rest/services/PAMapSearch/MapServer/6/query",
+    idField: BCAD_FIELDS.propId,
+    mode: "quoted",
+    outFields: Object.values(BCAD_FIELDS).join(","),
+    mapRow: (attrs) => ({
+      ownerName: (attrs[BCAD_FIELDS.owner] as string)?.trim() || null,
+      propertyAddress: (attrs[BCAD_FIELDS.situs] as string)?.trim() || "",
+      cad: "Bexar Appraisal District",
+      accountNumber: attrs[BCAD_FIELDS.propId] != null ? String(attrs[BCAD_FIELDS.propId]) : null,
+      propertyType: (attrs[BCAD_FIELDS.propType] as string)?.trim() || null,
+      landValue: null,
+      improvementValue: null,
+      totalValue: parseDollarString(attrs[BCAD_FIELDS.appraisedVal]),
+      taxYear: attrs[BCAD_FIELDS.taxYear] != null ? Number(attrs[BCAD_FIELDS.taxYear]) : null,
+    }),
+  },
+  {
+    cad: "Dallas Central Appraisal District",
+    url: "https://services3.arcgis.com/zqe2kwz79KUqUvxC/arcgis/rest/services/DCAD_PARCELS/FeatureServer/0/query",
+    idField: "ACCOUNT_NUM",
+    mode: "quoted",
+    outFields: "OWNER_NAME1,SiteAddress,PROPERTY_CITY,PROPERTY_ZIPCODE,ACCOUNT_NUM,APPRAISAL_YR",
+    mapRow: (attrs) => {
+      const site = (attrs.SiteAddress as string)?.trim();
+      const city = (attrs.PROPERTY_CITY as string)?.trim().replace(/\s*\([^)]*\)\s*$/, "");
+      const zip9 = attrs.PROPERTY_ZIPCODE != null ? String(attrs.PROPERTY_ZIPCODE) : null;
+      const zip = zip9 && zip9.length >= 5 ? `${zip9.slice(0, 5)}-${zip9.slice(5)}` : zip9;
+      return {
+        ownerName: (attrs.OWNER_NAME1 as string)?.trim() || null,
+        propertyAddress: site && city ? `${site}, ${city}, TX${zip ? ` ${zip}` : ""}` : site || "",
+        cad: "Dallas Central Appraisal District",
+        accountNumber: (attrs.ACCOUNT_NUM as string)?.trim() || null,
+        propertyType: null,
+        landValue: null,
+        improvementValue: null,
+        totalValue: null,
+        taxYear: attrs.APPRAISAL_YR != null ? Number(attrs.APPRAISAL_YR) : null,
+      };
+    },
+  },
+];
+
+async function queryArcgisAccount(
+  config: ArcgisAccountConfig,
+  accountNumber: string,
+): Promise<CadRecord | null> {
+  let where: string;
+  if (config.mode === "numeric") {
+    // Only Denton and Travis (see the long comment above) — never build an
+    // unquoted numeric SQL fragment from unvalidated input.
+    if (!/^\d+$/.test(accountNumber)) return null;
+    where = `${config.idField} = ${accountNumber}`;
+  } else {
+    where = `UPPER(${config.idField}) = UPPER('${escapeSqlString(accountNumber)}')`;
+  }
+  const url =
+    `${config.url}?where=${encodeURIComponent(where)}` +
+    `&outFields=${config.outFields}&returnGeometry=false&f=json`;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const json = (await res.json()) as {
+      features?: Array<{ attributes: Record<string, string | number | null> }>;
+    };
+    const attrs = json.features?.[0]?.attributes;
+    return attrs ? config.mapRow(attrs) : null;
+  } catch {
+    return null;
+  }
+}
+
+// Kaufman has no ArcGIS layer at all (see queryKaufman above) — same BIS
+// search endpoint, just keyed by account number instead of street/house.
+async function queryKaufmanByAccount(accountNumber: string): Promise<CadRecord | null> {
+  try {
+    const rows = await fetchBisResults(
+      "esearch.kaufman-cad.org",
+      true,
+      `PropertyId:${accountNumber}`,
+    );
+    const r = rows.find((row) => String(row.propertyId) === accountNumber) ?? rows[0];
+    if (!r) return null;
+    const neighborhoodCode = (r.neighborhoodCode as string)?.trim();
+    const propertyTypeCode = (r.propertyTypeCode as string)?.trim();
+    const percentOwnership =
+      typeof r.percentOwnership === "string" ? r.percentOwnership.replace("%", "") : null;
+    return {
+      ownerName: (r.ownerName as string)?.trim() || null,
+      propertyAddress: (r.address as string)?.trim() || "",
+      cad: "Kaufman Central Appraisal District",
+      accountNumber: r.propertyId != null ? String(r.propertyId) : null,
+      propertyType: neighborhoodCode || propertyTypeCode || null,
+      landValue: null,
+      improvementValue: null,
+      totalValue: typeof r.appraisedValue === "number" ? r.appraisedValue : null,
+      taxYear: typeof r.year === "number" ? r.year : null,
+      legalDescription: (r.legalDescription as string)?.trim() || null,
+      subdivision: (r.subdivision as string)?.trim() || null,
+      geoId: (r.geoId as string)?.trim() || null,
+      ownershipPct: percentOwnership ? parseFloat(percentOwnership) : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+// The single entry point intake.tsx's manual "enter account number and
+// county" flow calls, via Deno.serve's `{cad, accountNumber}` request shape
+// below — never invented UI text, `cad` is always one of SUPPORTED_COUNTY_NAMES'
+// full names the client's own dropdown offers (see cad-record-url.ts).
+async function queryByAccountNumber(cad: string, accountNumber: string): Promise<CadRecord | null> {
+  const trimmed = accountNumber.trim();
+  if (!trimmed) return null;
+  if (cad === "Kaufman Central Appraisal District") return queryKaufmanByAccount(trimmed);
+  const config = ARCGIS_ACCOUNT_LOOKUP.find((c) => c.cad === cad);
+  if (!config) return null;
+  const record = await queryArcgisAccount(config, trimmed);
+  return record ? await enrichRecord(record) : null;
 }
 
 // --- Enrichment (Phase 5, 2026-07-27) ---------------------------------------
@@ -1536,7 +2028,20 @@ const NEARBY_QUERY_TIMEOUT_MS = 10000;
 // plain exact-match "900 Willowwood St" query took 97+ seconds this way. A
 // bit more generous than the nearby timeout since a real exact match is
 // worth waiting a little longer for than an optional suggestion is.
-const EXACT_QUERY_TIMEOUT_MS = 10000;
+//
+// Bumped 10000 -> 15000 on 2026-09-03 chasing a real, genuinely flaky report
+// ("705 Hwy 352, Mesquite" — correctly resolved to "multiple" on some
+// attempts, silently fell through to an unrelated nearby list on others,
+// confirmed by calling the live endpoint 3 times in a row). Timed every
+// individual county's own real query for this address directly: none were
+// pathologically slow on their own (Tarrant alone ~5s, everything else
+// under 1.2s), but real network variance getting to each county's own
+// endpoint pushed the TOTAL exact sweep (bounded by whichever one county is
+// slowest on a given attempt, not their sum) past the old 10000ms often
+// enough to matter — this is ordinary latency jitter, not a specific bad
+// county the way the nearby-timeout bump above was. More headroom, not a
+// county-specific fix.
+const EXACT_QUERY_TIMEOUT_MS = 15000;
 
 function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
   return Promise.race([
@@ -1622,7 +2127,20 @@ Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   try {
-    const { address: rawAddress } = await req.json();
+    const body = await req.json();
+
+    // Manual account-number lookup (see queryByAccountNumber's own comment)
+    // — a completely separate request shape from the address flow below,
+    // checked first so it never touches address parsing at all.
+    if (typeof body.accountNumber === "string" && typeof body.cad === "string") {
+      const record = await queryByAccountNumber(body.cad, body.accountNumber);
+      return new Response(JSON.stringify({ matched: Boolean(record), record: record ?? null }), {
+        status: 200,
+        headers: corsHeaders,
+      });
+    }
+
+    const rawAddress = body.address;
     if (!rawAddress || typeof rawAddress !== "string") {
       return new Response(JSON.stringify({ error: "address is required" }), {
         status: 400,
@@ -1698,7 +2216,22 @@ Deno.serve(async (req: Request) => {
     // back to priority order (still needed for Tarrant, whose source has no city
     // field at all, and any other candidate where this can't be determined).
     let record: CadRecord | null = null;
-    if (cityGuess) {
+    // The city check below exists ONLY to disambiguate a genuine cross-county
+    // collision (see the comment above `candidates` — same house number +
+    // generic street word, coincidentally real in two DIFFERENT counties).
+    // Found live 2026-09-03 chasing a real report ("28324 Leslie Pfeiffer Dr,
+    // Fair Oaks Ranch" — a real, correctly-matched Bexar record whose OWN
+    // situs data says "FAIR OAKS", not "FAIR OAKS RANCH"): requiring the
+    // user's exact typed city as a substring was silently discarding the
+    // ONLY real candidate whenever a county's own city spelling differs even
+    // slightly from what the user typed (a colloquial/older name, a missing
+    // "Ranch"/"Heights"/etc. suffix) — there was never any actual ambiguity
+    // to resolve, since every candidate came from the same single county.
+    // Only apply the strict city match when candidates genuinely span more
+    // than one distinct CAD; a single-source result set is exactly as safe
+    // to take directly as the original `cityGuess`-empty case already did.
+    const distinctCads = new Set(candidates.map((c) => c.cad)).size;
+    if (cityGuess && distinctCads > 1) {
       record =
         candidates.find((c) => c.propertyAddress.toUpperCase().includes(cityGuess.toUpperCase())) ??
         null;
