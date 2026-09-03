@@ -1089,6 +1089,390 @@ async function queryKaufman(address: string, mode: QueryMode = "exact"): Promise
   }
 }
 
+// --- Direct account-number lookup (Phase 8, 2026-09-03) --------------------
+// A user who can't find their property in the address/nearby results (a
+// genuinely common real case — a bare-road commercial address with no house
+// number in the county's own data has several unrelated real accounts, see
+// texas_cad_data_sources memory's "PINNACLE MONTESSORI FRANCHISE COMPANY on
+// FM 1957" case) can instead type the account/parcel number straight off
+// their own appraisal notice, plus which county it's in. This bypasses
+// address parsing entirely — a single exact `field = value` match against
+// the SAME real per-county source each queryX above already uses, never a
+// second/different data source.
+//
+// Every county's ID field is filtered as `UPPER(field) = UPPER('value')`
+// EXCEPT Denton and Travis, confirmed live 2026-09-03 that both specifically
+// error ("Unable to complete operation") on that form against their own real
+// numeric-typed ID field (pid / PROP_ID) — every other county's numeric
+// field (Collin's PROP_ID, Montgomery's PIN, Travis's own situs fields
+// elsewhere in this file) tolerates UPPER() fine, so this isn't a numeric-
+// vs-string rule, just two specific backends' own SQL dialect being pickier.
+// Those two use a plain unquoted `field = 123` instead — gated on the input
+// actually being all-digits first (returns no match rather than ever
+// building an unquoted clause from unvalidated input, an injection risk).
+type AccountFieldMode = "quoted" | "numeric";
+
+type ArcgisAccountConfig = {
+  cad: string;
+  url: string;
+  idField: string;
+  mode: AccountFieldMode;
+  outFields: string;
+  mapRow: (attrs: Record<string, string | number | null>) => CadRecord;
+};
+
+function escapeSqlString(s: string): string {
+  return s.replace(/'/g, "''");
+}
+
+const ARCGIS_ACCOUNT_LOOKUP: ArcgisAccountConfig[] = [
+  {
+    cad: "Collin Central Appraisal District",
+    url: "https://services2.arcgis.com/uXyoacYrZTPTKD3R/ArcGIS/rest/services/CCAD_Parcel_Feature_Set/FeatureServer/4/query",
+    idField: "PROP_ID",
+    mode: "quoted",
+    outFields:
+      "ownerName,situsConcat,currValLand,currValImprv,currValAppraised,currValYear,prevValLand,prevValImprv,prevValAppraised,prevValYear,PROP_ID,propType,propSubType,propCategoryCode,propYear",
+    mapRow: (attrs) => ({
+      ownerName: (attrs.ownerName as string) ?? null,
+      propertyAddress: (attrs.situsConcat as string) ?? "",
+      cad: "Collin Central Appraisal District",
+      accountNumber: attrs.PROP_ID != null ? String(attrs.PROP_ID) : null,
+      propertyType:
+        (attrs.propSubType as string)?.trim() ||
+        (attrs.propCategoryCode as string)?.trim() ||
+        (attrs.propType as string)?.trim() ||
+        null,
+      landValue: (attrs.currValLand as number) ?? (attrs.prevValLand as number) ?? null,
+      improvementValue: (attrs.currValImprv as number) ?? (attrs.prevValImprv as number) ?? null,
+      totalValue: (attrs.currValAppraised as number) ?? (attrs.prevValAppraised as number) ?? null,
+      taxYear:
+        (attrs.currValYear as number) ??
+        (attrs.prevValYear as number) ??
+        (attrs.propYear as number) ??
+        null,
+    }),
+  },
+  {
+    cad: "Montgomery Central Appraisal District",
+    url: "https://services1.arcgis.com/PRoAPGnMSUqvTrzq/arcgis/rest/services/Tax_Parcel_view/FeatureServer/0/query",
+    idField: "PIN",
+    mode: "quoted",
+    outFields: "ownerName,situs,legalDescription,PIN",
+    mapRow: (attrs) => ({
+      ownerName: (attrs.ownerName as string) ?? null,
+      propertyAddress: (attrs.situs as string) ?? "",
+      cad: "Montgomery Central Appraisal District",
+      accountNumber: attrs.PIN != null ? String(attrs.PIN) : null,
+      propertyType: "Not published by county",
+      landValue: null,
+      improvementValue: null,
+      totalValue: null,
+      taxYear: null,
+    }),
+  },
+  {
+    cad: "Denton Central Appraisal District",
+    url: "https://gis.dentoncounty.gov/arcgis/rest/services/Parcels_FC/MapServer/0/query",
+    idField: "pid",
+    mode: "numeric",
+    outFields:
+      "name,situs_full_address,landHSValue,landNHSValue,improvementValue,ownerMarketValue,pid,pYear,propType,stateCodes",
+    mapRow: (attrs) => ({
+      ownerName: (attrs.name as string)?.trim() || null,
+      propertyAddress: (attrs.situs_full_address as string | null)?.trim() || "",
+      cad: "Denton Central Appraisal District",
+      accountNumber: attrs.pid != null ? String(attrs.pid) : null,
+      propertyType:
+        (attrs.stateCodes as string)?.trim() || (attrs.propType as string)?.trim() || null,
+      landValue:
+        (parseMoneyField(attrs.landHSValue) ?? 0) + (parseMoneyField(attrs.landNHSValue) ?? 0),
+      improvementValue: parseMoneyField(attrs.improvementValue),
+      totalValue: parseMoneyField(attrs.ownerMarketValue),
+      taxYear: attrs.pYear != null ? parseInt(String(attrs.pYear), 10) : null,
+    }),
+  },
+  {
+    cad: "Harris Central Appraisal District",
+    url: "https://www.gis.hctx.net/arcgis/rest/services/HCAD/Parcels/MapServer/0/query",
+    idField: "acct_num",
+    mode: "quoted",
+    outFields:
+      "owner_name_1,site_str_num,site_str_pfx,site_str_name,site_str_sfx,site_city,land_value,bld_value,total_appraised_val,acct_num,tax_year",
+    mapRow: (attrs) => {
+      const streetParts = [
+        attrs.site_str_num,
+        attrs.site_str_pfx,
+        attrs.site_str_name,
+        attrs.site_str_sfx,
+      ]
+        .map((v) => (typeof v === "string" ? v.trim() : v))
+        .filter(Boolean)
+        .join(" ");
+      return {
+        ownerName: (attrs.owner_name_1 as string) ?? null,
+        propertyAddress: streetParts
+          ? attrs.site_city
+            ? `${streetParts}, ${attrs.site_city}`
+            : streetParts
+          : "",
+        cad: "Harris Central Appraisal District",
+        accountNumber: (attrs.acct_num as string) ?? null,
+        propertyType: null,
+        landValue: parseMoneyField(attrs.land_value),
+        improvementValue: parseMoneyField(attrs.bld_value),
+        totalValue: parseMoneyField(attrs.total_appraised_val),
+        taxYear: attrs.tax_year != null ? parseInt(String(attrs.tax_year), 10) : null,
+      };
+    },
+  },
+  {
+    cad: "Tarrant Appraisal District",
+    url: "https://tad.newedgeservices.com/arcgis/rest/services/OD_TAD/OD_ParcelView/MapServer/0/query",
+    idField: "Account_Nu",
+    mode: "quoted",
+    outFields:
+      "Owner_Name,Situs_Addr,City,Land_Value,Improvemen,Total_Valu,Appraised_,Account_Nu,Property_C",
+    mapRow: (attrs) => {
+      const situsAddr = (attrs.Situs_Addr as string | null)?.trim();
+      const cityName = TARRANT_CITY_CODES[(attrs.City as string)?.trim()] ?? null;
+      return {
+        ownerName: (attrs.Owner_Name as string) ?? null,
+        propertyAddress: situsAddr ? (cityName ? `${situsAddr}, ${cityName}` : situsAddr) : "",
+        cad: "Tarrant Appraisal District",
+        accountNumber: (attrs.Account_Nu as string)?.trim() || null,
+        propertyType: (attrs.Property_C as string)?.trim() || null,
+        landValue: parseMoneyField(attrs.Land_Value),
+        improvementValue: parseMoneyField(attrs.Improvemen),
+        totalValue: parseMoneyField(attrs.Appraised_ ?? attrs.Total_Valu),
+        taxYear: null,
+      };
+    },
+  },
+  {
+    cad: "Fort Bend Central Appraisal District",
+    url: "https://services2.arcgis.com/D4saGHECICkCeoJm/arcgis/rest/services/FBCAD_Public_Data/FeatureServer/0/query",
+    idField: "PROPNUMBER",
+    mode: "quoted",
+    outFields: "OWNERNAME,SITUS,LANDVALUE,IMPVALUE,TOTALVALUE,PROPNUMBER,Building_Class",
+    mapRow: (attrs) => ({
+      ownerName: (attrs.OWNERNAME as string) ?? null,
+      propertyAddress: (attrs.SITUS as string)?.trim() || "",
+      cad: "Fort Bend Central Appraisal District",
+      accountNumber: (attrs.PROPNUMBER as string) ?? null,
+      propertyType: (attrs.Building_Class as string) ?? null,
+      landValue: parseMoneyField(attrs.LANDVALUE),
+      improvementValue: parseMoneyField(attrs.IMPVALUE),
+      totalValue: parseMoneyField(attrs.TOTALVALUE),
+      taxYear: null,
+    }),
+  },
+  {
+    cad: "Williamson Central Appraisal District",
+    url: "https://services1.arcgis.com/Xff0bbfp6vwIWmlU/arcgis/rest/services/WCAD_Tax_Parcels/FeatureServer/0/query",
+    idField: "PARCELID",
+    mode: "quoted",
+    outFields: "OWNERNME1,SITEADDRESS,LNDVALUE,CNTASSDVAL,PARCELID,CLASSDSCRP",
+    mapRow: (attrs) => ({
+      ownerName: (attrs.OWNERNME1 as string) ?? null,
+      propertyAddress: (attrs.SITEADDRESS as string)?.trim() || "",
+      cad: "Williamson Central Appraisal District",
+      accountNumber: (attrs.PARCELID as string) ?? null,
+      propertyType: (attrs.CLASSDSCRP as string) ?? null,
+      landValue: parseMoneyField(attrs.LNDVALUE),
+      improvementValue: null,
+      totalValue: parseMoneyField(attrs.CNTASSDVAL),
+      taxYear: null,
+    }),
+  },
+  {
+    cad: "Grayson Central Appraisal District",
+    url: "https://services1.arcgis.com/EVxyUkKpll765a5X/arcgis/rest/services/Grayson_Appraisal_Parcel_Map_WFL1/FeatureServer/13/query",
+    idField: "PropertyNumber",
+    mode: "quoted",
+    outFields:
+      "OwnerName,SitusNumber,SitusStreetPrefix,SitusStreet,SitusStreetSufix,SitusCity,LandValue,ImprovementValue,MarketValue,PropertyNumber,Year",
+    mapRow: (attrs) => {
+      const streetParts = [
+        attrs.SitusNumber,
+        attrs.SitusStreetPrefix,
+        attrs.SitusStreet,
+        attrs.SitusStreetSufix,
+      ]
+        .map((v) => (typeof v === "string" ? v.trim() : v))
+        .filter(Boolean)
+        .join(" ");
+      return {
+        ownerName: (attrs.OwnerName as string) ?? null,
+        propertyAddress: streetParts
+          ? attrs.SitusCity
+            ? `${streetParts}, ${attrs.SitusCity}`
+            : streetParts
+          : "",
+        cad: "Grayson Central Appraisal District",
+        accountNumber: attrs.PropertyNumber != null ? String(attrs.PropertyNumber) : null,
+        propertyType: null,
+        landValue: parseMoneyField(attrs.LandValue),
+        improvementValue: parseMoneyField(attrs.ImprovementValue),
+        totalValue: parseMoneyField(attrs.MarketValue),
+        taxYear: attrs.Year != null ? parseInt(String(attrs.Year), 10) : null,
+      };
+    },
+  },
+  {
+    cad: "Travis Central Appraisal District",
+    url: "https://gis.traviscountytx.gov/server1/rest/services/Boundaries_and_Jurisdictions/TCAD_public/MapServer/0/query",
+    idField: "PROP_ID",
+    mode: "numeric",
+    outFields: "situs_num,situs_street_prefx,situs_street,situs_street_suffix,situs_city,PROP_ID",
+    mapRow: (attrs) => {
+      const streetParts = [
+        attrs.situs_num,
+        attrs.situs_street_prefx,
+        attrs.situs_street,
+        attrs.situs_street_suffix,
+      ]
+        .filter(Boolean)
+        .join(" ");
+      return {
+        ownerName: null,
+        propertyAddress: streetParts
+          ? attrs.situs_city
+            ? `${streetParts}, ${attrs.situs_city}`
+            : streetParts
+          : "",
+        cad: "Travis Central Appraisal District",
+        accountNumber: attrs.PROP_ID != null ? String(attrs.PROP_ID) : null,
+        propertyType: "Not published by county",
+        landValue: null,
+        improvementValue: null,
+        totalValue: null,
+        taxYear: null,
+      };
+    },
+  },
+  {
+    cad: "Bexar Appraisal District",
+    url: "https://maps.bcad.org/arcgis/rest/services/PAMapSearch/MapServer/6/query",
+    idField: BCAD_FIELDS.propId,
+    mode: "quoted",
+    outFields: Object.values(BCAD_FIELDS).join(","),
+    mapRow: (attrs) => ({
+      ownerName: (attrs[BCAD_FIELDS.owner] as string)?.trim() || null,
+      propertyAddress: (attrs[BCAD_FIELDS.situs] as string)?.trim() || "",
+      cad: "Bexar Appraisal District",
+      accountNumber: attrs[BCAD_FIELDS.propId] != null ? String(attrs[BCAD_FIELDS.propId]) : null,
+      propertyType: (attrs[BCAD_FIELDS.propType] as string)?.trim() || null,
+      landValue: null,
+      improvementValue: null,
+      totalValue: parseDollarString(attrs[BCAD_FIELDS.appraisedVal]),
+      taxYear: attrs[BCAD_FIELDS.taxYear] != null ? Number(attrs[BCAD_FIELDS.taxYear]) : null,
+    }),
+  },
+  {
+    cad: "Dallas Central Appraisal District",
+    url: "https://services3.arcgis.com/zqe2kwz79KUqUvxC/arcgis/rest/services/DCAD_PARCELS/FeatureServer/0/query",
+    idField: "ACCOUNT_NUM",
+    mode: "quoted",
+    outFields: "OWNER_NAME1,SiteAddress,PROPERTY_CITY,PROPERTY_ZIPCODE,ACCOUNT_NUM,APPRAISAL_YR",
+    mapRow: (attrs) => {
+      const site = (attrs.SiteAddress as string)?.trim();
+      const city = (attrs.PROPERTY_CITY as string)?.trim().replace(/\s*\([^)]*\)\s*$/, "");
+      const zip9 = attrs.PROPERTY_ZIPCODE != null ? String(attrs.PROPERTY_ZIPCODE) : null;
+      const zip = zip9 && zip9.length >= 5 ? `${zip9.slice(0, 5)}-${zip9.slice(5)}` : zip9;
+      return {
+        ownerName: (attrs.OWNER_NAME1 as string)?.trim() || null,
+        propertyAddress: site && city ? `${site}, ${city}, TX${zip ? ` ${zip}` : ""}` : site || "",
+        cad: "Dallas Central Appraisal District",
+        accountNumber: (attrs.ACCOUNT_NUM as string)?.trim() || null,
+        propertyType: null,
+        landValue: null,
+        improvementValue: null,
+        totalValue: null,
+        taxYear: attrs.APPRAISAL_YR != null ? Number(attrs.APPRAISAL_YR) : null,
+      };
+    },
+  },
+];
+
+async function queryArcgisAccount(
+  config: ArcgisAccountConfig,
+  accountNumber: string,
+): Promise<CadRecord | null> {
+  let where: string;
+  if (config.mode === "numeric") {
+    // Only Denton and Travis (see the long comment above) — never build an
+    // unquoted numeric SQL fragment from unvalidated input.
+    if (!/^\d+$/.test(accountNumber)) return null;
+    where = `${config.idField} = ${accountNumber}`;
+  } else {
+    where = `UPPER(${config.idField}) = UPPER('${escapeSqlString(accountNumber)}')`;
+  }
+  const url =
+    `${config.url}?where=${encodeURIComponent(where)}` +
+    `&outFields=${config.outFields}&returnGeometry=false&f=json`;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const json = (await res.json()) as {
+      features?: Array<{ attributes: Record<string, string | number | null> }>;
+    };
+    const attrs = json.features?.[0]?.attributes;
+    return attrs ? config.mapRow(attrs) : null;
+  } catch {
+    return null;
+  }
+}
+
+// Kaufman has no ArcGIS layer at all (see queryKaufman above) — same BIS
+// search endpoint, just keyed by account number instead of street/house.
+async function queryKaufmanByAccount(accountNumber: string): Promise<CadRecord | null> {
+  try {
+    const rows = await fetchBisResults(
+      "esearch.kaufman-cad.org",
+      true,
+      `PropertyId:${accountNumber}`,
+    );
+    const r = rows.find((row) => String(row.propertyId) === accountNumber) ?? rows[0];
+    if (!r) return null;
+    const neighborhoodCode = (r.neighborhoodCode as string)?.trim();
+    const propertyTypeCode = (r.propertyTypeCode as string)?.trim();
+    const percentOwnership =
+      typeof r.percentOwnership === "string" ? r.percentOwnership.replace("%", "") : null;
+    return {
+      ownerName: (r.ownerName as string)?.trim() || null,
+      propertyAddress: (r.address as string)?.trim() || "",
+      cad: "Kaufman Central Appraisal District",
+      accountNumber: r.propertyId != null ? String(r.propertyId) : null,
+      propertyType: neighborhoodCode || propertyTypeCode || null,
+      landValue: null,
+      improvementValue: null,
+      totalValue: typeof r.appraisedValue === "number" ? r.appraisedValue : null,
+      taxYear: typeof r.year === "number" ? r.year : null,
+      legalDescription: (r.legalDescription as string)?.trim() || null,
+      subdivision: (r.subdivision as string)?.trim() || null,
+      geoId: (r.geoId as string)?.trim() || null,
+      ownershipPct: percentOwnership ? parseFloat(percentOwnership) : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+// The single entry point intake.tsx's manual "enter account number and
+// county" flow calls, via Deno.serve's `{cad, accountNumber}` request shape
+// below — never invented UI text, `cad` is always one of SUPPORTED_COUNTY_NAMES'
+// full names the client's own dropdown offers (see cad-record-url.ts).
+async function queryByAccountNumber(cad: string, accountNumber: string): Promise<CadRecord | null> {
+  const trimmed = accountNumber.trim();
+  if (!trimmed) return null;
+  if (cad === "Kaufman Central Appraisal District") return queryKaufmanByAccount(trimmed);
+  const config = ARCGIS_ACCOUNT_LOOKUP.find((c) => c.cad === cad);
+  if (!config) return null;
+  const record = await queryArcgisAccount(config, trimmed);
+  return record ? await enrichRecord(record) : null;
+}
+
 // --- Enrichment (Phase 5, 2026-07-27) ---------------------------------------
 // Best-effort second call, made ONLY after a county's own primary query above has
 // already matched a record by address. Never used to find or select a property —
@@ -1622,7 +2006,20 @@ Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   try {
-    const { address: rawAddress } = await req.json();
+    const body = await req.json();
+
+    // Manual account-number lookup (see queryByAccountNumber's own comment)
+    // — a completely separate request shape from the address flow below,
+    // checked first so it never touches address parsing at all.
+    if (typeof body.accountNumber === "string" && typeof body.cad === "string") {
+      const record = await queryByAccountNumber(body.cad, body.accountNumber);
+      return new Response(JSON.stringify({ matched: Boolean(record), record: record ?? null }), {
+        status: 200,
+        headers: corsHeaders,
+      });
+    }
+
+    const rawAddress = body.address;
     if (!rawAddress || typeof rawAddress !== "string") {
       return new Response(JSON.stringify({ error: "address is required" }), {
         status: 400,

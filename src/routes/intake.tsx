@@ -10,6 +10,7 @@ import {
   getCadRecordUrl,
   isDirectCadRecordUrl,
   SUPPORTED_COUNTY_NAMES,
+  CAD_SEARCH_HOMEPAGE,
 } from "@/lib/cad-record-url";
 import { Modal } from "@/components/Modal";
 import {
@@ -21,7 +22,7 @@ import {
   type IntakeState,
   type PropertyKind,
 } from "@/lib/intake-store";
-import { cadLookup, type CadRecord } from "@/lib/cad-lookup";
+import { cadLookup, cadLookupByAccount, type CadRecord } from "@/lib/cad-lookup";
 import { classifyPropertyCategory } from "@/lib/texas-tax-rates";
 import { AddressAutocomplete } from "@/components/AddressAutocomplete";
 import { useAuth } from "@/lib/auth";
@@ -131,6 +132,17 @@ function Intake() {
   // means we don't even have an assessed value to estimate from yet (the
   // savings step is skipped straight to confirm in that case).
   const [savings, setSavings] = useState<SavingsEstimate>(null);
+  // "Didn't find your property?" fallback on the notfound step — a direct
+  // account/parcel-number lookup for one named county, bypassing address
+  // matching entirely. See queryByAccountNumber's own comment in the edge
+  // function for why this exists (a real, common case: a bare-road
+  // commercial address with no house number in the county's own data has
+  // several unrelated real accounts, none of which may be the right one).
+  const [manualLookupOpen, setManualLookupOpen] = useState(false);
+  const [manualLookupCad, setManualLookupCad] = useState("");
+  const [manualLookupAccount, setManualLookupAccount] = useState("");
+  const [manualLookupError, setManualLookupError] = useState<string | null>(null);
+  const [manualLookupLoading, setManualLookupLoading] = useState(false);
 
   useEffect(() => {
     const s = readIntake();
@@ -304,6 +316,54 @@ function Intake() {
     }
   }
 
+  // "Didn't find your property?" fallback — a direct account/parcel-number
+  // lookup for one named county, entirely separate from the address-search
+  // request cad-lookup's queryByAccountNumber handles it with no address
+  // parsing at all. The account-number-not-found case stays ON the modal
+  // (an error the user can immediately see and correct without losing their
+  // place) — but once a real record comes back, applyCadRecord's own
+  // failure needs the SAME fallback selectCadCandidate uses (back to
+  // "notfound", not an invisible error inside an already-closed modal).
+  async function runManualLookup() {
+    if (!manualLookupCad || !manualLookupAccount.trim()) return;
+    const requestId = ++requestIdRef.current;
+    setManualLookupLoading(true);
+    setManualLookupError(null);
+    let record: CadRecord | null;
+    try {
+      record = await cadLookupByAccount(manualLookupCad, manualLookupAccount.trim());
+    } catch (err) {
+      if (requestIdRef.current !== requestId) return;
+      console.error(err);
+      setManualLookupError(
+        err instanceof Error ? err.message : "Could not look up that account number right now.",
+      );
+      setManualLookupLoading(false);
+      return;
+    }
+    if (requestIdRef.current !== requestId) return;
+    setManualLookupLoading(false);
+    if (!record) {
+      setManualLookupError(
+        `No property found with that account number at ${manualLookupCad}. Double-check the number and county, then try again.`,
+      );
+      return;
+    }
+    setManualLookupOpen(false);
+    setManualLookupAccount("");
+    setStep("validating");
+    try {
+      await applyCadRecord(record, requestId);
+    } catch (err) {
+      if (requestIdRef.current !== requestId) return;
+      console.error(err);
+      const message =
+        err instanceof Error ? err.message : "Could not use this property. Please try again.";
+      toast.error(message);
+      setStep("notfound");
+    }
+  }
+
   // Bails out of an in-flight lookup — invalidates it (see requestIdRef
   // above) so its eventual response can never repaint the screen after the
   // user has already left, and returns straight to an editable address field
@@ -353,6 +413,65 @@ function Intake() {
   return (
     <div className={`container-page py-12 ${step === "confirm" ? "max-w-5xl" : "max-w-3xl"}`}>
       <Stepper step={step} />
+
+      {manualLookupOpen && (
+        <Modal
+          onClose={() => {
+            setManualLookupOpen(false);
+            setManualLookupError(null);
+          }}
+        >
+          <h2 className="font-serif text-xl font-semibold">Look up by account number</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Enter the account or parcel number from your appraisal notice and pick which county it's
+            in — we'll pull that exact record directly, no address needed.
+          </p>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              runManualLookup();
+            }}
+            className="mt-4 grid gap-3"
+          >
+            <label className="grid gap-1 text-sm">
+              <span className="font-medium">County / CAD</span>
+              <select
+                value={manualLookupCad}
+                onChange={(e) => setManualLookupCad(e.target.value)}
+                required
+                className="rounded-md border border-input bg-background px-3 py-2"
+              >
+                <option value="" disabled>
+                  Select a county…
+                </option>
+                {[...Object.keys(CAD_SEARCH_HOMEPAGE)].sort().map((cad) => (
+                  <option key={cad} value={cad}>
+                    {cad}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="grid gap-1 text-sm">
+              <span className="font-medium">Account / parcel number</span>
+              <input
+                value={manualLookupAccount}
+                onChange={(e) => setManualLookupAccount(e.target.value)}
+                placeholder="e.g. 1340123"
+                required
+                className="rounded-md border border-input bg-background px-3 py-2"
+              />
+            </label>
+            {manualLookupError && <p className="text-sm text-destructive">{manualLookupError}</p>}
+            <button
+              type="submit"
+              disabled={manualLookupLoading}
+              className="btn-primary btn-primary-hover mt-1 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {manualLookupLoading ? "Looking up…" : "Find my property"}
+            </button>
+          </form>
+        </Modal>
+      )}
 
       {unsupportedCounty && (
         <Modal onClose={() => setUnsupportedCounty(null)}>
@@ -576,6 +695,7 @@ function Intake() {
                         <div className="truncate text-sm font-semibold">{r.propertyAddress}</div>
                         <div className="text-xs text-muted-foreground">
                           {r.cad}
+                          {r.accountNumber && <> · Acct {r.accountNumber}</>}
                           {r.totalValue != null && <> · Assessed {currency(r.totalValue)}</>}
                         </div>
                       </div>
@@ -599,6 +719,14 @@ function Intake() {
                   );
                 })}
               </div>
+
+              <button
+                type="button"
+                onClick={() => setManualLookupOpen(true)}
+                className="mt-4 text-sm font-medium text-accent hover:underline"
+              >
+                Didn't find your property? Enter account number and county
+              </button>
             </div>
           )}
         </section>

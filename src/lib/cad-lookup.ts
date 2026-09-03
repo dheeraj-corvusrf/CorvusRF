@@ -68,3 +68,20 @@ export type CadLookupResult =
 export async function cadLookup(address: string): Promise<CadLookupResult> {
   return invokeEdgeFunction<CadLookupResult>("cad-lookup", { address });
 }
+
+// A direct, exact lookup by account/parcel number for a single named county —
+// bypasses address parsing entirely (see queryByAccountNumber's own comment
+// in the edge function). Used by the "Didn't find your property? Enter
+// account number and county" fallback on the address-search "not found" step.
+// No "nearby"/"multiple" branch here — an account number is either a real
+// exact match for that one county or it isn't.
+export async function cadLookupByAccount(
+  cad: string,
+  accountNumber: string,
+): Promise<CadRecord | null> {
+  const res = await invokeEdgeFunction<{ matched: boolean; record: CadRecord | null }>(
+    "cad-lookup",
+    { cad, accountNumber },
+  );
+  return res.matched ? res.record : null;
+}
