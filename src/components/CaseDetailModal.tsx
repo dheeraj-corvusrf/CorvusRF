@@ -161,6 +161,8 @@ export function CaseDetailModal({
             caseData={caseData}
             onUpdate={(patch) => setCurrent((prev) => ({ ...prev, ...patch }))}
           />
+
+          <NextStepFooter property={property} protest={current} caseData={caseData} />
         </>
       )}
 
@@ -229,6 +231,18 @@ function CorvusGuidanceGate({
   );
 }
 
+// Shared by CorvusGuidancePanel and NextStepFooter below — a GuidanceStep's
+// action.anchor is either a real element id already rendered by an existing
+// section (scroll to it) or a real external URL (open it), never a route
+// change or a new surface.
+function goToGuidanceAnchor(anchor: string) {
+  if (anchor.startsWith("http")) {
+    window.open(anchor, "_blank", "noopener,noreferrer");
+    return;
+  }
+  document.getElementById(anchor)?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
 // Ambient, ongoing guidance — purely additive, sits above the existing
 // sections on every visit once the notice above has been acknowledged for
 // this open. Every fact it shows comes from getCaseGuidance()'s
@@ -247,14 +261,6 @@ function CorvusGuidancePanel({
   const [countyOpen, setCountyOpen] = useState(false);
   const countyInfo = getCountyProtestInfo(property.cad);
   const guidance = getCaseGuidance(property, protest, caseData?.evidenceItems, countyInfo);
-
-  function goTo(anchor: string) {
-    if (anchor.startsWith("http")) {
-      window.open(anchor, "_blank", "noopener,noreferrer");
-      return;
-    }
-    document.getElementById(anchor)?.scrollIntoView({ behavior: "smooth", block: "start" });
-  }
 
   return (
     <div className="mt-4 card-elev p-4">
@@ -278,7 +284,7 @@ function CorvusGuidancePanel({
                 {step.detail && <span className="text-muted-foreground"> — {step.detail}</span>}
                 {step.action && (
                   <button
-                    onClick={() => goTo(step.action!.anchor)}
+                    onClick={() => goToGuidanceAnchor(step.action!.anchor)}
                     className="ml-2 text-xs text-accent hover:underline"
                   >
                     {step.action.label} →
@@ -346,6 +352,43 @@ function CorvusGuidancePanel({
             </div>
           )}
         </div>
+      )}
+    </div>
+  );
+}
+
+// Repeats just the single most important next step at the very bottom of
+// the modal, right above Close — CorvusGuidancePanel's own copy of this
+// sits at the top, which a user scrolled down to Evidence
+// Checklist/Documents/Case Progress (e.g. right after uploading a file or
+// downloading a form) won't see without scrolling back up. Same real
+// getCaseGuidance() data, not a separate/invented message. Renders nothing
+// once there's genuinely no next step (e.g. a resolved case).
+function NextStepFooter({
+  property,
+  protest,
+  caseData,
+}: {
+  property: PropertyRecord;
+  protest: ProtestRecord;
+  caseData: ProtestCase | null;
+}) {
+  const countyInfo = getCountyProtestInfo(property.cad);
+  const guidance = getCaseGuidance(property, protest, caseData?.evidenceItems, countyInfo);
+  const next = guidance.nextSteps[0];
+  if (!next) return null;
+
+  return (
+    <div className="mt-5 rounded-md border border-accent/30 bg-accent/5 p-3 text-sm">
+      <span className="font-semibold">Next: {next.label}.</span>
+      {next.detail && <span className="text-muted-foreground"> {next.detail}</span>}
+      {next.action && (
+        <button
+          onClick={() => goToGuidanceAnchor(next.action!.anchor)}
+          className="ml-2 text-xs text-accent hover:underline"
+        >
+          {next.action.label} →
+        </button>
       )}
     </div>
   );
@@ -608,7 +651,18 @@ export function CasePlanSection({
         await linkEvidenceDocument(itemId, doc.id);
       }
       onReload();
-      toast.success(files.length === 1 ? "Evidence uploaded." : `${files.length} files uploaded.`);
+      // Real remaining count, not a guess — every OTHER checklist item that
+      // still has zero documents, regardless of this item's own prior state.
+      const remaining =
+        caseData?.evidenceItems.filter((i) => i.id !== itemId && i.documents.length === 0).length ??
+        0;
+      const uploadedMsg =
+        files.length === 1 ? "Evidence uploaded." : `${files.length} files uploaded.`;
+      toast.success(
+        remaining === 0
+          ? `${uploadedMsg} That's every item on your checklist — you're ready to file your Notice of Protest below.`
+          : `${uploadedMsg} ${remaining} item${remaining === 1 ? "" : "s"} still need${remaining === 1 ? "s" : ""} a document.`,
+      );
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not upload this file.");
     } finally {
@@ -867,9 +921,15 @@ export function DocumentsSection({
           : `Appointment-of-Agent-${filenameBase}.pdf`,
       );
       // Downloading shouldn't be able to lose edits either — save silently
-      // alongside it, without its own toast (Download already has one).
+      // alongside it (no separate toast — the real next-step message below
+      // covers this action).
       if (formType)
         await saveDraft(userId, protest.id, formType, values).catch((err) => console.error(err));
+      toast.success(
+        editingForm === "protest"
+          ? "Downloaded. Review it, then use Sign & Submit above to file this protest — or deliver this PDF to your county yourself."
+          : "Downloaded. Once signed, deliver this PDF to your appraisal district.",
+      );
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not generate this document.");
     } finally {
@@ -911,7 +971,7 @@ export function DocumentsSection({
       toast.success(
         editingForm === "protest"
           ? "Signed and saved — this case is now marked Filed. Download or deliver this PDF to your appraisal district to complete filing."
-          : "Signed and saved.",
+          : "Signed and saved. Deliver this PDF to your appraisal district to put it into effect.",
       );
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not sign this document.");
