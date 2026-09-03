@@ -535,6 +535,15 @@ async function fetchFeatures(
   return json.features ?? [];
 }
 
+// A failed tight nearby match can take as long as a real one on some
+// backends' full-scan LIKE (confirmed live 2026-09-03: 6.5s-22s for zero
+// rows, on different real cases) — capped separately and generously short
+// so it can never be the thing that starves the loose fallback's own,
+// almost-always-real answer. withTimeout is defined later in this file
+// (function declarations hoist) — see the long comment on
+// nearbyFeaturesWithFallback below for why this exists.
+const TIGHT_NEARBY_QUERY_TIMEOUT_MS = 4000;
+
 // Nearby mode's coreClauseOr match is intentionally broad (bare, suffix-
 // stripped core, tolerant of Rd/Road-style spelling mismatches) — but for
 // the counties whose situs field concatenates house+street+CITY into one
@@ -568,11 +577,45 @@ async function nearbyFeaturesWithFallback(
   const buildUrl = (where: string) =>
     `${baseUrl}?where=${encodeURIComponent(where)}&outFields=${outFieldsParam}${limitParam}&returnGeometry=false&f=json`;
   const core = coreStreetName(rawStreet);
-  if (rawStreet.trim().toUpperCase() !== core.toUpperCase()) {
-    const tight = await fetchFeatures(buildUrl(coreClauseOr(field, rawStreet.trim())));
-    if (tight.length > 0) return tight;
+  if (rawStreet.trim().toUpperCase() === core.toUpperCase()) {
+    // Nothing was stripped at all (the typed street was already just the
+    // bare core) — a second, more expensive tight-first attempt has nothing
+    // to gain here, go straight to the one query.
+    return fetchFeatures(buildUrl(coreClauseOr(field, core)));
   }
-  return fetchFeatures(buildUrl(coreClauseOr(field, core)));
+  // Fired concurrently, NOT sequentially (tight-then-fallback-if-empty) —
+  // found live 2026-09-03, the very next report after this function
+  // shipped: a failed tight match can be just as slow as a real one on some
+  // backends' full-scan LIKE (confirmed: Collin took 6.5s to return ZERO
+  // rows for one unmatched tight phrase, and 22s for another). Sequential
+  // tight-then-loose was doubling this county's own contribution to the
+  // shared NEARBY_QUERY_TIMEOUT_MS budget whenever the tight attempt
+  // failed — the COMMON case, not rare (any Google-autocomplete-spelled-out
+  // street, e.g. "East Parker Road" vs. the county's own abbreviated
+  // "E Parker Rd", fails tight by design) — silently costing this county's
+  // own correct loose-search results whenever the combined sequential time
+  // pushed past the timeout.
+  //
+  // Plain concurrency alone wasn't enough, though — found immediately after
+  // shipping THAT fix, chasing the very next real report ("Parker Village
+  // Drive"): a plain `Promise.all([tight, loose])` still waits for BOTH
+  // before returning anything, so a tight query slow enough on its own
+  // (confirmed live: 22s for one real case) still starves a loose query
+  // that would have come back correctly in 9s — Promise.all doesn't let a
+  // fast, real answer escape a slow sibling. The tight attempt gets its own
+  // short, separate timeout (falling back to [] alone, not the whole
+  // function) — worth trying since it's genuinely more precise when it
+  // works, but never allowed to hold up the loose fallback that almost
+  // always has the real answer anyway.
+  const [tight, loose] = await Promise.all([
+    withTimeout(
+      fetchFeatures(buildUrl(coreClauseOr(field, rawStreet.trim()))),
+      TIGHT_NEARBY_QUERY_TIMEOUT_MS,
+      [] as Array<{ attributes: Record<string, string | number | null> }>,
+    ),
+    fetchFeatures(buildUrl(coreClauseOr(field, core))),
+  ]);
+  return tight.length > 0 ? tight : loose;
 }
 
 const COLLIN_URL =
@@ -2070,7 +2113,18 @@ function nearbyDedupeKey(r: CadRecord): string {
 // on every single attempt, not an occasional flake. 10000ms clears that with
 // real margin while still bounding Tarrant's genuinely pathological ~19s case
 // above.
-const NEARBY_QUERY_TIMEOUT_MS = 10000;
+//
+// Bumped 10000 -> 15000 on 2026-09-03 chasing a real report one step further
+// than the bump above: nearbyFeaturesWithFallback's own LOOSE query alone
+// (independent of its now-separately-capped tight sibling, see
+// TIGHT_NEARBY_QUERY_TIMEOUT_MS) timed at 9.2s for a real case ("Parker
+// Village Drive" — no exact match at the typed house number, but 5 real
+// nearby parcels on the same real street) — right at the edge of the old
+// 10000ms bound, so ordinary request overhead on top of that 9.2s was
+// enough to silently drop a real, correct nearby list on a plain, otherwise
+// unremarkable query. Matches EXACT_QUERY_TIMEOUT_MS now rather than
+// staying deliberately lower than it.
+const NEARBY_QUERY_TIMEOUT_MS = 15000;
 // The exact-match sweep is normally faster (a more selective, house-number-
 // anchored WHERE clause), but a single county source going slow or getting
 // rate-limited isn't otherwise bounded at all — found live 2026-08-25 that a
