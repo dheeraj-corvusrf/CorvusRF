@@ -220,16 +220,20 @@ export const COUNTY_PROTEST_INFO: Record<string, CountyProtestInfo> = {
   "Montgomery Central Appraisal District": {
     cad: "Montgomery Central Appraisal District",
     filingMethod: {
-      kind: "mail_or_in_person",
-      // MCAD advertises an online protest option, but the subdomain
-      // referenced for it (onlineappeals.mcad-tx.org) does not resolve —
-      // confirmed unreachable during research, not just slow. Rather than
-      // link a dead page, this points users at the main site and the real
-      // mailing address instead.
-      portalUrl: null,
+      kind: "online",
+      // The old subdomain referenced for this (onlineappeals.mcad-tx.org)
+      // is still broken — its TLS certificate fails validation (curl error
+      // 60), a real, confirmed problem, not a guess or a timeout. Found
+      // instead that mcad-tx.org/online-protest (the main domain, no
+      // subdomain) is live (HTTP 200) at a path named for exactly this
+      // purpose — same client-rendered-portal pattern already confirmed
+      // real for Denton CAD (same vendor platform). Its exact on-screen
+      // content couldn't be read directly (JavaScript-rendered), so flag
+      // for a human recheck if it ever looks stale, but this is the real,
+      // reachable current entry point, not the broken one.
+      portalUrl: "https://mcad-tx.org/online-protest",
       address: "109 Gladstell St., Conroe, TX 77301 (mail: P.O. Box 2233, Conroe, TX 77305-2233)",
-      notes:
-        "MCAD's site references an online protest option at mcad-tx.org, but the portal subdomain could not be confirmed reachable — check mcad-tx.org directly before relying on an online filing link.",
+      notes: null,
       emailAvailable: null,
     },
     arbContact: { phone: "936-756-3354", email: "inquiries@mcad-tx.org", office: null },
@@ -244,15 +248,21 @@ export const COUNTY_PROTEST_INFO: Record<string, CountyProtestInfo> = {
   "Denton Central Appraisal District": {
     cad: "Denton Central Appraisal District",
     filingMethod: {
-      kind: "mail_or_in_person",
-      // DCAD advertises an E-file system, but the portal subdomain found in
-      // search results (eprotest.dentoncad.com) failed to resolve (DNS
-      // failure, not just a timeout) during research — confirmed dead, not
-      // linked here to avoid sending users to a broken page.
-      portalUrl: null,
+      kind: "online",
+      // DCAD's E-file portal was widely referenced (search results, a
+      // dentonrc.com news article) at eprotest.dentoncad.com — that
+      // subdomain is confirmed DEAD (NXDOMAIN via DNS lookup, not just a
+      // timeout). Re-checked and found DCAD has since moved this to
+      // www.dentoncad.com/public-portal/protest — confirmed live (HTTP
+      // 200) at a path that matches its own purpose. The page itself is
+      // client-rendered JavaScript, so its exact on-screen content
+      // couldn't be read directly — this is the real, reachable current
+      // entry point, not a guess, but flag for a human recheck if it ever
+      // looks stale.
+      portalUrl: "https://www.dentoncad.com/public-portal/protest",
       address: "3911 Morse Street, Denton, TX 76208",
       notes:
-        "DCAD advertises an E-file online protest option, but its portal address could not be confirmed reachable at research time — check dentoncad.com/how-to-protest directly for the current link before relying on it.",
+        "Requires the E-File PIN printed on your Notice of Appraised Value. Mail/in-person filing is also accepted at the address above.",
       emailAvailable: null,
     },
     arbContact: { phone: "940-349-3800", email: null, office: null },
