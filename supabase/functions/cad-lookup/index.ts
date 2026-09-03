@@ -205,6 +205,55 @@ function guessCity(cityStateZip: string): string {
     .trim();
 }
 
+// Extracts just the CITY from a full, already-returned `propertyAddress`
+// (house+street+city, in whatever shape that specific county's own source
+// hands back) — needed by both the exact-sweep tiebreak and findNearby's
+// city filter below, neither of which can safely use a plain
+// `.includes(cityGuess)` check against the WHOLE address (see the long
+// comment on cityOf's two call sites). Every source's own returned address
+// ends in some form of "<city> TX <zip>" / "<city>, TX, <zip>" — comma
+// placement before the city varies wildly between sources (Bexar has NONE
+// at all, e.g. "...FAIR OAKS, TX 78015"; Denton/Collin usually do) — but the
+// STREET always ends in a recognized suffix word first, so anchoring on the
+// LAST such suffix word (the leading `.*` forces the greedy match to the
+// rightmost occurrence, so a street name that itself contains an earlier
+// suffix-shaped word — "Bay Ridge Dr" — doesn't win over the real one) and
+// taking the genuinely-multi-word text between it and the state marker
+// reliably isolates the real city regardless of a given source's own comma
+// habits. Confirmed live 2026-09-03 against real returned addresses from
+// every county in this file, including 2-word cities (Fair Oaks, Little
+// Elm, Grand Prairie) and a street whose own name contains "Place" (Market
+// Place Blvd) — the trailing `\b` after the suffix alternation is required
+// so "Pl" can't match as a false prefix of an unrelated word like "Plano".
+function cityOf(propertyAddress: string): string {
+  const m = propertyAddress.match(
+    new RegExp(`.*\\b(?:${STREET_SUFFIX_ALT})\\b\\.?\\s*,?\\s*(.*?)\\s*,?\\s*(?:TX|Texas)\\b`, "i"),
+  );
+  if (m) return m[1].replace(/,/g, " ").replace(/\s+/g, " ").trim();
+  // No recognized suffix word found at all (a genuinely unusual shape) —
+  // fall back to the single-last-word heuristic. Only reached when the
+  // primary approach can't anchor on anything, so an imperfect multi-word
+  // city (truncated to its last word) here is a rare, honest degradation,
+  // not the common case.
+  const fallback = propertyAddress.match(/.*[,\s]([A-Za-z][A-Za-z'-]*?)\s*,?\s*(?:TX|Texas)\b/i);
+  return fallback ? fallback[1].trim() : "";
+}
+
+// Bidirectional on purpose — real, minor city-naming differences go both
+// ways: Bexar's own data says "Fair Oaks" for a user-typed "Fair Oaks
+// Ranch" (the county's name is a SUBSET of what the user typed), but the
+// reverse (a source using a more specific/longer name than the user typed)
+// is just as plausible for some other county. Empty on either side never
+// matches — an empty extractedCity (cityOf found nothing) or an empty
+// cityGuess (the user typed no city at all) is "unverifiable," never a
+// coincidental match.
+function cityMatches(extractedCity: string, cityGuess: string): boolean {
+  if (!extractedCity || !cityGuess) return false;
+  const a = extractedCity.toUpperCase();
+  const b = cityGuess.toUpperCase();
+  return a.includes(b) || b.includes(a);
+}
+
 // A real US address always ends with its zip — end-anchored specifically so
 // this never matches a 5-digit HOUSE NUMBER earlier in the string instead.
 // Confirmed live chasing a real "FM 1957" no-house-number Bexar property: a
@@ -2075,8 +2124,7 @@ async function findNearby(
 
   const seen = new Set<string>();
   const inCity = candidates.filter((c) => {
-    if (cityGuess && !c.propertyAddress.toUpperCase().includes(cityGuess.toUpperCase()))
-      return false;
+    if (cityGuess && !cityMatches(cityOf(c.propertyAddress), cityGuess)) return false;
     const key = nearbyDedupeKey(c);
     if (seen.has(key)) return false;
     seen.add(key);
@@ -2232,9 +2280,16 @@ Deno.serve(async (req: Request) => {
     // to take directly as the original `cityGuess`-empty case already did.
     const distinctCads = new Set(candidates.map((c) => c.cad)).size;
     if (cityGuess && distinctCads > 1) {
-      record =
-        candidates.find((c) => c.propertyAddress.toUpperCase().includes(cityGuess.toUpperCase())) ??
-        null;
+      // cityOf/cityMatches, not a plain `.includes(cityGuess)` against the
+      // whole address — found live 2026-09-03 chasing the SAME "Parker Rd"
+      // report a second time, after the combined-field fix above shipped:
+      // Kaufman genuinely has an unrelated "Parker Rd" in Crandall, and
+      // Denton has one in Carrollton — a naive whole-address substring check
+      // matched BOTH purely because their own STREET happens to be named
+      // "Parker" too, the exact same class of false positive as the
+      // Ridgecrest/Forney case below, just triggered by the street name
+      // instead of a bare word coincidence.
+      record = candidates.find((c) => cityMatches(cityOf(c.propertyAddress), cityGuess)) ?? null;
       // Found live 2026-08-25 chasing a real report ("601 Ridgecrest Rd, Forney" —
       // Forney is in Kaufman County, which has no source here at all): falling
       // back to candidates[0] unconditionally whenever nothing matched cityGuess
