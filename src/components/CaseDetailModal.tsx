@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import type { ChangeEvent, FormEvent } from "react";
 import { toast } from "sonner";
 import type { PropertyRecord } from "@/lib/properties";
-import type { ProtestRecord } from "@/lib/protests";
+import { acknowledgeGuidance, type ProtestRecord } from "@/lib/protests";
 import { currency } from "@/lib/intake-store";
 import {
   getCase,
@@ -59,6 +59,7 @@ export function CaseDetailModal({
   const [caseData, setCaseData] = useState<ProtestCase | null>(null);
   const [loading, setLoading] = useState(true);
   const [current, setCurrent] = useState<ProtestRecord>(protest);
+  const [acknowledging, setAcknowledging] = useState(false);
 
   function load() {
     setLoading(true);
@@ -69,6 +70,25 @@ export function CaseDetailModal({
   }
 
   useEffect(load, [protest.id]);
+
+  async function handleAcknowledgeGuidance() {
+    setAcknowledging(true);
+    try {
+      await acknowledgeGuidance(protest.id);
+      setCurrent((prev) => ({ ...prev, corvusGuidanceAckAt: new Date().toISOString() }));
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not continue — please try again.");
+    } finally {
+      setAcknowledging(false);
+    }
+  }
+
+  // Gates entry into a not-yet-filed case until the customer acknowledges
+  // Corvus's guidance notice — once a case is past "requested" (i.e.
+  // filed), it never shows this again even if it was somehow never
+  // acknowledged, since the notice is specifically about the filing
+  // process ahead, not something relevant to an already-filed case.
+  const needsGuidanceAck = current.status === "requested" && !current.corvusGuidanceAckAt;
 
   return (
     <Modal onClose={onClose} wide>
@@ -82,6 +102,11 @@ export function CaseDetailModal({
           <Skeleton className="h-4 w-48" />
           <Skeleton className="h-16 w-full" />
         </div>
+      ) : needsGuidanceAck ? (
+        <CorvusGuidanceGate
+          onAcknowledge={handleAcknowledgeGuidance}
+          acknowledging={acknowledging}
+        />
       ) : (
         <>
           <CasePlanSection
@@ -115,6 +140,61 @@ export function CaseDetailModal({
         </button>
       </div>
     </Modal>
+  );
+}
+
+// One-time consent screen gating entry into a not-yet-filed case — exact
+// copy per the product spec this was built from. An acknowledgment, not a
+// legal document, so a checkbox + button is enough (no signature capture,
+// unlike the real Service Agreement in ProtestAuthorizationFlow.tsx).
+function CorvusGuidanceGate({
+  onAcknowledge,
+  acknowledging,
+}: {
+  onAcknowledge: () => void;
+  acknowledging: boolean;
+}) {
+  const [checked, setChecked] = useState(false);
+  return (
+    <div className="mt-4 grid gap-4">
+      <div className="card-elev p-4">
+        <h4 className="text-sm font-semibold">AI Guidance & Filing Notice</h4>
+        <div className="mt-2 grid gap-2 text-sm text-muted-foreground">
+          <p>
+            Corvus is an AI assistant designed to guide you through the property protest process and
+            help prepare and complete the required forms and documents.
+          </p>
+          <p>
+            By proceeding, you authorize Corvus to assist with completing forms and preparing filing
+            materials on your behalf.
+          </p>
+          <p>
+            You are responsible for reviewing and verifying all information before signing, filing,
+            or submitting any document.
+          </p>
+          <p>
+            Corvus does not replace your responsibility to verify the accuracy of the information or
+            comply with county requirements.
+          </p>
+        </div>
+      </div>
+      <label className="flex items-start gap-2 text-sm">
+        <input
+          type="checkbox"
+          checked={checked}
+          onChange={(e) => setChecked(e.target.checked)}
+          className="mt-0.5"
+        />
+        I have read and understand this notice.
+      </label>
+      <button
+        onClick={onAcknowledge}
+        disabled={!checked || acknowledging}
+        className="btn-accent w-fit text-sm disabled:opacity-60"
+      >
+        {acknowledging ? "Continuing…" : "Continue to Case"}
+      </button>
+    </div>
   );
 }
 
