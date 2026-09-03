@@ -1051,6 +1051,8 @@ export function DocumentsSection({
     }
   }
 
+  const countyInfo = getCountyProtestInfo(property.cad);
+
   return (
     <div id="case-documents" className="mt-5 border-t border-border pt-5">
       <h4 className="text-sm font-semibold">Documents</h4>
@@ -1074,6 +1076,51 @@ export function DocumentsSection({
         >
           Review Appointment of Agent (Form 50-162)
         </button>
+      </div>
+
+      {/* Filing itself always happens on the county's own site — CorvusRF has
+          no e-filing integration with any appraisal district (none publish a
+          public submission API), so this can only ever prepare the real
+          forms and point you at the county's real portal, never submit for
+          you. Shown plainly here, not buried in a collapsed panel, since
+          this is the actual answer to "where do I file." */}
+      <div className="mt-3 rounded-md border border-border p-3 text-sm">
+        <p className="font-medium">How to actually file this</p>
+        {countyInfo?.filingMethod.portalUrl ? (
+          <>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {countyInfo.cad} accepts protests through its own online portal — a separate system
+              CorvusRF doesn't submit to on your behalf. Review and download your Notice of Protest
+              above first, then file there.
+              {countyInfo.filingMethod.notes && ` ${countyInfo.filingMethod.notes}`}
+            </p>
+            <a
+              href={countyInfo.filingMethod.portalUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn-accent mt-2 inline-flex text-xs py-1.5"
+            >
+              File Online at {countyInfo.cad} →
+            </a>
+            {countyInfo.filingMethod.address && (
+              <p className="mt-2 text-xs text-muted-foreground">
+                Prefer mail or in person instead? {countyInfo.filingMethod.address}.
+              </p>
+            )}
+          </>
+        ) : countyInfo?.filingMethod.address ? (
+          <p className="mt-1 text-xs text-muted-foreground">
+            {countyInfo.cad} doesn't have a confirmed online filing option — mail or deliver your
+            signed Notice of Protest to {countyInfo.filingMethod.address}.
+            {countyInfo.filingMethod.notes && ` ${countyInfo.filingMethod.notes}`}
+          </p>
+        ) : (
+          <p className="mt-1 text-xs text-muted-foreground">
+            We don't have this county's confirmed filing method on file yet — download your signed
+            Notice of Protest above and deliver it to your appraisal district directly (check their
+            website for the current address or any online option).
+          </p>
+        )}
       </div>
 
       {noticeSignedAt && protest.status === "requested" && (
