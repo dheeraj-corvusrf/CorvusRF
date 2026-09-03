@@ -40,10 +40,20 @@ describe("COUNTY_PROTEST_INFO", () => {
     }
   });
 
-  it("filingMethod always has at least a portal or a mailing address, never neither", () => {
+  it("filingMethod always has at least one real way to file, never none", () => {
     for (const [cad, info] of Object.entries(COUNTY_PROTEST_INFO)) {
-      const hasSomething = info.filingMethod.portalUrl != null || info.filingMethod.address != null;
-      expect(hasSomething, `${cad} has neither a portal nor an address`).toBe(true);
+      const hasSomething =
+        info.filingMethod.online != null ||
+        info.filingMethod.mail != null ||
+        info.filingMethod.inPerson != null;
+      expect(hasSomething, `${cad} has no confirmed filing method at all`).toBe(true);
+    }
+  });
+
+  it("every county has at least a mailing or in-person address as a non-online fallback", () => {
+    for (const [cad, info] of Object.entries(COUNTY_PROTEST_INFO)) {
+      const hasFallback = info.filingMethod.mail != null || info.filingMethod.inPerson != null;
+      expect(hasFallback, `${cad} has no mail/in-person fallback`).toBe(true);
     }
   });
 });

@@ -52,11 +52,10 @@ function protestWith(overrides: Partial<ProtestRecord>): ProtestRecord {
 const countyInfo: CountyProtestInfo = {
   cad: "Collin Central Appraisal District",
   filingMethod: {
-    kind: "online",
-    portalUrl: "https://www.collincad.org/file-a-protest",
-    address: null,
-    notes: null,
-    emailAvailable: null,
+    online: { url: "https://www.collincad.org/file-a-protest", notes: null },
+    mail: null,
+    inPerson: null,
+    email: { available: null, address: null, notes: null },
   },
   arbContact: { phone: "555-123-4567", email: "arb@example.org", office: null },
   informalReview: { howToRequest: "Call the CAD to request an informal review.", notes: null },

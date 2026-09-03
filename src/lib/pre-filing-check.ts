@@ -56,11 +56,12 @@ export function getPreFilingCheck(
   const taxYear = protest.taxYear ?? property.taxYear;
   const countyInfo = getCountyProtestInfo(property.cad);
   const filingMethod = countyInfo?.filingMethod ?? null;
+  const mailOrInPerson = filingMethod?.mail ?? filingMethod?.inPerson ?? null;
 
-  const filingMethodValue = filingMethod?.portalUrl
-    ? `Online — ${filingMethod.portalUrl}`
-    : filingMethod?.address
-      ? `Mail or deliver to ${filingMethod.address}`
+  const filingMethodValue = filingMethod?.online
+    ? `Online — ${filingMethod.online.url}`
+    : mailOrInPerson
+      ? `Mail or deliver to ${mailOrInPerson.address}`
       : // No verified per-county entry yet — the app's own honest default
         // (see DocumentsSection's "download or deliver this PDF" copy),
         // never a guessed online/mail/email answer.
@@ -95,14 +96,14 @@ export function getPreFilingCheck(
     row("Applicable County Instructions", countyInfo?.sourceUrl ?? "Not on file", false),
     row(
       "Online Filing Available",
-      yesNo(filingMethod ? filingMethod.portalUrl != null : null, "Yes", "No"),
+      yesNo(filingMethod ? filingMethod.online != null : null, "Yes", "No"),
       false,
     ),
-    row("Email Filing Available", yesNo(filingMethod?.emailAvailable ?? null, "Yes", "No"), false),
+    row("Email Filing Available", yesNo(filingMethod?.email.available ?? null, "Yes", "No"), false),
     row(
       "Mail / In-Person Filing",
-      filingMethod?.address
-        ? filingMethod.portalUrl
+      mailOrInPerson
+        ? filingMethod?.online
           ? "Available (alternative to online)"
           : "Required (no confirmed online option)"
         : "Not confirmed",

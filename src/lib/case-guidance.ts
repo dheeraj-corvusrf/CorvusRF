@@ -95,17 +95,18 @@ function evidenceSteps(evidenceItems: EvidenceItemRecord[] | undefined): Guidanc
 function filingMethodStep(countyInfo: CountyProtestInfo | null): GuidanceStep | null {
   if (!countyInfo) return null;
   const { filingMethod } = countyInfo;
-  if (filingMethod.portalUrl) {
+  if (filingMethod.online) {
     return {
       label: "File online",
-      detail: `${countyInfo.cad} accepts online protest filing.`,
-      action: { label: "Open the county's filing portal", anchor: filingMethod.portalUrl },
+      detail: `${countyInfo.cad} accepts online protest filing.${filingMethod.online.notes ? ` ${filingMethod.online.notes}` : ""}`,
+      action: { label: "Open the county's filing portal", anchor: filingMethod.online.url },
     };
   }
-  if (filingMethod.address) {
+  const mailOrInPerson = filingMethod.mail ?? filingMethod.inPerson;
+  if (mailOrInPerson) {
     return {
       label: "Mail or deliver your Notice of Protest",
-      detail: `${countyInfo.cad}'s real filing address: ${filingMethod.address}${filingMethod.notes ? ` — ${filingMethod.notes}` : ""}`,
+      detail: `${countyInfo.cad}'s real filing address: ${mailOrInPerson.address}${mailOrInPerson.notes ? ` — ${mailOrInPerson.notes}` : ""}`,
     };
   }
   return null;

@@ -20,7 +20,11 @@ import {
   type ProtestCase,
 } from "@/lib/protest-case";
 import { getCaseGuidance } from "@/lib/case-guidance";
-import { getCountyProtestInfo, COUNTY_PROTEST_INFO } from "@/lib/county-protest-info";
+import {
+  getCountyProtestInfo,
+  COUNTY_PROTEST_INFO,
+  type CountyProtestInfo,
+} from "@/lib/county-protest-info";
 import {
   getPreFilingCheck,
   isPreFilingBlocked,
@@ -266,6 +270,65 @@ function goToGuidanceAnchor(anchor: string) {
   document.getElementById(anchor)?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
+// Every real way this county accepts a filing, shown as its own row — never
+// collapsed into one "the" method. Shared by CorvusGuidancePanel's county-
+// process detail and DocumentsSection's "How to actually file this" block,
+// so the two never drift out of sync with each other. Renders nothing for a
+// channel this county's real data doesn't confirm — never guesses a filler
+// address or "contact us" line to fill an empty row.
+function FilingMethodsList({ countyInfo }: { countyInfo: CountyProtestInfo }) {
+  const { filingMethod: fm } = countyInfo;
+  const hasAny = fm.online || fm.mail || fm.inPerson || fm.email.available === true;
+  if (!hasAny) {
+    return <span>No confirmed filing method on file yet — check {countyInfo.cad}'s website.</span>;
+  }
+  return (
+    <div className="grid gap-1.5">
+      {fm.online && (
+        <div>
+          <span className="font-medium text-foreground">Online: </span>
+          <a
+            href={fm.online.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="break-all text-accent hover:underline"
+          >
+            {fm.online.url}
+          </a>
+          {fm.online.notes && <span> — {fm.online.notes}</span>}
+        </div>
+      )}
+      {fm.mail && (
+        <div>
+          <span className="font-medium text-foreground">Mail: </span>
+          {fm.mail.address}
+          {fm.mail.notes && <span> — {fm.mail.notes}</span>}
+        </div>
+      )}
+      {fm.inPerson && (!fm.mail || fm.inPerson.address !== fm.mail.address) && (
+        <div>
+          <span className="font-medium text-foreground">In person: </span>
+          {fm.inPerson.address}
+          {fm.inPerson.notes && <span> — {fm.inPerson.notes}</span>}
+        </div>
+      )}
+      {fm.email.available === true && (
+        <div>
+          <span className="font-medium text-foreground">Email: </span>
+          {fm.email.address ?? "Accepted"}
+          {fm.email.notes && <span> — {fm.email.notes}</span>}
+        </div>
+      )}
+      {fm.email.available === false && (
+        <div>
+          <span className="font-medium text-foreground">Email: </span>
+          Not accepted.
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Ambient, ongoing guidance — purely additive, sits above the existing
 // sections on every visit once the notice above has been acknowledged for
 // this open. Every fact it shows comes from getCaseGuidance()'s
@@ -338,20 +401,8 @@ function CorvusGuidancePanel({
           {countyOpen && (
             <div className="mt-2 grid gap-2 text-xs text-muted-foreground">
               <div>
-                <span className="font-medium text-foreground">Filing method: </span>
-                {countyInfo.filingMethod.portalUrl ? (
-                  <a
-                    href={countyInfo.filingMethod.portalUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-accent hover:underline"
-                  >
-                    {countyInfo.filingMethod.portalUrl}
-                  </a>
-                ) : (
-                  (countyInfo.filingMethod.address ?? "Not on file yet.")
-                )}
-                {countyInfo.filingMethod.notes && <span> — {countyInfo.filingMethod.notes}</span>}
+                <span className="font-medium text-foreground">How to file: </span>
+                <FilingMethodsList countyInfo={countyInfo} />
               </div>
               {countyInfo.arbContact &&
                 (countyInfo.arbContact.phone || countyInfo.arbContact.email) && (
@@ -1078,47 +1129,42 @@ export function DocumentsSection({
         </button>
       </div>
 
-      {/* Filing itself always happens on the county's own site — CorvusRF has
-          no e-filing integration with any appraisal district (none publish a
-          public submission API), so this can only ever prepare the real
-          forms and point you at the county's real portal, never submit for
-          you. Shown plainly here, not buried in a collapsed panel, since
-          this is the actual answer to "where do I file." */}
+      {/* Filing itself always happens on the county's own site or mailbox —
+          CorvusRF has no e-filing integration with any appraisal district
+          (none publish a public submission API), so this can only ever
+          prepare the real forms and point you at every real way this county
+          actually accepts one, never submit on your behalf. Shown plainly
+          here, every type at once, not buried in a collapsed panel or
+          collapsed down to a single "the" method. */}
       <div className="mt-3 rounded-md border border-border p-3 text-sm">
-        <p className="font-medium">How to actually file this</p>
-        {countyInfo?.filingMethod.portalUrl ? (
+        <p className="font-medium">
+          How to actually file this — every way {property.cad ?? "your county"} accepts it
+        </p>
+        {countyInfo ? (
           <>
             <p className="mt-1 text-xs text-muted-foreground">
-              {countyInfo.cad} accepts protests through its own online portal — a separate system
-              CorvusRF doesn't submit to on your behalf. Review and download your Notice of Protest
-              above first, then file there.
-              {countyInfo.filingMethod.notes && ` ${countyInfo.filingMethod.notes}`}
+              {countyInfo.cad} is a separate system — CorvusRF prepares your real forms above, but
+              doesn't submit to any of these on your behalf.
             </p>
-            <a
-              href={countyInfo.filingMethod.portalUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="btn-accent mt-2 inline-flex text-xs py-1.5"
-            >
-              File Online at {countyInfo.cad} →
-            </a>
-            {countyInfo.filingMethod.address && (
-              <p className="mt-2 text-xs text-muted-foreground">
-                Prefer mail or in person instead? {countyInfo.filingMethod.address}.
-              </p>
+            <div className="mt-2 text-xs text-muted-foreground">
+              <FilingMethodsList countyInfo={countyInfo} />
+            </div>
+            {countyInfo.filingMethod.online && (
+              <a
+                href={countyInfo.filingMethod.online.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn-accent mt-2 inline-flex text-xs py-1.5"
+              >
+                File Online at {countyInfo.cad} →
+              </a>
             )}
           </>
-        ) : countyInfo?.filingMethod.address ? (
-          <p className="mt-1 text-xs text-muted-foreground">
-            {countyInfo.cad} doesn't have a confirmed online filing option — mail or deliver your
-            signed Notice of Protest to {countyInfo.filingMethod.address}.
-            {countyInfo.filingMethod.notes && ` ${countyInfo.filingMethod.notes}`}
-          </p>
         ) : (
           <p className="mt-1 text-xs text-muted-foreground">
-            We don't have this county's confirmed filing method on file yet — download your signed
-            Notice of Protest above and deliver it to your appraisal district directly (check their
-            website for the current address or any online option).
+            We don't have this county's confirmed filing methods on file yet — download your signed
+            Notice of Protest above and check {property.cad ?? "your appraisal district"}'s website
+            directly for the current address or any online option.
           </p>
         )}
       </div>

@@ -13,19 +13,27 @@
 // supabase/functions/cad-lookup/index.ts's own real values, not re-typed by
 // hand, to avoid a silent key mismatch.
 
+// Every real way a customer can actually file with this county, each
+// tracked as its own independent fact — not one "the" method with a
+// fallback chain. A county's mailing address and its physical/drop-off
+// address are frequently different real places (a PO Box vs. a street
+// address), never conflated into one field here. Every sub-object is null
+// when that specific method genuinely isn't confirmed for this county —
+// never omitted silently, never guessed from what's "typical."
+export type FilingChannel = { address: string; notes: string | null };
+
 export type CountyProtestInfo = {
   cad: string;
   filingMethod: {
-    kind: "online" | "mail" | "in_person" | "mail_or_in_person";
-    portalUrl: string | null;
-    address: string | null;
-    notes: string | null;
+    online: { url: string; notes: string | null } | null;
+    mail: FilingChannel | null;
+    inPerson: FilingChannel | null;
     // Whether the county accepts a protest filed by plain email — distinct
-    // from an online e-file portal. Only ever true/false when a source
-    // explicitly says so (e.g. Dallas's PDF explicitly refuses email
-    // filings; Grayson's explicitly allows it); left null, not guessed,
-    // for every county where this specific question wasn't confirmed.
-    emailAvailable: boolean | null;
+    // from an online e-file portal. `address` is only ever set when a
+    // source specifically confirms THAT address is where a protest itself
+    // (not just an ARB inquiry) gets sent — never the general ARB contact
+    // email reused for a different purpose it wasn't confirmed for.
+    email: { available: boolean | null; address: string | null; notes: string | null };
   };
   arbContact: { phone: string | null; email: string | null; office: string | null } | null;
   informalReview: { howToRequest: string; notes: string | null } | null;
@@ -37,16 +45,17 @@ export const COUNTY_PROTEST_INFO: Record<string, CountyProtestInfo> = {
   "Tarrant Appraisal District": {
     cad: "Tarrant Appraisal District",
     filingMethod: {
-      kind: "mail_or_in_person",
-      // TAD's own portal is a login-gated "Taxpayer Dashboard" integrated
-      // into the main site (not a standalone URL to deep-link), and tad.org
-      // 403s every direct fetch — so this points users at the site itself
-      // rather than a guessed portal deep link.
-      portalUrl: "https://www.tad.org/",
-      address: "2500 Handley-Ederville Road, Fort Worth, TX 76118",
-      notes:
-        "Online filing available via the Taxpayer Dashboard after logging in at tad.org; mail or in-person filing is also accepted, not required.",
-      emailAvailable: null,
+      online: {
+        // TAD's own portal is a login-gated "Taxpayer Dashboard" integrated
+        // into the main site (not a standalone URL to deep-link), and
+        // tad.org 403s every direct fetch — so this points at the site
+        // itself rather than a guessed portal deep link.
+        url: "https://www.tad.org/",
+        notes: "Log in at tad.org and use the Taxpayer Dashboard to file online.",
+      },
+      mail: { address: "2500 Handley-Ederville Road, Fort Worth, TX 76118", notes: null },
+      inPerson: { address: "2500 Handley-Ederville Road, Fort Worth, TX 76118", notes: null },
+      email: { available: null, address: null, notes: null },
     },
     arbContact: { phone: "817-284-8884", email: "RES@TAD.ORG", office: null },
     informalReview: {
@@ -61,12 +70,24 @@ export const COUNTY_PROTEST_INFO: Record<string, CountyProtestInfo> = {
   "Fort Bend Central Appraisal District": {
     cad: "Fort Bend Central Appraisal District",
     filingMethod: {
-      kind: "online",
-      portalUrl: "https://webappeals.fbcad.org/User/Login?ReturnUrl=%2f",
-      address: "2801 B.F. Terry Blvd., Rosenberg, TX 77471-5600",
-      notes:
-        "Filing by mail, email, or in person forfeits the ability to file this protest online — pick one method.",
-      emailAvailable: true,
+      online: {
+        url: "https://webappeals.fbcad.org/User/Login?ReturnUrl=%2f",
+        notes: null,
+      },
+      mail: {
+        address: "2801 B.F. Terry Blvd., Rosenberg, TX 77471-5600",
+        notes: "Filing by mail, email, or in person forfeits your ability to also file online.",
+      },
+      inPerson: {
+        address: "2801 B.F. Terry Blvd., Rosenberg, TX 77471-5600",
+        notes: "Filing by mail, email, or in person forfeits your ability to also file online.",
+      },
+      email: {
+        available: true,
+        address: null,
+        notes:
+          "FBCAD's FAQ confirms email filing is accepted, but no specific submission address was confirmed — contact (281) 344-8623 or info@fbcad.org to confirm the correct address before relying on it.",
+      },
     },
     arbContact: { phone: "(281) 344-8623", email: "info@fbcad.org", office: null },
     informalReview: {
@@ -80,12 +101,14 @@ export const COUNTY_PROTEST_INFO: Record<string, CountyProtestInfo> = {
   "Williamson Central Appraisal District": {
     cad: "Williamson Central Appraisal District",
     filingMethod: {
-      kind: "online",
-      portalUrl: "https://www.wcad.org/online-protest-filing/",
-      address: "625 FM 1460, Georgetown, TX 78626-8050",
-      notes:
-        "Online filing requires the Online Passcode printed on your Notice of Appraised Value, and is only open between the notice mailing and the May 15 deadline.",
-      emailAvailable: null,
+      online: {
+        url: "https://www.wcad.org/online-protest-filing/",
+        notes:
+          "Requires the Online Passcode printed on your Notice of Appraised Value, and is only open between the notice mailing and the May 15 deadline.",
+      },
+      mail: { address: "625 FM 1460, Georgetown, TX 78626-8050", notes: null },
+      inPerson: { address: "625 FM 1460, Georgetown, TX 78626-8050", notes: null },
+      email: { available: null, address: null, notes: null },
     },
     arbContact: { phone: "512-930-3787", email: null, office: null },
     informalReview: {
@@ -99,13 +122,18 @@ export const COUNTY_PROTEST_INFO: Record<string, CountyProtestInfo> = {
   "Grayson Central Appraisal District": {
     cad: "Grayson Central Appraisal District",
     filingMethod: {
-      kind: "mail_or_in_person",
-      portalUrl:
-        "https://portal.graysonappraisal.org/Account/Login?ReturnUrl=/PropertyListing/Index",
-      address: "512 N. Travis Street, Sherman, TX 75090",
-      notes:
-        "Requires state Form 50-132; may also be submitted by email or in person in addition to mail or the online portal.",
-      emailAvailable: true,
+      online: {
+        url: "https://portal.graysonappraisal.org/Account/Login?ReturnUrl=/PropertyListing/Index",
+        notes: "Requires state Form 50-132 and registering with a PIN from the district.",
+      },
+      mail: { address: "512 N. Travis Street, Sherman, TX 75090", notes: null },
+      inPerson: { address: "512 N. Travis Street, Sherman, TX 75090", notes: null },
+      email: {
+        available: true,
+        address: null,
+        notes:
+          "GCAD's protest info confirms email filing is accepted, but no specific submission address was confirmed — call 903-893-9673 to confirm the correct address before relying on it.",
+      },
     },
     arbContact: {
       phone: "903-893-9673",
@@ -123,11 +151,10 @@ export const COUNTY_PROTEST_INFO: Record<string, CountyProtestInfo> = {
   "Travis Central Appraisal District": {
     cad: "Travis Central Appraisal District",
     filingMethod: {
-      kind: "online",
-      portalUrl: "https://traviscad.org/portal",
-      address: "P.O. Box 149012, Austin, TX 78714-9012",
-      notes: "Physical/drop-off office: 850 East Anderson Lane, Austin, TX 78752.",
-      emailAvailable: null,
+      online: { url: "https://traviscad.org/portal", notes: null },
+      mail: { address: "P.O. Box 149012, Austin, TX 78714-9012", notes: null },
+      inPerson: { address: "850 East Anderson Lane, Austin, TX 78752", notes: null },
+      email: { available: null, address: null, notes: null },
     },
     arbContact: { phone: "512-834-9317", email: "CSInfo@tcadcentral.org", office: null },
     informalReview: {
@@ -141,12 +168,13 @@ export const COUNTY_PROTEST_INFO: Record<string, CountyProtestInfo> = {
   "Bexar Appraisal District": {
     cad: "Bexar Appraisal District",
     filingMethod: {
-      kind: "online",
-      portalUrl: "https://www.bcadonline.org",
-      address: "P.O. Box 830248, San Antonio, TX 78283",
-      notes:
-        "Physical/drop-off office: 411 North Frio Street, San Antonio, TX 78207. A notice is not required to file a protest.",
-      emailAvailable: null,
+      online: {
+        url: "https://www.bcadonline.org",
+        notes: "A notice is not required to file a protest.",
+      },
+      mail: { address: "P.O. Box 830248, San Antonio, TX 78283", notes: null },
+      inPerson: { address: "411 North Frio Street, San Antonio, TX 78207", notes: null },
+      email: { available: null, address: null, notes: null },
     },
     arbContact: { phone: "(210) 242-2432", email: "badtpl@bcad.org", office: null },
     informalReview: {
@@ -161,12 +189,22 @@ export const COUNTY_PROTEST_INFO: Record<string, CountyProtestInfo> = {
   "Dallas Central Appraisal District": {
     cad: "Dallas Central Appraisal District",
     filingMethod: {
-      kind: "online",
-      portalUrl: "https://www.dallascad.org",
-      address: "2949 N. Stemmons Freeway, Dallas, TX 75247",
-      notes:
-        "Online filing is via the uFile system after searching your account (requires a PIN). A 24/7 drop box is at the main entrance, west side. The ARB does not accept protest filings by fax or email.",
-      emailAvailable: false,
+      online: {
+        url: "https://www.dallascad.org",
+        notes: "File via the uFile system after searching your account (requires a PIN).",
+      },
+      mail: {
+        address: "2949 N. Stemmons Freeway, Dallas, TX 75247",
+        notes:
+          "Must bear a postmark by the deadline. A 24/7 drop box is at the main entrance, west side.",
+      },
+      inPerson: { address: "2949 N. Stemmons Freeway, Dallas, TX 75247", notes: null },
+      email: {
+        available: false,
+        address: null,
+        notes:
+          "DCAD's own protest-process PDF states the ARB will not accept protest filings by fax or email.",
+      },
     },
     arbContact: { phone: "214-631-0910", email: "arbdocs@dcad.org", office: null },
     informalReview: {
@@ -181,11 +219,10 @@ export const COUNTY_PROTEST_INFO: Record<string, CountyProtestInfo> = {
   "Kaufman Central Appraisal District": {
     cad: "Kaufman Central Appraisal District",
     filingMethod: {
-      kind: "online",
-      portalUrl: "https://eprotest.kaufman-cad.org",
-      address: "P.O. Box 819, Kaufman, TX 75142",
-      notes: "Physical office: 3950 S Houston St, Kaufman, TX 75142-3718.",
-      emailAvailable: null,
+      online: { url: "https://eprotest.kaufman-cad.org", notes: null },
+      mail: { address: "P.O. Box 819, Kaufman, TX 75142", notes: null },
+      inPerson: { address: "3950 S Houston St, Kaufman, TX 75142-3718", notes: null },
+      email: { available: null, address: null, notes: null },
     },
     arbContact: { phone: "(972) 932-6081", email: "tlo@kaufman-cad.org", office: null },
     informalReview: {
@@ -200,12 +237,14 @@ export const COUNTY_PROTEST_INFO: Record<string, CountyProtestInfo> = {
   "Collin Central Appraisal District": {
     cad: "Collin Central Appraisal District",
     filingMethod: {
-      kind: "online",
-      portalUrl: "https://onlineportal.collincad.org/",
-      address: "250 Eldorado Pkwy, McKinney, TX 75069",
-      notes:
-        "Requires the Owner ID and eFile PIN printed on your Notice of Appraised Value; the PIN also serves as your digital signature.",
-      emailAvailable: null,
+      online: {
+        url: "https://onlineportal.collincad.org/",
+        notes:
+          "Requires the Owner ID and eFile PIN printed on your Notice of Appraised Value; the PIN also serves as your digital signature.",
+      },
+      mail: { address: "250 Eldorado Pkwy, McKinney, TX 75069", notes: null },
+      inPerson: { address: "250 Eldorado Pkwy, McKinney, TX 75069", notes: null },
+      email: { available: null, address: null, notes: null },
     },
     arbContact: { phone: "469.742.9200", email: null, office: null },
     informalReview: {
@@ -220,21 +259,24 @@ export const COUNTY_PROTEST_INFO: Record<string, CountyProtestInfo> = {
   "Montgomery Central Appraisal District": {
     cad: "Montgomery Central Appraisal District",
     filingMethod: {
-      kind: "online",
-      // The old subdomain referenced for this (onlineappeals.mcad-tx.org)
-      // is still broken — its TLS certificate fails validation (curl error
-      // 60), a real, confirmed problem, not a guess or a timeout. Found
-      // instead that mcad-tx.org/online-protest (the main domain, no
-      // subdomain) is live (HTTP 200) at a path named for exactly this
-      // purpose — same client-rendered-portal pattern already confirmed
-      // real for Denton CAD (same vendor platform). Its exact on-screen
-      // content couldn't be read directly (JavaScript-rendered), so flag
-      // for a human recheck if it ever looks stale, but this is the real,
-      // reachable current entry point, not the broken one.
-      portalUrl: "https://mcad-tx.org/online-protest",
-      address: "109 Gladstell St., Conroe, TX 77301 (mail: P.O. Box 2233, Conroe, TX 77305-2233)",
-      notes: null,
-      emailAvailable: null,
+      online: {
+        // The old subdomain referenced for this (onlineappeals.mcad-tx.org)
+        // is still broken — its TLS certificate fails validation (curl
+        // error 60), a real, confirmed problem, not a guess or a timeout.
+        // Found instead that mcad-tx.org/online-protest (the main domain,
+        // no subdomain) is live (HTTP 200) at a path named for exactly
+        // this purpose — same client-rendered-portal pattern already
+        // confirmed real for Denton CAD (same vendor platform). Its exact
+        // on-screen content couldn't be read directly (JavaScript-
+        // rendered), so flag for a human recheck if it ever looks stale,
+        // but this is the real, reachable current entry point, not the
+        // broken one.
+        url: "https://mcad-tx.org/online-protest",
+        notes: null,
+      },
+      mail: { address: "P.O. Box 2233, Conroe, TX 77305-2233", notes: null },
+      inPerson: { address: "109 Gladstell St., Conroe, TX 77301", notes: null },
+      email: { available: null, address: null, notes: null },
     },
     arbContact: { phone: "936-756-3354", email: "inquiries@mcad-tx.org", office: null },
     informalReview: {
@@ -248,22 +290,23 @@ export const COUNTY_PROTEST_INFO: Record<string, CountyProtestInfo> = {
   "Denton Central Appraisal District": {
     cad: "Denton Central Appraisal District",
     filingMethod: {
-      kind: "online",
-      // DCAD's E-file portal was widely referenced (search results, a
-      // dentonrc.com news article) at eprotest.dentoncad.com — that
-      // subdomain is confirmed DEAD (NXDOMAIN via DNS lookup, not just a
-      // timeout). Re-checked and found DCAD has since moved this to
-      // www.dentoncad.com/public-portal/protest — confirmed live (HTTP
-      // 200) at a path that matches its own purpose. The page itself is
-      // client-rendered JavaScript, so its exact on-screen content
-      // couldn't be read directly — this is the real, reachable current
-      // entry point, not a guess, but flag for a human recheck if it ever
-      // looks stale.
-      portalUrl: "https://www.dentoncad.com/public-portal/protest",
-      address: "3911 Morse Street, Denton, TX 76208",
-      notes:
-        "Requires the E-File PIN printed on your Notice of Appraised Value. Mail/in-person filing is also accepted at the address above.",
-      emailAvailable: null,
+      online: {
+        // DCAD's E-file portal was widely referenced (search results, a
+        // dentonrc.com news article) at eprotest.dentoncad.com — that
+        // subdomain is confirmed DEAD (NXDOMAIN via DNS lookup, not just a
+        // timeout). Re-checked and found DCAD has since moved this to
+        // www.dentoncad.com/public-portal/protest — confirmed live (HTTP
+        // 200) at a path that matches its own purpose. The page itself is
+        // client-rendered JavaScript, so its exact on-screen content
+        // couldn't be read directly — this is the real, reachable current
+        // entry point, not a guess, but flag for a human recheck if it
+        // ever looks stale.
+        url: "https://www.dentoncad.com/public-portal/protest",
+        notes: "Requires the E-File PIN printed on your Notice of Appraised Value.",
+      },
+      mail: { address: "3911 Morse Street, Denton, TX 76208", notes: null },
+      inPerson: { address: "3911 Morse Street, Denton, TX 76208", notes: null },
+      email: { available: null, address: null, notes: null },
     },
     arbContact: { phone: "940-349-3800", email: null, office: null },
     informalReview: {
@@ -278,12 +321,14 @@ export const COUNTY_PROTEST_INFO: Record<string, CountyProtestInfo> = {
   "Harris Central Appraisal District": {
     cad: "Harris Central Appraisal District",
     filingMethod: {
-      kind: "online",
-      portalUrl: "https://owners.hcad.org/",
-      address: "13013 Northwest Freeway, Houston, TX 77040-6305",
-      notes:
-        'Start at hcad.org, enter your account number, and click "File a Protest" to reach the owners.hcad.org portal. Requires your iFile number (printed above your account number on your notice).',
-      emailAvailable: null,
+      online: {
+        url: "https://owners.hcad.org/",
+        notes:
+          'Start at hcad.org, enter your account number, and click "File a Protest" to reach the owners.hcad.org portal. Requires your iFile number (printed above your account number on your notice).',
+      },
+      mail: { address: "13013 Northwest Freeway, Houston, TX 77040-6305", notes: null },
+      inPerson: { address: "13013 Northwest Freeway, Houston, TX 77040-6305", notes: null },
+      email: { available: null, address: null, notes: null },
     },
     arbContact: { phone: "(713) 812-5860", email: null, office: null },
     informalReview: {
