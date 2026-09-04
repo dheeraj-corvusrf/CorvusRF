@@ -18,6 +18,20 @@ alter table public.profiles drop column if exists full_name;
 -- sources for properties already owned under that name (see cad-owner-search).
 alter table public.profiles add column if not exists company_name text;
 
+-- Opaque, unguessable token identifying this user's calendar in the public
+-- calendar-feed edge function (see supabase/functions/calendar-feed) — the
+-- webcal:// subscribe URL Google/Outlook/Apple Calendar re-fetch on their own
+-- schedule has no session to authenticate with, so this token in the URL
+-- itself IS the auth. Generated client-side (getOrCreateFeedToken in
+-- src/lib/calendar-feed.ts) the first time the user opens "Sync with Google
+-- Calendar" — not a privilege-escalation risk like plan/is_admin, so it's
+-- fine to leave in the normal client-writable column grant below rather than
+-- gating it through an edge function.
+alter table public.profiles add column if not exists calendar_feed_token text;
+create unique index if not exists profiles_calendar_feed_token_key
+  on public.profiles (calendar_feed_token)
+  where calendar_feed_token is not null;
+
 alter table public.profiles enable row level security;
 
 -- Each user may only read/update their own profile row. There is intentionally no
@@ -43,7 +57,7 @@ create policy "Users can update their own profile"
 -- only by the service-role client, which is exactly what the Stripe webhook and the
 -- admin-update-plan/admin-update-admin-status edge functions already use.
 revoke update on public.profiles from authenticated;
-grant update (first_name, last_name, phone, company_name) on public.profiles to authenticated;
+grant update (first_name, last_name, phone, company_name, calendar_feed_token) on public.profiles to authenticated;
 
 -- Auto-create a profile row whenever someone signs up via Supabase Auth. first_name,
 -- last_name and phone are passed in from the sign-up form via supabase.auth.signUp's

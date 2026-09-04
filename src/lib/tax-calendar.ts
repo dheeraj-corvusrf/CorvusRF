@@ -22,6 +22,11 @@ export type CalendarEvent = {
   linkTo: string;
   /** True once the event is behind us in a way that no longer needs action (paid, closed, past). */
   resolved: boolean;
+  // The property address (or BPP business name) alone, no event-type prefix
+  // — same value title's already built from, kept separate so the
+  // month-grid can show it directly under each event without parsing it
+  // back out of title's "Event type — X" string.
+  propertyLabel: string;
 };
 
 export const EVENT_TYPE_LABEL: Record<CalendarEventType, string> = {
@@ -50,7 +55,8 @@ export const EVENT_TYPE_COLOR: Record<CalendarEventType, string> = {
 function nextBppRenditionDeadline(from: Date): string {
   const year = from.getFullYear();
   const thisYearDeadline = new Date(Date.UTC(year, 3, 15));
-  const deadline = from <= thisYearDeadline ? thisYearDeadline : new Date(Date.UTC(year + 1, 3, 15));
+  const deadline =
+    from <= thisYearDeadline ? thisYearDeadline : new Date(Date.UTC(year + 1, 3, 15));
   return deadline.toISOString().slice(0, 10);
 }
 
@@ -70,6 +76,7 @@ function fromProperty(p: PropertyRecord, taxBillPropertyIds: Set<string>): Calen
       propertyId: p.id,
       linkTo: "/dashboard/properties",
       resolved: new Date(p.protestDeadline) < new Date(),
+      propertyLabel: p.address,
     });
   }
   // Only used as a fallback for properties that don't have a real tax_bills row yet —
@@ -85,6 +92,7 @@ function fromProperty(p: PropertyRecord, taxBillPropertyIds: Set<string>): Calen
       propertyId: p.id,
       linkTo: "/dashboard/tax-bills",
       resolved: !!p.paidAt,
+      propertyLabel: p.address,
     });
   }
   return events;
@@ -104,6 +112,7 @@ function fromProtest(pr: ProtestRecord, properties: PropertyRecord[]): CalendarE
       propertyId: pr.propertyId,
       linkTo: "/dashboard/properties",
       resolved: new Date(pr.hearingDate) < new Date(),
+      propertyLabel: address,
     });
   }
   if (pr.arbDecisionDate) {
@@ -116,6 +125,7 @@ function fromProtest(pr: ProtestRecord, properties: PropertyRecord[]): CalendarE
       propertyId: pr.propertyId,
       linkTo: "/dashboard/properties",
       resolved: true,
+      propertyLabel: address,
     });
   }
   return events;
@@ -136,6 +146,7 @@ function fromTaxBill(bill: TaxBillRecord, properties: PropertyRecord[]): Calenda
       propertyId: bill.propertyId,
       linkTo: "/dashboard/tax-bills",
       resolved: !!bill.paidAt,
+      propertyLabel: address,
     });
   }
   if (bill.penaltyDate) {
@@ -148,6 +159,7 @@ function fromTaxBill(bill: TaxBillRecord, properties: PropertyRecord[]): Calenda
       propertyId: bill.propertyId,
       linkTo: "/dashboard/tax-bills",
       resolved: !!bill.paidAt || new Date(bill.penaltyDate) < new Date(),
+      propertyLabel: address,
     });
   }
   if (bill.refundExpectedAt) {
@@ -160,6 +172,7 @@ function fromTaxBill(bill: TaxBillRecord, properties: PropertyRecord[]): Calenda
       propertyId: bill.propertyId,
       linkTo: "/dashboard/tax-bills",
       resolved: !!bill.refundReceivedAt,
+      propertyLabel: address,
     });
   }
   return events;
@@ -176,6 +189,7 @@ function fromBppAccount(account: BppAccountRecord, now: Date): CalendarEvent {
     propertyId: null,
     linkTo: "/dashboard/bpp-accounts",
     resolved: false,
+    propertyLabel: account.businessName,
   };
 }
 
