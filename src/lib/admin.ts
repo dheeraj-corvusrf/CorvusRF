@@ -341,6 +341,15 @@ export async function resendInvite(invite: InvitedUserRecord): Promise<void> {
   });
 }
 
+// Clears a pending invite without waiting for the person to sign up (wrong
+// address, no longer wanted, etc.) — direct client delete via invited_users'
+// own admin-only RLS policy, same pattern as beta_leads' delete, no edge
+// function needed since this never touches auth.users.
+export async function deleteInvitedUser(id: string): Promise<void> {
+  const { error } = await supabase.from("invited_users").delete().eq("id", id);
+  if (error) throw error;
+}
+
 export const PROTEST_STATUS_OPTIONS: { value: ProtestStatus; label: string }[] = [
   { value: "requested", label: "Requested" },
   { value: "filed", label: "Filed" },
