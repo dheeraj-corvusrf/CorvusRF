@@ -51,7 +51,7 @@ import {
 import { MODULES, type Module } from "@/lib/modules";
 import type { IconColor } from "@/lib/icon-colors";
 import { useAuth } from "@/lib/auth";
-import { getMyBilling } from "@/lib/billing";
+import { getMyBilling, type PlanValue } from "@/lib/billing";
 import {
   getHealthScore,
   type HealthScoreResult,
@@ -89,7 +89,7 @@ import {
 } from "@/lib/texas-tax-rates";
 import { CompsMap, useLeaflet } from "@/components/CompsMap";
 import { findExistingProperty, addProperty, type PropertyRecord } from "@/lib/properties";
-import { listProtests, type ProtestRecord } from "@/lib/protests";
+import { listProtests, requestProtest, type ProtestRecord } from "@/lib/protests";
 import { generateCasePrep } from "@/lib/protest-case";
 import {
   uploadDocument,
@@ -175,6 +175,12 @@ function Report() {
   const [openId, setOpenId] = useState<string | null>(null);
   const [showWall, setShowWall] = useState(false);
   const [hasFullAccess, setHasFullAccess] = useState(false);
+  // The raw plan value, not just the hasFullAccess boolean below — owner_managed
+  // means the customer files their own protest (no agent-appointment agreement,
+  // no CorvusPT staff in the loop); startProtest() branches on this directly
+  // rather than routing every plan through the same "hire CorvusPT as agent"
+  // ProtestAuthorizationFlow.
+  const [myPlan, setMyPlan] = useState<PlanValue | null>(null);
   // Set once the billing check below has actually resolved (true either way —
   // real access or not; also true immediately when there's no signed-in user
   // to check) — a deep link (?openModule=evidence, from CaseDetailModal's
@@ -297,6 +303,32 @@ function Report() {
   async function startProtest() {
     const property = await ensureProperty();
     if (!property) return;
+    // Owner-managed customers file their own protest — ProtestAuthorizationFlow
+    // is the CorvusPT Service Agreement (appoints CorvusPT as agent, 25%
+    // contingency fee, "CorvusPT staff will follow up"), the correct flow only
+    // for corvusrf_managed. Owner-managed skips straight to a real protest
+    // record and their own case, where the real form they'll actually sign is
+    // Form 50-132 itself (via File Protest), not an agent appointment.
+    if (myPlan === "owner_managed") {
+      if (!user) return;
+      try {
+        const created = await requestProtest(user.id, property.id, {
+          address: property.address,
+          userEmail: user.email ?? undefined,
+          originalValue: property.totalValue,
+          taxYear: property.taxYear,
+        });
+        setExistingProtest(created);
+        generateCasePrep(created.id, user.id, property).catch((err) =>
+          console.error("Case prep generation failed:", err),
+        );
+        toast.success("Protest started — let's get your form filed.");
+        nav({ to: "/dashboard/case", search: { propertyId: property.id } });
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Could not start your protest.");
+      }
+      return;
+    }
     setAuthorizing(true);
   }
 
@@ -679,15 +711,16 @@ function Report() {
       return;
     }
     getMyBilling(user.id)
-      .then(({ plan }) =>
+      .then(({ plan }) => {
+        setMyPlan(plan);
         setHasFullAccess(
           plan === "owner_managed" ||
             plan === "corvusrf_managed" ||
             plan === "ai_report" ||
             plan === "managed_protest" ||
             plan === "beta",
-        ),
-      )
+        );
+      })
       .catch(() => setHasFullAccess(false))
       .finally(() => setBillingChecked(true));
   }, [user]);
@@ -1065,7 +1098,7 @@ function Report() {
               </div>
             ) : (
               <button onClick={startProtest} className="btn-accent text-sm py-1.5">
-                Request Protest Filing
+                {myPlan === "owner_managed" ? "File Protest" : "Request Protest Filing"}
               </button>
             )}
           </div>
