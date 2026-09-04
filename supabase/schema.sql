@@ -453,6 +453,19 @@ alter table public.protests add column if not exists original_value numeric;
 alter table public.protests add column if not exists settlement_offer_value numeric;
 alter table public.protests add column if not exists settlement_offer_received_at date;
 alter table public.protests add column if not exists hearing_date date;
+-- Real detail extracted from the actual hearing notice the county mailed
+-- (see hearing_notices below and extract-hearing-notice edge function) —
+-- kept as their own columns on protests, not just in hearing_notices, since
+-- they're what the calendar-event builders (tax-calendar.ts and its two
+-- server-side mirrors) read to put the real time/location/mode in the
+-- event itself, the same way they already read hearing_date. Nullable:
+-- a manually-typed hearing date (no notice uploaded) never has these.
+alter table public.protests add column if not exists hearing_time text;
+alter table public.protests add column if not exists hearing_location text;
+alter table public.protests add column if not exists hearing_mode text;
+alter table public.protests drop constraint if exists protests_hearing_mode_check;
+alter table public.protests add constraint protests_hearing_mode_check
+  check (hearing_mode is null or hearing_mode in ('In Person', 'Phone', 'Videoconference', 'Affidavit', 'Unknown'));
 alter table public.protests add column if not exists arb_decision text;
 alter table public.protests add column if not exists arb_decision_date date;
 alter table public.protests add column if not exists final_value numeric;
@@ -551,6 +564,61 @@ drop trigger if exists prevent_duplicate_active_protest_trigger on public.protes
 create trigger prevent_duplicate_active_protest_trigger
   before insert on public.protests
   for each row execute function public.prevent_duplicate_active_protest();
+
+-- Real, AI-extracted content from an actual hearing notice (or other county
+-- notice) the user uploads once their case is filed — see
+-- extract-hearing-notice edge function and src/lib/hearing-notice.ts. One
+-- row per uploaded notice (a case can receive more than one real notice
+-- over its life — an initial one, then a rescheduled one); the most recent
+-- row for a protest is what the UI shows. required_documents/discrepancies
+-- are JSON-stringified arrays, same text-column-not-jsonb convention as
+-- field_values on protest_form_submissions above (this schema has no jsonb
+-- columns at all). informal_review_available is the AI's own read of
+-- whether an informal review is available, grounded in both the notice's
+-- own text and county_protest_info.ts's real per-county data (passed into
+-- the prompt as context, not looked up again server-side) — 'unclear' is
+-- the honest answer when neither source actually says.
+create table if not exists public.hearing_notices (
+  id uuid primary key default gen_random_uuid(),
+  protest_id uuid not null references public.protests (id) on delete cascade,
+  user_id uuid not null references auth.users (id) on delete cascade,
+  document_id uuid references public.documents (id) on delete set null,
+  hearing_date text,
+  hearing_time text,
+  hearing_location text,
+  hearing_mode text,
+  evidence_submission_deadline text,
+  hearing_type text,
+  extracted_account_number text,
+  extracted_tax_year text,
+  extracted_property_address text,
+  county_contact text,
+  appraiser_contact text,
+  submission_instructions text,
+  required_documents text,
+  appeal_deadline text,
+  discrepancies text,
+  informal_review_available text,
+  informal_review_notes text,
+  created_at timestamptz not null default now()
+);
+
+alter table public.hearing_notices enable row level security;
+
+drop policy if exists "Users can view their own hearing notices" on public.hearing_notices;
+create policy "Users can view their own hearing notices"
+  on public.hearing_notices for select
+  using (auth.uid() = user_id);
+
+drop policy if exists "Users can insert their own hearing notices" on public.hearing_notices;
+create policy "Users can insert their own hearing notices"
+  on public.hearing_notices for insert
+  with check (auth.uid() = user_id);
+
+drop policy if exists "Admins can view all hearing notices" on public.hearing_notices;
+create policy "Admins can view all hearing notices"
+  on public.hearing_notices for select
+  using (public.is_admin());
 
 -- Trackable evidence checklist for a protest case — one row per AI-suggested
 -- evidence item, optionally linked to an uploaded document once the user provides

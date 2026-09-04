@@ -262,10 +262,31 @@ export async function acceptSettlement(protestId: string, offerValue: number): P
   if (error) throw error;
 }
 
-export async function scheduleHearing(protestId: string, date: string): Promise<void> {
+export async function scheduleHearing(
+  protestId: string,
+  date: string,
+  // Real detail from an actual uploaded hearing notice, when there is one
+  // (see extract-hearing-notice / hearing-notice.ts) — omitted entirely for
+  // CaseProgress's own manual date-only entry, same as before this existed.
+  detail?: {
+    time?: string | null;
+    location?: string | null;
+    mode?: "In Person" | "Phone" | "Videoconference" | "Affidavit" | "Unknown" | null;
+  },
+): Promise<void> {
   const { error } = await supabase
     .from("protests")
-    .update({ hearing_date: date, status: "hearing_scheduled" })
+    .update({
+      hearing_date: date,
+      status: "hearing_scheduled",
+      ...(detail
+        ? {
+            hearing_time: detail.time ?? null,
+            hearing_location: detail.location ?? null,
+            hearing_mode: detail.mode ?? null,
+          }
+        : {}),
+    })
     .eq("id", protestId);
   if (error) throw error;
 }

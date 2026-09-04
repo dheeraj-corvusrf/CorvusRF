@@ -42,6 +42,14 @@ import {
   type DocumentRecord,
 } from "@/lib/documents";
 import { verifyFilingProof, type FilingProofVerification } from "@/lib/filing-proof";
+import {
+  extractHearingNotice,
+  saveHearingNotice,
+  getLatestHearingNotice,
+  type HearingNoticeRecord,
+  type HearingNoticeExtraction,
+} from "@/lib/hearing-notice";
+import { getErrorMessage } from "@/lib/error-message";
 import { getAuthorization, type AuthorizationRecord } from "@/lib/protest-authorizations";
 import {
   getNoticeOfProtestDefaults,
@@ -209,6 +217,15 @@ export function CaseDetailView({
               evidenceDocuments={evidenceDocuments}
               onUpdate={(patch) => setCurrent((prev) => ({ ...prev, ...patch }))}
               onNoticeSigned={setNoticeSignedAt}
+            />
+          )}
+
+          {current.status !== "requested" && (
+            <HearingNoticeSection
+              userId={userId}
+              protest={current}
+              property={property}
+              onUpdate={(patch) => setCurrent((prev) => ({ ...prev, ...patch }))}
             />
           )}
 
@@ -1553,6 +1570,286 @@ export function DocumentsSection({
           generatingReason={generatingReason}
           onGenerateReason={handleGenerateReason}
         />
+      )}
+    </div>
+  );
+}
+
+// "Once the protest has been filed" — real AI extraction from the actual
+// hearing notice (or other county notice) the user uploads, cross-checked
+// against the case's own known facts (see extract-hearing-notice's own
+// deterministic discrepancy check), and — once a real hearing date is on
+// it — fed straight into scheduleHearing() so it shows up wherever this
+// app's calendar sync already reads hearing_date/time/location from (the
+// webcal feed and the real Google Calendar sync both pick it up on their
+// own next pass, no separate calendar code needed here).
+const HEARING_NOTICE_DOCUMENT_TYPE = "Hearing Notice";
+
+function HearingNoticeSection({
+  userId,
+  protest,
+  property,
+  onUpdate,
+}: {
+  userId: string;
+  protest: ProtestRecord;
+  property: PropertyRecord;
+  onUpdate: (patch: Partial<ProtestRecord>) => void;
+}) {
+  const [notice, setNotice] = useState<HearingNoticeRecord | null>(null);
+  const [loadingNotice, setLoadingNotice] = useState(true);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [pending, setPending] = useState<HearingNoticeExtraction | null>(null);
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    getLatestHearingNotice(protest.id)
+      .then(setNotice)
+      .catch((err) => console.error("Could not load hearing notice:", err))
+      .finally(() => setLoadingNotice(false));
+  }, [protest.id]);
+
+  const countyInfo = getCountyProtestInfo(property.cad);
+
+  async function handleUpload(file: File) {
+    setUploading(true);
+    setUploadError(null);
+    try {
+      const extraction = await extractHearingNotice(property, file, countyInfo);
+      setPending(extraction);
+      setPendingFile(file);
+    } catch (err) {
+      setUploadError(getErrorMessage(err, "Could not read this notice. Please try again."));
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function handleConfirm() {
+    if (!pending) return;
+    setSaving(true);
+    try {
+      let documentId: string | null = null;
+      if (pendingFile) {
+        const doc = await uploadDocument(
+          userId,
+          property.id,
+          pendingFile,
+          HEARING_NOTICE_DOCUMENT_TYPE,
+        );
+        documentId = doc.id;
+      }
+      const saved = await saveHearingNotice(userId, protest.id, documentId, pending);
+      setNotice(saved);
+      setPending(null);
+      setPendingFile(null);
+      // Only advances the case (and, by extension, the calendar) when the
+      // notice actually stated a real hearing date — a notice that's
+      // something else entirely (an exemption denial, a value notice)
+      // still saves for its own record, but doesn't invent a hearing.
+      if (pending.hearingDate) {
+        await scheduleHearing(protest.id, pending.hearingDate, {
+          time: pending.hearingTime,
+          location: pending.hearingLocation,
+          mode: pending.hearingMode,
+        });
+        onUpdate({
+          hearingDate: pending.hearingDate,
+          hearingTime: pending.hearingTime,
+          hearingLocation: pending.hearingLocation,
+          hearingMode: pending.hearingMode,
+          status: "hearing_scheduled",
+        });
+      }
+      toast.success("Hearing notice saved.");
+    } catch (err) {
+      toast.error(getErrorMessage(err, "Could not save this notice."));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function handleDiscard() {
+    setPending(null);
+    setPendingFile(null);
+    setUploadError(null);
+  }
+
+  if (loadingNotice) return null;
+
+  const uploadLabel = notice ? "Upload an Updated Notice" : "Upload Hearing Notice";
+  const uploadButton = (
+    <label
+      className={`inline-flex ${notice ? "btn-outline" : "btn-accent"} cursor-pointer text-xs py-1.5 ${uploading ? "pointer-events-none opacity-60" : ""}`}
+    >
+      {uploading ? "Reading your notice…" : uploadLabel}
+      <input
+        type="file"
+        accept="image/*,.pdf"
+        className="hidden"
+        disabled={uploading}
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          e.target.value = "";
+          if (file) handleUpload(file);
+        }}
+      />
+    </label>
+  );
+
+  return (
+    <div id="case-hearing-notice" className="mt-5 border-t border-border pt-5">
+      <h4 className="text-sm font-semibold">Hearing Notice</h4>
+
+      {!notice && !pending && (
+        <div className="mt-2 rounded-md border border-accent/30 bg-accent/5 p-3 text-sm">
+          <p className="font-medium">Next Step</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Upload the hearing notice or other notice received from the county. AI will read it,
+            check it against your case, and — if it states a real hearing date — get it onto your
+            calendar.
+          </p>
+          <div className="mt-2">{uploadButton}</div>
+          {uploadError && <p className="mt-2 text-xs text-destructive">{uploadError}</p>}
+        </div>
+      )}
+
+      {!pending && notice && (
+        <div className="mt-2 rounded-md border border-border p-3 text-sm">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div className="grid gap-2 sm:grid-cols-2 text-xs">
+              <Field label="Hearing Date" value={notice.hearingDate ?? "Not stated"} />
+              <Field label="Hearing Time" value={notice.hearingTime ?? "Not stated"} />
+              <Field label="Hearing Location" value={notice.hearingLocation ?? "Not stated"} />
+              <Field label="Hearing Mode" value={notice.hearingMode} />
+              <Field
+                label="Evidence Submission Deadline"
+                value={notice.evidenceSubmissionDeadline ?? "Not stated"}
+              />
+              <Field
+                label="Appeal/Escalation Deadline"
+                value={notice.appealDeadline ?? "Not stated"}
+              />
+              <Field label="County Contact" value={notice.countyContact ?? "Not stated"} />
+              <Field label="Appraiser/Contact" value={notice.appraiserContact ?? "Not stated"} />
+            </div>
+            {uploadButton}
+          </div>
+          {notice.discrepancies.length > 0 && (
+            <div className="mt-3 rounded-md bg-destructive/10 p-2 text-xs text-destructive">
+              <span className="font-semibold">Discrepancies flagged:</span>
+              <ul className="mt-1 grid gap-0.5">
+                {notice.discrepancies.map((d, i) => (
+                  <li key={i}>• {d}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {notice.submissionInstructions && (
+            <div className="mt-3 text-xs">
+              <div className="font-semibold text-foreground">Submission Instructions</div>
+              <p className="text-muted-foreground">{notice.submissionInstructions}</p>
+            </div>
+          )}
+          {notice.requiredDocuments.length > 0 && (
+            <div className="mt-2 text-xs">
+              <div className="font-semibold text-foreground">Required Documents</div>
+              <ul className="mt-0.5 grid gap-0.5 text-muted-foreground">
+                {notice.requiredDocuments.map((d, i) => (
+                  <li key={i}>• {d}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <div className="mt-3 rounded-md bg-secondary/40 p-2 text-xs">
+            <div className="font-semibold">Informal Review: {notice.informalReviewAvailable}</div>
+            <p className="mt-0.5 text-muted-foreground">{notice.proceduralDifferences}</p>
+          </div>
+          {uploadError && <p className="mt-2 text-xs text-destructive">{uploadError}</p>}
+        </div>
+      )}
+
+      {pending && (
+        <div className="mt-2 rounded-md border border-accent/40 bg-accent/5 p-3 text-sm">
+          <p className="font-medium">Review before saving</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Confirm this looks right — discard and re-upload if the wrong file was read.
+          </p>
+          {pending.discrepancies.length > 0 && (
+            <div className="mt-2 rounded-md bg-destructive/10 p-2 text-xs text-destructive">
+              <span className="font-semibold">Discrepancies found:</span>
+              <ul className="mt-1 grid gap-0.5">
+                {pending.discrepancies.map((d, i) => (
+                  <li key={i}>• {d}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <div className="mt-3 grid gap-2 sm:grid-cols-2 text-xs">
+            <Field label="Hearing Date" value={pending.hearingDate ?? "Not stated"} />
+            <Field label="Hearing Time" value={pending.hearingTime ?? "Not stated"} />
+            <Field label="Hearing Location" value={pending.hearingLocation ?? "Not stated"} />
+            <Field label="Hearing Mode" value={pending.hearingMode} />
+            <Field label="Hearing Type" value={pending.hearingType ?? "Not stated"} />
+            <Field
+              label="Evidence Submission Deadline"
+              value={pending.evidenceSubmissionDeadline ?? "Not stated"}
+            />
+            <Field
+              label="Appeal/Escalation Deadline"
+              value={pending.appealDeadline ?? "Not stated"}
+            />
+            <Field
+              label="Account Number (on notice)"
+              value={pending.accountNumber ?? "Not stated"}
+            />
+            <Field label="Tax Year (on notice)" value={pending.taxYear ?? "Not stated"} />
+            <Field
+              label="Property Address (on notice)"
+              value={pending.propertyAddress ?? "Not stated"}
+            />
+            <Field label="County Contact" value={pending.countyContact ?? "Not stated"} />
+            <Field label="Appraiser/Contact" value={pending.appraiserContact ?? "Not stated"} />
+          </div>
+          {pending.submissionInstructions && (
+            <div className="mt-2 text-xs">
+              <div className="font-semibold text-foreground">Submission Instructions</div>
+              <p className="text-muted-foreground">{pending.submissionInstructions}</p>
+            </div>
+          )}
+          {pending.requiredDocuments.length > 0 && (
+            <div className="mt-2 text-xs">
+              <div className="font-semibold text-foreground">Required Documents</div>
+              <ul className="mt-0.5 grid gap-0.5 text-muted-foreground">
+                {pending.requiredDocuments.map((d, i) => (
+                  <li key={i}>• {d}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <div className="mt-3 rounded-md bg-secondary/40 p-2 text-xs">
+            <div className="font-semibold">Informal Review: {pending.informalReviewAvailable}</div>
+            <p className="mt-0.5 text-muted-foreground">{pending.proceduralDifferences}</p>
+          </div>
+          <div className="mt-3 flex gap-2">
+            <button
+              onClick={handleConfirm}
+              disabled={saving}
+              className="btn-accent text-xs py-1.5 disabled:opacity-60"
+            >
+              {saving ? "Saving…" : "Confirm & Save"}
+            </button>
+            <button
+              onClick={handleDiscard}
+              disabled={saving}
+              className="btn-outline text-xs py-1.5"
+            >
+              Discard
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );

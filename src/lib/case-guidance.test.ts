@@ -37,6 +37,9 @@ function protestWith(overrides: Partial<ProtestRecord>): ProtestRecord {
     settlementOfferValue: null,
     settlementOfferReceivedAt: null,
     hearingDate: null,
+    hearingTime: null,
+    hearingLocation: null,
+    hearingMode: null,
     arbDecision: null,
     arbDecisionDate: null,
     finalValue: null,
@@ -182,7 +185,7 @@ describe("getCaseGuidance", () => {
   });
 
   it("every action anchor references a real, already-existing section id", () => {
-    const KNOWN_ANCHORS = new Set(["case-documents", "case-progress"]);
+    const KNOWN_ANCHORS = new Set(["case-documents", "case-progress", "case-hearing-notice"]);
     for (const status of ALL_STATUSES) {
       const guidance = getCaseGuidance(property, protestWith({ status }), undefined, countyInfo);
       for (const step of guidance.nextSteps) {

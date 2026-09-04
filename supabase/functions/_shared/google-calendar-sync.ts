@@ -55,7 +55,9 @@ export async function buildUserEvents(
         .eq("user_id", userId),
       adminClient
         .from("protests")
-        .select("id, property_id, status, hearing_date, arb_decision_date")
+        .select(
+          "id, property_id, status, hearing_date, hearing_time, hearing_location, arb_decision_date",
+        )
         .eq("user_id", userId),
       adminClient
         .from("tax_bills")
@@ -99,10 +101,17 @@ export async function buildUserEvents(
     const address =
       (propertyById.get(pr.property_id as string)?.address as string) ?? "your property";
     if (pr.status === "hearing_scheduled" && pr.hearing_date) {
+      // Real time/location from an actual uploaded hearing notice, when
+      // there is one (see extract-hearing-notice) — mirrors
+      // hearingEventTitle() in src/lib/tax-calendar.ts by hand, since this
+      // Deno function can't import that browser module.
+      const titleParts = [`${EVENT_TYPE_LABEL.hearing} — ${address}`];
+      if (pr.hearing_time) titleParts.push(`at ${pr.hearing_time as string}`);
+      if (pr.hearing_location) titleParts.push(`(${pr.hearing_location as string})`);
       events.push({
         iCalUID: uid(`hearing:${id}`),
         date: toIsoDate(pr.hearing_date as string),
-        title: `${EVENT_TYPE_LABEL.hearing} — ${address}`,
+        title: titleParts.join(" "),
         amount: null,
       });
     }

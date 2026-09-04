@@ -118,7 +118,9 @@ Deno.serve(async (req: Request) => {
         .eq("user_id", userId),
       adminClient
         .from("protests")
-        .select("id, property_id, status, hearing_date, arb_decision_date")
+        .select(
+          "id, property_id, status, hearing_date, hearing_time, hearing_location, arb_decision_date",
+        )
         .eq("user_id", userId),
       adminClient
         .from("tax_bills")
@@ -159,11 +161,18 @@ Deno.serve(async (req: Request) => {
   for (const pr of protests ?? []) {
     const address = propertyById.get(pr.property_id)?.address ?? "your property";
     if (pr.status === "hearing_scheduled" && pr.hearing_date) {
+      // Real time/location from an actual uploaded hearing notice, when
+      // there is one (see extract-hearing-notice) — mirrors
+      // hearingEventTitle() in src/lib/tax-calendar.ts by hand, since this
+      // Deno function can't import that browser module.
+      const titleParts = [`ARB hearing — ${address}`];
+      if (pr.hearing_time) titleParts.push(`at ${pr.hearing_time}`);
+      if (pr.hearing_location) titleParts.push(`(${pr.hearing_location})`);
       events.push({
         id: `hearing:${pr.id}`,
         date: toIsoDate(pr.hearing_date),
         type: "hearing",
-        title: `ARB hearing — ${address}`,
+        title: titleParts.join(" "),
         amount: null,
       });
     }

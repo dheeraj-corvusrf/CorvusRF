@@ -26,6 +26,13 @@ export type ProtestRecord = {
   settlementOfferValue: number | null;
   settlementOfferReceivedAt: string | null;
   hearingDate: string | null;
+  // Real detail from an actual uploaded hearing notice (see
+  // extract-hearing-notice / hearing-notice.ts) — null whenever the hearing
+  // date was set manually instead (CaseProgress's own date input), same as
+  // hearingDate was before this existed.
+  hearingTime: string | null;
+  hearingLocation: string | null;
+  hearingMode: "In Person" | "Phone" | "Videoconference" | "Affidavit" | "Unknown" | null;
   arbDecision: ArbDecision | null;
   arbDecisionDate: string | null;
   finalValue: number | null;
@@ -49,6 +56,9 @@ type ProtestRow = {
   settlement_offer_value: number | null;
   settlement_offer_received_at: string | null;
   hearing_date: string | null;
+  hearing_time: string | null;
+  hearing_location: string | null;
+  hearing_mode: "In Person" | "Phone" | "Videoconference" | "Affidavit" | "Unknown" | null;
   arb_decision: ArbDecision | null;
   arb_decision_date: string | null;
   final_value: number | null;
@@ -59,7 +69,7 @@ type ProtestRow = {
 };
 
 const SELECT_COLUMNS =
-  "id, property_id, status, notes, requested_at, updated_at, original_value, settlement_offer_value, settlement_offer_received_at, hearing_date, arb_decision, arb_decision_date, final_value, escalation_path, closed_at, tax_year, corvus_guidance_ack_at";
+  "id, property_id, status, notes, requested_at, updated_at, original_value, settlement_offer_value, settlement_offer_received_at, hearing_date, hearing_time, hearing_location, hearing_mode, arb_decision, arb_decision_date, final_value, escalation_path, closed_at, tax_year, corvus_guidance_ack_at";
 
 function fromRow(row: ProtestRow): ProtestRecord {
   return {
@@ -73,6 +83,9 @@ function fromRow(row: ProtestRow): ProtestRecord {
     settlementOfferValue: row.settlement_offer_value,
     settlementOfferReceivedAt: row.settlement_offer_received_at,
     hearingDate: row.hearing_date,
+    hearingTime: row.hearing_time,
+    hearingLocation: row.hearing_location,
+    hearingMode: row.hearing_mode,
     arbDecision: row.arb_decision,
     arbDecisionDate: row.arb_decision_date,
     finalValue: row.final_value,

@@ -98,6 +98,25 @@ function fromProperty(p: PropertyRecord, taxBillPropertyIds: Set<string>): Calen
   return events;
 }
 
+// Real time/location extracted from an actual uploaded hearing notice (see
+// extract-hearing-notice), when there is one — every event on this calendar
+// is otherwise all-day/date-only (see toIsoDate), so this is the one place
+// a real time-of-day surfaces, folded into the title text rather than a
+// structural change to CalendarEvent itself. Same shared helper used by
+// this file's own client-side builder and its two server-side mirrors
+// (_shared/google-calendar-sync.ts, calendar-feed's ICS builder) — kept in
+// sync by hand since Deno edge functions can't import this browser module.
+export function hearingEventTitle(
+  address: string,
+  time: string | null | undefined,
+  location: string | null | undefined,
+): string {
+  const parts = [`ARB hearing — ${address}`];
+  if (time) parts.push(`at ${time}`);
+  if (location) parts.push(`(${location})`);
+  return parts.join(" ");
+}
+
 function fromProtest(pr: ProtestRecord, properties: PropertyRecord[]): CalendarEvent[] {
   const property = properties.find((p) => p.id === pr.propertyId);
   const address = property?.address ?? "your property";
@@ -107,7 +126,7 @@ function fromProtest(pr: ProtestRecord, properties: PropertyRecord[]): CalendarE
       id: `hearing:${pr.id}`,
       date: toIsoDate(pr.hearingDate),
       type: "hearing",
-      title: `ARB hearing — ${address}`,
+      title: hearingEventTitle(address, pr.hearingTime, pr.hearingLocation),
       amount: null,
       propertyId: pr.propertyId,
       linkTo: "/dashboard/properties",

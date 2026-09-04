@@ -489,6 +489,13 @@ export function toProtestRecord(record: AdminProtestRecord): ProtestRecord {
     settlementOfferValue: record.settlementOfferValue,
     settlementOfferReceivedAt: record.settlementOfferReceivedAt,
     hearingDate: record.hearingDate,
+    // AdminProtestRecord doesn't carry these (same stubbed-to-null
+    // convention as the rest of this function) — the admin panel's own
+    // CaseProgress view never renders the richer hearing-notice detail
+    // that would need them.
+    hearingTime: null,
+    hearingLocation: null,
+    hearingMode: null,
     arbDecision: record.arbDecision,
     arbDecisionDate: record.arbDecisionDate,
     finalValue: record.finalValue,
