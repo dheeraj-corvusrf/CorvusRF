@@ -842,10 +842,29 @@ function Intake() {
       {step === "savings" && state.address && savings && (
         <section className="mt-8 card-elev overflow-hidden">
           <div className="bg-accent/10 px-6 pt-10 pb-8 text-center">
-            <p className="text-sm font-medium text-muted-foreground">Potential Protest Savings*</p>
-            <p className="mt-1 font-serif text-5xl font-bold text-accent">
-              {currency(savings.amount)}
-            </p>
+            {savings.amount > 0 ? (
+              <>
+                <p className="text-sm font-medium text-muted-foreground">
+                  Potential Protest Savings*
+                </p>
+                <p className="mt-1 font-serif text-5xl font-bold text-accent">
+                  {currency(savings.amount)}
+                </p>
+              </>
+            ) : (
+              // A real analysis that lands on $0 isn't a failure — it means
+              // this property's own assessed value already looks in line
+              // with real comps/protest-outcome data for its county and
+              // category. Framed as the finding it actually is, not shown
+              // as a bare "$0" that reads like something broke.
+              <>
+                <p className="font-serif text-2xl font-bold text-success">Good news!</p>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  Your property appears to be fairly assessed. We found little or no opportunity for
+                  additional tax savings this year.
+                </p>
+              </>
+            )}
             <p className="mt-2 text-sm text-muted-foreground">{state.address}</p>
             {state.accountNumber && (
               <p className="text-xs font-medium text-muted-foreground">

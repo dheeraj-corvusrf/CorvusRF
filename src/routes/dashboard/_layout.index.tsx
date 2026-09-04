@@ -7,7 +7,6 @@ import {
   Upload,
   Sparkles,
   ArrowUpRight,
-  Trash2,
   AlertTriangle,
   Building2,
   FileText,
@@ -28,7 +27,7 @@ import {
 } from "recharts";
 import { useAuth } from "@/lib/auth";
 import { currency, resetIntake, classifyAndStoreDocument, updateIntake } from "@/lib/intake-store";
-import { listProperties, deleteProperty, type PropertyRecord } from "@/lib/properties";
+import { listProperties, type PropertyRecord } from "@/lib/properties";
 import { useSavingsBackfill } from "@/hooks/use-savings-backfill";
 import { useHealthScoreBackfill } from "@/hooks/use-health-score-backfill";
 import { listHealthScores, type PropertyAiScore } from "@/lib/property-scores";
@@ -47,7 +46,6 @@ import { getHearingNudge } from "@/lib/hearing-nudge";
 import { AnimatedNumber } from "@/components/AnimatedNumber";
 import { useFileDrop } from "@/hooks/use-file-drop";
 import { ICON_COLORS } from "@/lib/icon-colors";
-import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 
 export const Route = createFileRoute("/dashboard/_layout/")({
   component: Overview,
@@ -65,8 +63,6 @@ const STATUS_LABEL: Record<ProtestStatus, string> = {
   resolved: "Resolved",
 };
 
-type ActivityItem = { ts: number; label: string; detail: string; propertyId?: string };
-
 function Overview() {
   const nav = useNavigate();
   const { user } = useAuth();
@@ -79,7 +75,6 @@ function Overview() {
   const [uploading, setUploading] = useState(false);
   const [askQuery, setAskQuery] = useState("");
   const [asking, setAsking] = useState(false);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [nudge, setNudge] = useState<string | null>(null);
   const nudgedPropertyId = useRef<string | null>(null);
   const [hearingNudge, setHearingNudge] = useState<string | null>(null);
@@ -232,32 +227,6 @@ function Overview() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hearingReminders.length > 0 ? hearingReminders[0].protest.id : null]);
 
-  const activity: ActivityItem[] = [
-    ...properties.map((p) => ({
-      ts: new Date(p.createdAt).getTime(),
-      label: "Property added",
-      detail: p.address,
-      propertyId: p.id,
-    })),
-    ...bppAccounts.map((b) => ({
-      ts: new Date(b.createdAt).getTime(),
-      label: "BPP account added",
-      detail: b.businessName,
-    })),
-    ...documents.map((d) => ({
-      ts: new Date(d.uploadedAt).getTime(),
-      label: "Document uploaded",
-      detail: d.fileName,
-    })),
-    ...protests.map((pr) => ({
-      ts: new Date(pr.requestedAt).getTime(),
-      label: "Protest requested",
-      detail: addressFor(pr.propertyId),
-    })),
-  ]
-    .sort((a, b) => b.ts - a.ts)
-    .slice(0, 8);
-
   async function onUploadNotice(f: File) {
     setUploading(true);
     try {
@@ -273,20 +242,6 @@ function Overview() {
     onUploadNotice,
     uploading,
   );
-
-  async function handleDeleteProperty(id: string) {
-    if (!window.confirm("Remove this property from your dashboard?")) return;
-    setDeletingId(id);
-    try {
-      await deleteProperty(id);
-      setProperties((prev) => prev.filter((p) => p.id !== id));
-      toast.success("Property removed.");
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not remove this property.");
-    } finally {
-      setDeletingId(null);
-    }
-  }
 
   async function submitAsk(e: React.FormEvent) {
     e.preventDefault();
@@ -359,41 +314,35 @@ function Overview() {
           <Link
             to="/intake"
             onClick={() => resetIntake()}
-            className="card-elev p-4 transition-all hover:-translate-y-0.5 hover:bg-secondary/40 hover:shadow-elev"
+            className="card-elev flex items-center gap-2.5 p-3 transition-all hover:-translate-y-0.5 hover:bg-secondary/40 hover:shadow-elev"
           >
             <span
-              className={`grid h-9 w-9 place-items-center rounded-lg ${ICON_COLORS[0].bg} ${ICON_COLORS[0].text}`}
+              className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg ${ICON_COLORS[0].bg} ${ICON_COLORS[0].text}`}
             >
               <Plus className="h-4 w-4" />
             </span>
-            <div className="mt-3 flex items-center gap-1 text-base font-semibold">
+            <div className="flex items-center gap-1 text-sm font-semibold">
               Add Property <ArrowUpRight className="h-3.5 w-3.5" />
             </div>
-            <p className="mt-1 text-xs text-muted-foreground">
-              AI normalizes, checks county records, flags mismatches.
-            </p>
           </Link>
 
           <Link
             to="/dashboard/bpp-accounts"
-            className="card-elev p-4 transition-all hover:-translate-y-0.5 hover:bg-secondary/40 hover:shadow-elev"
+            className="card-elev flex items-center gap-2.5 p-3 transition-all hover:-translate-y-0.5 hover:bg-secondary/40 hover:shadow-elev"
             style={{ animationDelay: "60ms" }}
           >
             <span
-              className={`grid h-9 w-9 place-items-center rounded-lg ${ICON_COLORS[1].bg} ${ICON_COLORS[1].text}`}
+              className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg ${ICON_COLORS[1].bg} ${ICON_COLORS[1].text}`}
             >
               <Briefcase className="h-4 w-4" />
             </span>
-            <div className="mt-3 flex items-center gap-1 text-base font-semibold">
+            <div className="flex items-center gap-1 text-sm font-semibold">
               Add BPP Account <ArrowUpRight className="h-3.5 w-3.5" />
             </div>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Track a business personal property account.
-            </p>
           </Link>
 
           <label
-            className={`card-elev p-4 cursor-pointer block transition-all ${
+            className={`card-elev flex cursor-pointer items-center gap-2.5 p-3 transition-all ${
               uploading
                 ? "opacity-60 pointer-events-none"
                 : "hover:-translate-y-0.5 hover:bg-secondary/40 hover:shadow-elev"
@@ -402,20 +351,17 @@ function Overview() {
             {...noticeDropHandlers}
           >
             <span
-              className={`grid h-9 w-9 place-items-center rounded-lg ${ICON_COLORS[2].bg} ${ICON_COLORS[2].text}`}
+              className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg ${ICON_COLORS[2].bg} ${ICON_COLORS[2].text}`}
             >
               <Upload className="h-4 w-4" />
             </span>
-            <div className="mt-3 text-base font-semibold">
+            <div className="text-sm font-semibold">
               {isDraggingNotice
                 ? "Drop to upload"
                 : uploading
                   ? "Reading document…"
                   : "Upload Notice"}
             </div>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Drop any tax notice — AI extracts fields and routes it.
-            </p>
             <input
               type="file"
               className="hidden"
@@ -430,21 +376,20 @@ function Overview() {
 
           <form
             onSubmit={submitAsk}
-            className="card-elev p-4 transition-all hover:-translate-y-0.5 hover:shadow-elev"
+            className="card-elev flex items-center gap-2.5 p-3 transition-all hover:shadow-elev"
             style={{ animationDelay: "180ms" }}
           >
             <span
-              className={`grid h-9 w-9 place-items-center rounded-lg ${ICON_COLORS[4].bg} ${ICON_COLORS[4].text}`}
+              className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg ${ICON_COLORS[4].bg} ${ICON_COLORS[4].text}`}
             >
               <Sparkles className="h-4 w-4" />
             </span>
-            <div className="mt-3 text-base font-semibold">Ask AI</div>
             <input
               value={askQuery}
               onChange={(e) => setAskQuery(e.target.value)}
-              placeholder="Describe the situation…"
+              placeholder="Ask AI…"
               disabled={asking}
-              className="mt-2 w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs outline-none placeholder:text-muted-foreground disabled:opacity-60"
+              className="min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-1.5 text-xs outline-none placeholder:text-muted-foreground disabled:opacity-60"
             />
           </form>
         </div>
@@ -549,43 +494,6 @@ function Overview() {
               )}
             </div>
           </div>
-
-          <div className="card-elev p-5 min-w-0">
-            <h3 className="text-base font-bold">Recent Activity</h3>
-            {activity.length > 0 ? (
-              <div className="mt-3 grid min-w-0 gap-2">
-                {activity.map((a, i) => (
-                  <div
-                    key={i}
-                    className="group row-hover rounded-md flex items-center justify-between gap-2 px-2 py-1 text-sm min-w-0"
-                  >
-                    <span className="shrink-0 text-muted-foreground">{a.label}</span>
-                    <span className="truncate min-w-0">{a.detail}</span>
-                    <span className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
-                      {new Date(a.ts).toLocaleDateString()}
-                      {a.propertyId && (
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <button
-                              onClick={() => handleDeleteProperty(a.propertyId!)}
-                              disabled={deletingId === a.propertyId}
-                              aria-label="Delete property"
-                              className="opacity-100 transition-all hover:scale-110 hover:text-destructive disabled:opacity-60 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100 text-muted-foreground"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </button>
-                          </TooltipTrigger>
-                          <TooltipContent>Delete property</TooltipContent>
-                        </Tooltip>
-                      )}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="mt-2 text-sm text-muted-foreground">No activity yet.</p>
-            )}
-          </div>
         </div>
       </div>
     </div>
@@ -611,11 +519,11 @@ function StatCard({
 }) {
   const content = (
     <>
-      <span className={`grid h-8 w-8 place-items-center rounded-lg ${color.bg} ${color.text}`}>
-        <Icon className="h-4 w-4" />
+      <span className={`grid h-9 w-9 place-items-center rounded-lg ${color.bg} ${color.text}`}>
+        <Icon className="h-5 w-5" />
       </span>
       <div className="mt-2 text-sm font-medium text-muted-foreground">{label}</div>
-      <div className="mt-1 font-serif text-3xl font-bold">
+      <div className="mt-auto truncate font-serif text-4xl font-black leading-none tracking-tight sm:text-5xl">
         {value === null ? "…" : <AnimatedNumber value={value} format={format} />}
       </div>
     </>
@@ -624,7 +532,7 @@ function StatCard({
     return (
       <Link
         to={to}
-        className="card-elev p-4 block transition-all hover:-translate-y-0.5 hover:bg-secondary/40 hover:shadow-elev"
+        className="card-elev aspect-square flex flex-col p-5 transition-all hover:-translate-y-0.5 hover:bg-secondary/40 hover:shadow-elev"
         style={{ animationDelay: `${delayMs}ms` }}
       >
         {content}
@@ -632,7 +540,10 @@ function StatCard({
     );
   }
   return (
-    <div className="card-elev p-4" style={{ animationDelay: `${delayMs}ms` }}>
+    <div
+      className="card-elev aspect-square flex flex-col p-5"
+      style={{ animationDelay: `${delayMs}ms` }}
+    >
       {content}
     </div>
   );
