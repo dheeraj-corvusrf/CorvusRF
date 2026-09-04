@@ -277,17 +277,32 @@ function AdminPanel() {
 
       {activeTab === "users" && (
         <div className="mt-8">
-          <h2 className="font-serif text-xl font-semibold">Users</h2>
+          <div className="flex flex-wrap items-baseline gap-2">
+            <h2 className="font-serif text-xl font-semibold">Users</h2>
+            {!usersLoading && (
+              <span className="badge-soft">
+                {users.length} total user{users.length === 1 ? "" : "s"}
+              </span>
+            )}
+          </div>
           <p className="text-sm text-muted-foreground">
             Manage every user, their properties, and their plan.
           </p>
 
-          <AddUserForm
-            onCreated={(u) => {
-              setUsers((prev) => [u, ...prev]);
-              refreshAuditLog();
-            }}
-          />
+          <div className="mt-6 grid gap-3">
+            <AddUserForm
+              onCreated={(u) => {
+                setUsers((prev) => [u, ...prev]);
+                refreshAuditLog();
+              }}
+            />
+            <BulkInviteForm
+              onCreated={(created) => {
+                setUsers((prev) => [...created, ...prev]);
+                refreshAuditLog();
+              }}
+            />
+          </div>
 
           {usersError && <p className="mt-4 text-sm text-destructive">{usersError}</p>}
 
@@ -420,14 +435,14 @@ function AddUserForm({ onCreated }: { onCreated: (u: AdminUserRecord) => void })
 
   if (!open) {
     return (
-      <button onClick={() => setOpen(true)} className="btn-primary btn-primary-hover mt-6">
+      <button onClick={() => setOpen(true)} className="btn-primary btn-primary-hover w-fit">
         Invite User
       </button>
     );
   }
 
   return (
-    <form onSubmit={onSubmit} className="mt-6 card-elev p-6 grid gap-4 sm:grid-cols-2 max-w-2xl">
+    <form onSubmit={onSubmit} className="card-elev p-6 grid gap-4 sm:grid-cols-2 max-w-2xl">
       <label className="grid gap-1 text-sm">
         <span className="font-medium">
           First Name<span className="text-destructive"> *</span>
@@ -487,6 +502,155 @@ function AddUserForm({ onCreated }: { onCreated: (u: AdminUserRecord) => void })
         </button>
       </div>
     </form>
+  );
+}
+
+// Loose enough to pull a real address out of whatever separator the admin's
+// paste used — newline, space, comma, semicolon, tab, or just run together —
+// without requiring any particular one. Anything before/after that doesn't
+// match isn't a real address and is silently dropped rather than guessed at.
+const EMAIL_TOKEN = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
+
+function parseEmails(raw: string): string[] {
+  const found = raw.match(EMAIL_TOKEN) ?? [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const e of found) {
+    const lower = e.toLowerCase();
+    if (!seen.has(lower)) {
+      seen.add(lower);
+      out.push(lower);
+    }
+  }
+  return out;
+}
+
+type BulkResult = { email: string; ok: boolean; detail: string };
+
+// Paste-a-blob-of-addresses alternative to AddUserForm above, for inviting
+// many people at once (e.g. a batch of beta-access approvals) without one
+// form submission per person. Same real createUserAccount/admin-create-user
+// path as a single invite — just looped, sequentially (not Promise.all) so
+// one failure's error message stays attributable to its own address instead
+// of racing every send at once against Supabase.
+function BulkInviteForm({ onCreated }: { onCreated: (users: AdminUserRecord[]) => void }) {
+  const [open, setOpen] = useState(false);
+  const [raw, setRaw] = useState("");
+  const [wantsBeta, setWantsBeta] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [results, setResults] = useState<BulkResult[] | null>(null);
+
+  const parsed = parseEmails(raw);
+
+  async function onSend() {
+    if (parsed.length === 0) return;
+    setSending(true);
+    setResults(null);
+    const outcomes: BulkResult[] = [];
+    for (const email of parsed) {
+      try {
+        await createUserAccount({ email, firstName: "", lastName: "", phone: "", wantsBeta });
+        outcomes.push({ email, ok: true, detail: "Invited" });
+      } catch (err) {
+        outcomes.push({
+          email,
+          ok: false,
+          detail: err instanceof Error ? err.message : "Failed",
+        });
+      }
+    }
+    setResults(outcomes);
+    setSending(false);
+    const successEmails = new Set(outcomes.filter((o) => o.ok).map((o) => o.email));
+    if (successEmails.size > 0) {
+      const updated = await listAllUsers().catch(() => []);
+      onCreated(updated.filter((u) => successEmails.has(u.email.toLowerCase())));
+    }
+    const failCount = outcomes.length - successEmails.size;
+    if (successEmails.size > 0 && failCount === 0) {
+      toast.success(`${successEmails.size} invite${successEmails.size === 1 ? "" : "s"} sent.`);
+    } else if (successEmails.size > 0) {
+      toast.success(`${successEmails.size} sent, ${failCount} failed — see details below.`);
+    } else {
+      toast.error("No invites sent — see details below.");
+    }
+  }
+
+  function reset() {
+    setOpen(false);
+    setRaw("");
+    setResults(null);
+  }
+
+  if (!open) {
+    return (
+      <button onClick={() => setOpen(true)} className="btn-outline w-fit">
+        Bulk Invite
+      </button>
+    );
+  }
+
+  return (
+    <div className="card-elev p-6 grid gap-4 max-w-2xl">
+      <div>
+        <span className="font-medium text-sm">Paste email addresses</span>
+        <p className="text-xs text-muted-foreground">
+          One per line, or separated by spaces, commas, or semicolons — any mix is fine. Anything
+          that isn't a real address is ignored.
+        </p>
+        <textarea
+          value={raw}
+          onChange={(e) => {
+            setRaw(e.target.value);
+            setResults(null);
+          }}
+          rows={6}
+          placeholder={"jane@example.com\njohn@example.com, sam@example.com"}
+          className="mt-2 w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono"
+        />
+      </div>
+
+      <label className="flex items-center gap-2 text-sm">
+        <input
+          type="checkbox"
+          checked={wantsBeta}
+          onChange={(e) => setWantsBeta(e.target.checked)}
+        />
+        Grant beta access (free, full access) to everyone invited here
+      </label>
+
+      <p className="text-xs text-muted-foreground">
+        {parsed.length === 0
+          ? "No valid addresses found yet."
+          : `${parsed.length} address${parsed.length === 1 ? "" : "es"} recognized.`}
+      </p>
+
+      {results && (
+        <div className="grid gap-1 text-xs max-h-48 overflow-y-auto rounded-md border border-border p-3">
+          {results.map((r) => (
+            <div key={r.email} className={r.ok ? "text-success" : "text-destructive"}>
+              {r.ok ? "✓" : "✕"} {r.email} — {r.detail}
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={onSend}
+          disabled={sending || parsed.length === 0}
+          className="btn-primary btn-primary-hover disabled:opacity-60"
+        >
+          {sending
+            ? "Sending…"
+            : `Send ${parsed.length || ""} Invite${parsed.length === 1 ? "" : "s"}`}
+        </button>
+        <button type="button" onClick={reset} className="btn-outline">
+          {results ? "Done" : "Cancel"}
+        </button>
+      </div>
+    </div>
   );
 }
 
