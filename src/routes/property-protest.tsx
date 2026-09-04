@@ -1,11 +1,11 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { ScrollReveal } from "@/components/ScrollReveal";
 import { useAuth } from "@/lib/auth";
-import { listProperties, type PropertyRecord } from "@/lib/properties";
+import { listProperties, buildAiReportIntakePatch, type PropertyRecord } from "@/lib/properties";
 import { listProtests, type ProtestRecord } from "@/lib/protests";
 import { getPropertyProtestStatus, type ActionStatus } from "@/lib/portfolio-status";
-import { currency } from "@/lib/intake-store";
+import { currency, updateIntake } from "@/lib/intake-store";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export const Route = createFileRoute("/property-protest")({
@@ -166,7 +166,19 @@ function ProtestedPropertyCard({
   protest: ProtestRecord;
   delay: number;
 }) {
+  const nav = useNavigate();
   const { status, label } = getPropertyProtestStatus(property, [protest]);
+
+  // Same deep-link pattern the Properties dashboard's own "Open AI Report"
+  // uses (see openAiReport in dashboard/_layout.properties.tsx) — sets the
+  // shared intake state to THIS property, then the AI Report page picks it
+  // up on load. Manage previously just linked to the generic Properties
+  // list with no property context at all.
+  function goToModules() {
+    updateIntake(buildAiReportIntakePatch(property));
+    nav({ to: "/ai-report" });
+  }
+
   return (
     <div className="card-elev p-6" style={{ animationDelay: `${delay}ms` }}>
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -195,9 +207,9 @@ function ProtestedPropertyCard({
         >
           View Case
         </Link>
-        <Link to="/dashboard/properties" className="btn-outline">
+        <button type="button" onClick={goToModules} className="btn-outline">
           Manage
-        </Link>
+        </button>
       </div>
     </div>
   );
