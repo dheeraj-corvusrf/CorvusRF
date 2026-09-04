@@ -97,6 +97,42 @@ export async function classifyAndUpload(
   }
 }
 
+// For uploading straight into a property the user has already picked (e.g.
+// a per-property "Upload" button, right on that property's own row) — skips
+// matching entirely since there's nothing to match, but still runs the same
+// real classify-document call so the file gets a real AI document type
+// instead of landing untagged.
+export async function classifyAndUploadToProperty(
+  userId: string,
+  property: PropertyRecord,
+  file: File,
+): Promise<CategorizedUpload> {
+  const base: Omit<CategorizedUpload, "status"> = {
+    id: `${file.name}-${file.size}-${file.lastModified}`,
+    file,
+    extraction: null,
+    matchedProperty: property,
+    document: null,
+    error: null,
+  };
+  try {
+    const dataUrl = await fileToDataUrl(file);
+    const extraction = await classifyDocument({
+      fileName: file.name,
+      mimeType: file.type,
+      dataUrl,
+    });
+    const document = await uploadDocument(userId, property.id, file, extraction.documentType);
+    return { ...base, status: "done", extraction, document };
+  } catch (err) {
+    return {
+      ...base,
+      status: "error",
+      error: err instanceof Error ? err.message : "Could not upload this file.",
+    };
+  }
+}
+
 // Used once the user manually picks a property for a "needs-property" row —
 // same real upload path, just with a human-chosen property instead of an
 // AI-matched one. Keeps the AI's own extraction/documentType intact rather

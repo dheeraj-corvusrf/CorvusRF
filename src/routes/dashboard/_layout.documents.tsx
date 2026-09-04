@@ -6,6 +6,7 @@ import { listProperties, type PropertyRecord } from "@/lib/properties";
 import { listDocuments, getDocumentUrl, type DocumentRecord } from "@/lib/documents";
 import {
   classifyAndUpload,
+  classifyAndUploadToProperty,
   assignAndUpload,
   type CategorizedUpload,
 } from "@/lib/document-categorize";
@@ -22,6 +23,7 @@ function Documents() {
   const [documents, setDocuments] = useState<DocumentRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploads, setUploads] = useState<CategorizedUpload[]>([]);
+  const [uploadingPropertyId, setUploadingPropertyId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!user) return;
@@ -86,23 +88,57 @@ function Documents() {
     setUploads((prev) => prev.filter((u) => u.id !== id));
   }
 
+  // Property already known (this is the upload button right on that
+  // property's own row), so there's no matching step — straight to
+  // classify-and-upload for each file, sequentially like the other upload
+  // paths above. Toasts a combined result instead of adding to the
+  // top-of-page `uploads` list, since these never need a "needs-property"
+  // resolution — they're either done or failed.
+  async function handleUploadToProperty(property: PropertyRecord, files: File[]) {
+    if (!user || files.length === 0) return;
+    setUploadingPropertyId(property.id);
+    let succeeded = 0;
+    const failures: string[] = [];
+    for (const file of files) {
+      const result = await classifyAndUploadToProperty(user.id, property, file);
+      if (result.status === "done" && result.document) {
+        setDocuments((prev) => [result.document!, ...prev]);
+        succeeded++;
+      } else {
+        failures.push(result.error ?? `${file.name} — failed`);
+      }
+    }
+    setUploadingPropertyId(null);
+    if (failures.length === 0) {
+      toast.success(`${succeeded} document${succeeded === 1 ? "" : "s"} uploaded.`);
+    } else if (succeeded > 0) {
+      toast.error(`${succeeded} uploaded, ${failures.length} failed: ${failures.join("; ")}`);
+    } else {
+      toast.error(`Could not upload: ${failures.join("; ")}`);
+    }
+  }
+
   // Grouped by property — a flat list with the address buried in each
   // row's caption made it genuinely hard to tell at a glance which
   // documents belong to which property, especially for staff reviewing a
-  // customer's account with several properties. One card per property
-  // (only properties that actually have a document, so this doesn't pad
-  // out with empty sections), each with its own compact document rows.
-  const groups = properties
-    .map((property) => ({
+  // customer's account with several properties. One card per property,
+  // including properties with zero documents yet — each row carries its
+  // own Upload button now, so an empty property still needs to be visible
+  // to actually use it.
+  const groups: { label: string; docs: DocumentRecord[]; property: PropertyRecord | null }[] =
+    properties.map((property) => ({
       label: property.address,
       docs: documents.filter((d) => d.propertyId === property.id),
-    }))
-    .filter((g) => g.docs.length > 0);
+      property,
+    }));
   // Documents whose property was since removed still need to be reachable
   // — never silently dropped just because the grouping key no longer
-  // resolves to a live property.
+  // resolves to a live property. No Upload button for this one (property
+  // is null) — there's no live property left to attach a new file to.
   const orphanedDocs = documents.filter((d) => !properties.some((p) => p.id === d.propertyId));
-  if (orphanedDocs.length > 0) groups.push({ label: "Property removed", docs: orphanedDocs });
+  if (orphanedDocs.length > 0) {
+    groups.push({ label: "Property removed", docs: orphanedDocs, property: null });
+  }
 
   return (
     <div>
@@ -167,13 +203,17 @@ function Documents() {
               </div>
             ))}
           </div>
-        ) : documents.length > 0 ? (
+        ) : groups.length > 0 ? (
           <div className="grid gap-4">
             {groups.map((group) => (
               <PropertyDocGroup
                 key={group.label}
                 group={group}
                 onDownload={handleDownload}
+                onUpload={(files) =>
+                  group.property && handleUploadToProperty(group.property, files)
+                }
+                uploading={uploadingPropertyId === group.property?.id}
                 defaultExpanded={groups.length === 1}
               />
             ))}
@@ -274,30 +314,62 @@ function UploadRow({
 function PropertyDocGroup({
   group,
   onDownload,
+  onUpload,
+  uploading,
   defaultExpanded,
 }: {
-  group: { label: string; docs: DocumentRecord[] };
+  group: { label: string; docs: DocumentRecord[]; property: PropertyRecord | null };
   onDownload: (doc: DocumentRecord) => void;
+  onUpload: (files: File[]) => void;
+  uploading: boolean;
   defaultExpanded: boolean;
 }) {
-  const [expanded, setExpanded] = useState(defaultExpanded);
+  const [expanded, setExpanded] = useState(defaultExpanded && group.docs.length > 0);
+  const hasDocs = group.docs.length > 0;
   return (
     <div className="card-elev p-4">
-      <button
-        type="button"
-        onClick={() => setExpanded((e) => !e)}
-        className="flex w-full items-center justify-between gap-2 text-left"
-      >
-        <span className="flex items-center gap-2 min-w-0">
-          <ChevronDown
-            className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${expanded ? "rotate-180" : ""}`}
-          />
+      <div className="flex items-center justify-between gap-2">
+        <button
+          type="button"
+          onClick={() => hasDocs && setExpanded((e) => !e)}
+          disabled={!hasDocs}
+          className="flex min-w-0 flex-1 items-center gap-2 text-left disabled:cursor-default"
+        >
+          {hasDocs && (
+            <ChevronDown
+              className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${expanded ? "rotate-180" : ""}`}
+            />
+          )}
           <h2 className="truncate font-semibold">{group.label}</h2>
-        </span>
-        <span className="shrink-0 text-xs text-muted-foreground">
-          {group.docs.length} document{group.docs.length === 1 ? "" : "s"}
-        </span>
-      </button>
+        </button>
+        <div className="flex shrink-0 items-center gap-3">
+          {group.property && (
+            <label
+              className={`btn-outline text-xs cursor-pointer ${uploading ? "pointer-events-none opacity-60" : ""}`}
+            >
+              {uploading ? "Uploading…" : "Upload"}
+              <input
+                type="file"
+                accept="application/pdf,image/*"
+                multiple
+                disabled={uploading}
+                className="hidden"
+                onChange={(e) => {
+                  const selected = e.target.files ? Array.from(e.target.files) : [];
+                  e.target.value = "";
+                  if (selected.length > 0) {
+                    setExpanded(true);
+                    onUpload(selected);
+                  }
+                }}
+              />
+            </label>
+          )}
+          <span className="text-xs text-muted-foreground">
+            {group.docs.length} document{group.docs.length === 1 ? "" : "s"}
+          </span>
+        </div>
+      </div>
       {expanded && (
         <div className="mt-2 grid gap-2">
           {group.docs.map((doc) => (
