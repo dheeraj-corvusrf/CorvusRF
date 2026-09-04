@@ -18,7 +18,7 @@ Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   try {
-    const { email, firstName, lastName, phone, redirectPath } = await req.json();
+    const { email, firstName, lastName, phone, redirectPath, wantsBeta } = await req.json();
     if (!email) {
       return new Response(JSON.stringify({ error: "email required" }), {
         status: 400,
@@ -79,10 +79,19 @@ Deno.serve(async (req: Request) => {
       typeof redirectPath === "string" && redirectPath.startsWith("/") && !redirectPath.startsWith("//")
         ? redirectPath
         : "/reset-password";
+    // wants_beta mirrors the same metadata key handle_new_user() (see
+    // schema.sql) already reads off self-signup — setting it here grants
+    // plan='beta' at row-creation instead of the free_ai_review default,
+    // for admin-approved beta-access requests.
     const { data: created, error: createErr } = await adminClient.auth.admin.inviteUserByEmail(
       email,
       {
-        data: { first_name: firstName, last_name: lastName, phone },
+        data: {
+          first_name: firstName,
+          last_name: lastName,
+          phone,
+          wants_beta: wantsBeta === true ? "true" : "false",
+        },
         redirectTo: new URL(safeRedirectPath, origin).toString(),
       },
     );
