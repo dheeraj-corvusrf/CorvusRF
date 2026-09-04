@@ -245,21 +245,99 @@ export async function impersonateUser(userId: string): Promise<string> {
   return result.actionLink;
 }
 
+// Builds a link into the app's own sign-up form, prefilled with what staff
+// already know — no server call, no account created. sign-in.tsx reads
+// these via validateSearch and pre-fills mode/email/firstName/lastName/beta;
+// the invitee still sets their own password (or uses Google) to actually
+// create the account. wantsBeta pre-checks the sign-up form's own beta
+// checkbox, which is what actually sets plan='beta' (via handle_new_user()
+// in schema.sql reading wants_beta off the real signUp() call) — nothing
+// here writes a plan.
+export function buildSignupInviteLink(input: {
+  email: string;
+  firstName?: string;
+  lastName?: string;
+  wantsBeta?: boolean;
+}): string {
+  const base = `${window.location.origin}${import.meta.env.BASE_URL}sign-in`;
+  const params = new URLSearchParams({ mode: "signup", email: input.email });
+  if (input.firstName) params.set("firstName", input.firstName);
+  if (input.lastName) params.set("lastName", input.lastName);
+  if (input.wantsBeta) params.set("beta", "1");
+  return `${base}?${params.toString()}`;
+}
+
+// Deliberately NOT admin.inviteUserByEmail() (the old admin-create-user
+// flow, now unused) — that pre-created a real auth.users/profiles row the
+// instant staff clicked Invite, before the invitee had done anything. This
+// sends a real, branded email (via send-signup-invite, Resend directly —
+// bypassing Supabase Auth's own mailer entirely) containing a prefilled
+// sign-up link; no account exists until the invitee actually finishes
+// signing up themselves, password or Google, same as any organic visitor.
 export async function createUserAccount(input: {
   email: string;
   firstName: string;
   lastName: string;
-  phone: string;
-  // Grants plan='beta' (free, full access) at signup instead of the default
-  // free_ai_review — same wants_beta metadata flag handle_new_user() already
-  // reads for self-signup (see sign-in.tsx), just set by the admin here
-  // instead of the invitee. Used when approving a beta-access request via
-  // Invite so the account doesn't land on the paid-tier default.
   wantsBeta?: boolean;
 }): Promise<void> {
-  await invokeEdgeFunction("admin-create-user", {
-    ...input,
-    redirectPath: `${import.meta.env.BASE_URL}reset-password`,
+  const signupUrl = buildSignupInviteLink(input);
+  await invokeEdgeFunction("send-signup-invite", { ...input, signupUrl });
+}
+
+export type InvitedUserRecord = {
+  id: string;
+  email: string;
+  firstName: string | null;
+  lastName: string | null;
+  wantsBeta: boolean;
+  invitedAt: string;
+  lastSentAt: string;
+  resendCount: number;
+};
+
+type InvitedUserRow = {
+  id: string;
+  email: string;
+  first_name: string | null;
+  last_name: string | null;
+  wants_beta: boolean;
+  invited_at: string;
+  last_sent_at: string;
+  resend_count: number;
+};
+
+// Everyone who's been sent a sign-up link but hasn't actually finished
+// signing up yet — see invited_users in schema.sql. handle_new_user()
+// deletes a row the moment a real account exists for that email, so
+// whatever's left here is genuinely still pending, not a permanent log.
+export async function listInvitedUsers(): Promise<InvitedUserRecord[]> {
+  const { data, error } = await supabase
+    .from("invited_users")
+    .select("id, email, first_name, last_name, wants_beta, invited_at, last_sent_at, resend_count")
+    .order("invited_at", { ascending: false });
+  if (error) throw error;
+  return (data as InvitedUserRow[]).map((row) => ({
+    id: row.id,
+    email: row.email,
+    firstName: row.first_name,
+    lastName: row.last_name,
+    wantsBeta: row.wants_beta,
+    invitedAt: row.invited_at,
+    lastSentAt: row.last_sent_at,
+    resendCount: row.resend_count,
+  }));
+}
+
+// Re-sends the same real branded email to an already-pending invite — same
+// send-signup-invite path as a fresh invite, which updates that row's
+// last_sent_at/resend_count (by email, its unique key) rather than creating
+// a second one.
+export async function resendInvite(invite: InvitedUserRecord): Promise<void> {
+  await createUserAccount({
+    email: invite.email,
+    firstName: invite.firstName ?? "",
+    lastName: invite.lastName ?? "",
+    wantsBeta: invite.wantsBeta,
   });
 }
 

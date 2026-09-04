@@ -68,6 +68,12 @@ begin
     new.raw_user_meta_data ->> 'company_name',
     case when new.raw_user_meta_data ->> 'wants_beta' = 'true' then 'beta' else 'free_ai_review' end
   );
+  -- Clears this address off the admin panel's "Invited Users" tab the moment
+  -- a real account actually exists for it — security definer, so this runs
+  -- regardless of the new user's own RLS grants (they have none on
+  -- invited_users). Matches on email, not user id, since invited_users rows
+  -- are created before any auth.users row exists.
+  delete from public.invited_users where email = new.email;
   return new;
 end;
 $$;
@@ -214,6 +220,37 @@ drop policy if exists "Admins can log their own actions" on public.admin_audit_l
 create policy "Admins can log their own actions"
   on public.admin_audit_log for insert
   with check (public.is_admin() and actor_id = auth.uid());
+
+-- One row per address someone's been sent a sign-up link for (see
+-- send-signup-invite/index.ts) — this is the ONLY record of an invite until
+-- the person actually signs up, since no account exists yet at invite time.
+-- handle_new_user() (above) deletes the matching row the moment a real
+-- signup happens, so this table only ever holds genuinely still-pending
+-- invites, not a permanent history. email is the natural key: re-inviting
+-- the same address updates last_sent_at/resend_count on the existing row
+-- instead of creating a duplicate.
+create table if not exists public.invited_users (
+  id uuid primary key default gen_random_uuid(),
+  email text not null unique,
+  first_name text,
+  last_name text,
+  wants_beta boolean not null default false,
+  invited_by uuid references auth.users (id) on delete set null,
+  invited_at timestamptz not null default now(),
+  last_sent_at timestamptz not null default now(),
+  resend_count integer not null default 0
+);
+
+alter table public.invited_users enable row level security;
+
+-- Written only by send-signup-invite (service-role, bypasses RLS) — this
+-- policy is read-only, for the admin panel's "Invited Users" tab to list
+-- them directly from the client, same pattern as admin_audit_log's
+-- select-only policy above.
+drop policy if exists "Admins can view invited users" on public.invited_users;
+create policy "Admins can view invited users"
+  on public.invited_users for select
+  using (public.is_admin());
 
 -- Stripe billing: the webhook (supabase/functions/stripe-webhook) writes plan and
 -- these two ids; the admin panel's manual plan dropdown still works unchanged since

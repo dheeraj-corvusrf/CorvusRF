@@ -21,6 +21,8 @@ import {
   listBetaLeads,
   markBetaLeadInvited,
   deleteBetaLead,
+  listInvitedUsers,
+  resendInvite,
   PLAN_OPTIONS,
   PROTEST_STATUS_OPTIONS,
   type AdminUserRecord,
@@ -30,6 +32,7 @@ import {
   type CaseSummaryResult,
   type AdminAuditEntry,
   type BetaLead,
+  type InvitedUserRecord,
 } from "@/lib/admin";
 import type { ProtestRecord, ProtestStatus } from "@/lib/protests";
 import { listProperties, addProperty, deleteProperty, type PropertyRecord } from "@/lib/properties";
@@ -46,7 +49,7 @@ export const Route = createFileRoute("/admin")({
   component: AdminPanel,
 });
 
-type AdminTab = "users" | "beta" | "activity";
+type AdminTab = "users" | "invited" | "beta" | "activity";
 
 function AdminPanel() {
   const nav = useNavigate();
@@ -68,6 +71,9 @@ function AdminPanel() {
 
   const [betaLeads, setBetaLeads] = useState<BetaLead[]>([]);
   const [betaLeadsLoading, setBetaLeadsLoading] = useState(true);
+
+  const [invitedUsers, setInvitedUsers] = useState<InvitedUserRecord[]>([]);
+  const [invitedUsersLoading, setInvitedUsersLoading] = useState(true);
 
   useEffect(() => {
     if (loading) return;
@@ -104,6 +110,11 @@ function AdminPanel() {
       .then(setBetaLeads)
       .catch((err) => console.error(err))
       .finally(() => setBetaLeadsLoading(false));
+    setInvitedUsersLoading(true);
+    listInvitedUsers()
+      .then(setInvitedUsers)
+      .catch((err) => console.error(err))
+      .finally(() => setInvitedUsersLoading(false));
     refreshAuditLog();
   }
 
@@ -235,6 +246,11 @@ function AdminPanel() {
 
   const TABS: { key: AdminTab; label: string; count: number | null }[] = [
     { key: "users", label: "Users", count: usersLoading ? null : users.length },
+    {
+      key: "invited",
+      label: "Invited Users",
+      count: invitedUsersLoading ? null : invitedUsers.length,
+    },
     { key: "beta", label: "Beta Signups", count: betaLeadsLoading ? null : betaLeads.length },
     { key: "activity", label: "Activity Log", count: auditLogLoading ? null : auditLog.length },
   ];
@@ -290,18 +306,8 @@ function AdminPanel() {
           </p>
 
           <div className="mt-6 grid gap-3">
-            <AddUserForm
-              onCreated={(u) => {
-                setUsers((prev) => [u, ...prev]);
-                refreshAuditLog();
-              }}
-            />
-            <BulkInviteForm
-              onCreated={(created) => {
-                setUsers((prev) => [...created, ...prev]);
-                refreshAuditLog();
-              }}
-            />
+            <AddUserForm onSent={refreshAll} />
+            <BulkInviteForm onSent={refreshAll} />
           </div>
 
           {usersError && <p className="mt-4 text-sm text-destructive">{usersError}</p>}
@@ -340,6 +346,27 @@ function AdminPanel() {
             )}
           </div>
         </div>
+      )}
+
+      {activeTab === "invited" && (
+        <section className="mt-8">
+          <h2 className="font-serif text-xl font-semibold">Invited Users</h2>
+          <p className="text-sm text-muted-foreground">
+            Sent a sign-up link, haven't finished creating their account yet — no account exists for
+            anyone here. Drops off this list automatically the moment they actually sign up.
+          </p>
+          <div className="mt-4 grid gap-2">
+            {invitedUsersLoading ? (
+              <PropertyRowSkeleton />
+            ) : invitedUsers.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No pending invites.</p>
+            ) : (
+              invitedUsers.map((invite) => (
+                <InvitedUserRow key={invite.id} invite={invite} onResent={refreshAll} />
+              ))
+            )}
+          </div>
+        </section>
       )}
 
       {activeTab === "beta" && (
@@ -402,12 +429,12 @@ function AdminPanel() {
   );
 }
 
-function AddUserForm({ onCreated }: { onCreated: (u: AdminUserRecord) => void }) {
+function AddUserForm({ onSent }: { onSent: () => void }) {
   const [open, setOpen] = useState(false);
   const [email, setEmail] = useState("");
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
-  const [phone, setPhone] = useState("");
+  const [wantsBeta, setWantsBeta] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -416,16 +443,14 @@ function AddUserForm({ onCreated }: { onCreated: (u: AdminUserRecord) => void })
     setError(null);
     setSubmitting(true);
     try {
-      await createUserAccount({ email, firstName, lastName, phone });
-      const updated = await listAllUsers();
-      const created = updated.find((u) => u.email === email);
-      if (created) onCreated(created);
-      toast.success("Invite sent.");
+      await createUserAccount({ email, firstName, lastName, wantsBeta });
+      onSent();
+      toast.success("Invite sent — no account created until they sign up.");
       setOpen(false);
       setEmail("");
       setFirstName("");
       setLastName("");
-      setPhone("");
+      setWantsBeta(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not send the invite.");
     } finally {
@@ -477,20 +502,17 @@ function AddUserForm({ onCreated }: { onCreated: (u: AdminUserRecord) => void })
           className="rounded-md border border-input bg-background px-3 py-2"
         />
       </label>
-      <label className="grid gap-1 text-sm">
-        <span className="font-medium">
-          Phone<span className="text-destructive"> *</span>
-        </span>
+      <label className="sm:col-span-2 flex items-center gap-2 text-sm">
         <input
-          required
-          value={phone}
-          onChange={(e) => setPhone(e.target.value)}
-          className="rounded-md border border-input bg-background px-3 py-2"
+          type="checkbox"
+          checked={wantsBeta}
+          onChange={(e) => setWantsBeta(e.target.checked)}
         />
+        Grant beta access (free, full access)
       </label>
       <p className="sm:col-span-2 text-xs text-muted-foreground">
-        We'll email them a link to confirm their address and set their own password — you never
-        choose or see it.
+        We'll email them a real sign-up link — no account is created until they actually finish
+        signing up themselves, with their own password or Google.
       </p>
       {error && <p className="sm:col-span-2 text-sm text-destructive">{error}</p>}
       <div className="sm:col-span-2 flex gap-2">
@@ -533,7 +555,7 @@ type BulkResult = { email: string; ok: boolean; detail: string };
 // path as a single invite — just looped, sequentially (not Promise.all) so
 // one failure's error message stays attributable to its own address instead
 // of racing every send at once against Supabase.
-function BulkInviteForm({ onCreated }: { onCreated: (users: AdminUserRecord[]) => void }) {
+function BulkInviteForm({ onSent }: { onSent: () => void }) {
   const [open, setOpen] = useState(false);
   const [raw, setRaw] = useState("");
   const [wantsBeta, setWantsBeta] = useState(false);
@@ -549,8 +571,8 @@ function BulkInviteForm({ onCreated }: { onCreated: (users: AdminUserRecord[]) =
     const outcomes: BulkResult[] = [];
     for (const email of parsed) {
       try {
-        await createUserAccount({ email, firstName: "", lastName: "", phone: "", wantsBeta });
-        outcomes.push({ email, ok: true, detail: "Invited" });
+        await createUserAccount({ email, firstName: "", lastName: "", wantsBeta });
+        outcomes.push({ email, ok: true, detail: "Invite sent" });
       } catch (err) {
         outcomes.push({
           email,
@@ -562,10 +584,7 @@ function BulkInviteForm({ onCreated }: { onCreated: (users: AdminUserRecord[]) =
     setResults(outcomes);
     setSending(false);
     const successEmails = new Set(outcomes.filter((o) => o.ok).map((o) => o.email));
-    if (successEmails.size > 0) {
-      const updated = await listAllUsers().catch(() => []);
-      onCreated(updated.filter((u) => successEmails.has(u.email.toLowerCase())));
-    }
+    if (successEmails.size > 0) onSent();
     const failCount = outcomes.length - successEmails.size;
     if (successEmails.size > 0 && failCount === 0) {
       toast.success(`${successEmails.size} invite${successEmails.size === 1 ? "" : "s"} sent.`);
@@ -1220,12 +1239,11 @@ function BetaLeadRow({
   const [inviting, setInviting] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
-  // Real account invite via the same admin-create-user edge function/
-  // inviteUserByEmail flow AddUserForm above uses — Supabase's own invite
-  // email carries the actual link into the app, not a second bespoke email
-  // system. Splits the lead's one free-text name into first/last since
-  // createUserAccount (like the rest of the app) expects them separately;
-  // a single-word name becomes both.
+  // Same real sign-up-link invite AddUserForm above uses — no account is
+  // created here, just a real branded email with a prefilled sign-up link
+  // (see createUserAccount in src/lib/admin.ts). Splits the lead's one
+  // free-text name into first/last since createUserAccount expects them
+  // separately; a single-word name becomes both.
   async function handleInvite() {
     setInviting(true);
     try {
@@ -1237,7 +1255,6 @@ function BetaLeadRow({
         email: lead.workEmail,
         firstName,
         lastName,
-        phone: "",
         wantsBeta: true,
       });
       const invitedAt = await markBetaLeadInvited(lead.id);
@@ -1315,6 +1332,58 @@ function BetaLeadRow({
         {lead.areaOfInterest}
       </div>
       {lead.useCase && <div className="mt-1 text-xs text-muted-foreground">"{lead.useCase}"</div>}
+    </div>
+  );
+}
+
+function InvitedUserRow({ invite, onResent }: { invite: InvitedUserRecord; onResent: () => void }) {
+  const [resending, setResending] = useState(false);
+  const name = [invite.firstName, invite.lastName].filter(Boolean).join(" ");
+
+  async function handleResend() {
+    setResending(true);
+    try {
+      await resendInvite(invite);
+      onResent();
+      toast.success(`Invite resent to ${invite.email}.`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not resend the invite.");
+    } finally {
+      setResending(false);
+    }
+  }
+
+  return (
+    <div className="rounded-md bg-secondary/40 px-3 py-2 text-sm">
+      <div className="flex items-start justify-between gap-2 flex-wrap">
+        <div className="min-w-0 flex-1">
+          {name && <span className="font-medium">{name}</span>}
+          <div className="flex items-center gap-1 text-xs text-muted-foreground">
+            {invite.email}
+            <CopyButton value={invite.email} label="Email copied" />
+            {invite.wantsBeta && <span className="badge-soft ml-1">Beta</span>}
+          </div>
+        </div>
+        <div className="flex shrink-0 items-start gap-3">
+          <div className="text-right text-xs text-muted-foreground">
+            <div>Invited {new Date(invite.invitedAt).toLocaleDateString()}</div>
+            {invite.resendCount > 0 && (
+              <div>
+                Resent {invite.resendCount}× — last{" "}
+                {new Date(invite.lastSentAt).toLocaleDateString()}
+              </div>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={handleResend}
+            disabled={resending}
+            className="btn-outline text-xs disabled:opacity-60"
+          >
+            {resending ? "Sending…" : "Resend Invite"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
