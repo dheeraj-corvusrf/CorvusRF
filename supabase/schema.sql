@@ -34,6 +34,34 @@ create unique index if not exists profiles_calendar_feed_token_key
 
 alter table public.profiles enable row level security;
 
+-- Real, continuous, per-user Google Calendar sync (OAuth, not the read-only
+-- webcal subscribe link above) — see supabase/functions/google-calendar-*.
+-- Server-side only — the refresh token here is as sensitive as a password
+-- to the user's Google Calendar; no RLS policy grants any access to
+-- anon/authenticated at all, so only the service-role client (every
+-- google-calendar-* edge function) can ever read or write this table.
+create table if not exists public.google_calendar_connections (
+  user_id uuid primary key references auth.users (id) on delete cascade,
+  refresh_token text not null,
+  calendar_id text not null,
+  connected_at timestamptz not null default now(),
+  last_synced_at timestamptz
+);
+alter table public.google_calendar_connections enable row level security;
+
+-- Short-lived, single-use CSRF state for the OAuth redirect round-trip —
+-- google-calendar-start (authenticated) creates a row right before sending
+-- the user to Google; google-calendar-oauth-callback (public, Google
+-- redirects here with no session) looks it up to recover which CorvusPT
+-- user this is, then deletes it. Same no-policy/service-role-only posture.
+create table if not exists public.google_oauth_states (
+  state text primary key,
+  user_id uuid not null references auth.users (id) on delete cascade,
+  redirect_path text not null,
+  created_at timestamptz not null default now()
+);
+alter table public.google_oauth_states enable row level security;
+
 -- Each user may only read/update their own profile row. There is intentionally no
 -- policy allowing select/update of other users' rows, and no delete/insert policy for
 -- end users (the row is created only by the trigger below, running as the table owner).

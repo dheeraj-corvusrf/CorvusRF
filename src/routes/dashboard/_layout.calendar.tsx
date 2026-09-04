@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
@@ -31,10 +31,27 @@ import {
   getFeedHttpsUrl,
   googleCalendarSubscribeUrl,
 } from "@/lib/calendar-feed";
+import {
+  getGoogleCalendarStatus,
+  startGoogleCalendarConnect,
+  disconnectGoogleCalendar,
+  type GoogleCalendarStatus,
+} from "@/lib/google-calendar-sync";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 
+// google_connected/google_error round-trip from google-calendar-oauth-
+// callback's redirect back here after the user finishes (or abandons) the
+// Google consent screen — read once on mount to show the right toast, then
+// cleared from the URL so refreshing the page doesn't re-show it.
 export const Route = createFileRoute("/dashboard/_layout/calendar")({
+  validateSearch: (
+    search: Record<string, unknown>,
+  ): { google_connected?: string; google_error?: string } => ({
+    google_connected:
+      typeof search.google_connected === "string" ? search.google_connected : undefined,
+    google_error: typeof search.google_error === "string" ? search.google_error : undefined,
+  }),
   component: CalendarPage,
 });
 
@@ -113,13 +130,104 @@ function EventRow({
   );
 }
 
-// One real subscribe link for the WHOLE calendar (every property, every
-// event type) — distinct from EventRow's per-event "Google" quick-add
-// button above, which only ever adds that one event. Subscribing here
-// means new deadlines that show up later (a new property, a rescheduled
-// hearing) appear in Google automatically on its own refresh, with nothing
-// more to click — a quick-add link can't do that, it's a one-time copy.
-function GoogleSyncSection({ userId }: { userId: string }) {
+// The real, continuous option — OAuth to the user's own Google account,
+// then a ~5-minute cron pushes their deadlines directly via the Calendar
+// API (see google-calendar-sync). A new deadline shows up within minutes,
+// not on Google's own (often much slower) subscribe-link refresh timing —
+// that link-based option is still available below as a lighter-weight
+// alternative that needs no Google sign-in permission grant.
+function GoogleConnectSection({ userId }: { userId: string }) {
+  const [status, setStatus] = useState<GoogleCalendarStatus | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [connecting, setConnecting] = useState(false);
+  const [disconnecting, setDisconnecting] = useState(false);
+
+  function loadStatus() {
+    setLoading(true);
+    getGoogleCalendarStatus()
+      .then(setStatus)
+      .catch((err) => toast.error(err instanceof Error ? err.message : "Could not check status."))
+      .finally(() => setLoading(false));
+  }
+
+  useEffect(loadStatus, [userId]);
+
+  async function handleConnect() {
+    setConnecting(true);
+    try {
+      await startGoogleCalendarConnect(); // navigates away on success
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not start Google sign-in.");
+      setConnecting(false);
+    }
+  }
+
+  async function handleDisconnect() {
+    if (
+      !window.confirm("Stop syncing to Google Calendar? Events already there won't be removed.")
+    ) {
+      return;
+    }
+    setDisconnecting(true);
+    try {
+      await disconnectGoogleCalendar();
+      toast.success("Disconnected.");
+      loadStatus();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not disconnect.");
+    } finally {
+      setDisconnecting(false);
+    }
+  }
+
+  return (
+    <div className="card-elev p-4">
+      <h2 className="font-semibold">Connect Google Calendar</h2>
+      <p className="text-sm text-muted-foreground mt-1">
+        Real, continuous sync to your own Google account — every deadline pushed directly, kept
+        current automatically every few minutes as things change. Nothing to re-add later.
+      </p>
+      {loading ? (
+        <Skeleton className="h-9 w-40 mt-3" />
+      ) : status?.connected ? (
+        <div className="mt-3 flex flex-wrap items-center gap-3">
+          <span className="badge-soft text-success">Connected</span>
+          <span className="text-xs text-muted-foreground">
+            {status.lastSyncedAt
+              ? `Last synced ${new Date(status.lastSyncedAt).toLocaleString()}`
+              : "First sync in progress…"}
+          </span>
+          <button
+            type="button"
+            onClick={handleDisconnect}
+            disabled={disconnecting}
+            className="text-sm text-muted-foreground hover:text-foreground disabled:opacity-60"
+          >
+            {disconnecting ? "Disconnecting…" : "Disconnect"}
+          </button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={handleConnect}
+          disabled={connecting}
+          className="btn-primary btn-primary-hover text-sm mt-3 inline-flex items-center gap-1.5 disabled:opacity-60"
+        >
+          <RefreshCw className="h-3.5 w-3.5" />{" "}
+          {connecting ? "Redirecting…" : "Connect Google Calendar"}
+        </button>
+      )}
+    </div>
+  );
+}
+
+// Lighter-weight alternative to GoogleConnectSection above — a subscribe
+// link for the WHOLE calendar (every property, every event type), no
+// Google sign-in permission grant needed, works with Outlook/Apple
+// Calendar too. Still real ongoing sync (new deadlines appear on their
+// own), just on Google's own refresh schedule instead of our 5-minute
+// cron — see GoogleConnectSection's own comment for that tradeoff.
+function LinkSyncSection({ userId }: { userId: string }) {
   const [token, setToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [regenerating, setRegenerating] = useState(false);
@@ -160,7 +268,7 @@ function GoogleSyncSection({ userId }: { userId: string }) {
 
   return (
     <div className="card-elev p-4">
-      <h2 className="font-semibold">Sync with Google Calendar</h2>
+      <h2 className="font-semibold">Or Use a Subscribe Link</h2>
       <p className="text-sm text-muted-foreground mt-1">
         One link for your whole tax calendar — every property's deadlines, hearings, tax bills, and
         BPP renditions. Subscribe once and new dates keep showing up on their own; Google typically
@@ -201,14 +309,28 @@ function GoogleSyncSection({ userId }: { userId: string }) {
   );
 }
 
+const GOOGLE_ERROR_MESSAGES: Record<string, string> = {
+  missing_state: "That connection link expired — please try again.",
+  invalid_state: "That connection link expired — please try again.",
+  missing_code: "Google didn't return a valid response — please try again.",
+  token_exchange_failed: "Could not complete sign-in with Google — please try again.",
+  no_refresh_token:
+    "Google didn't grant lasting access — try disconnecting any prior CorvusPT access in your Google Account settings, then reconnect.",
+  calendar_create_failed: "Could not create your CorvusPT calendar on Google — please try again.",
+  access_denied: "Google sign-in was cancelled.",
+  unexpected: "Something went wrong connecting to Google — please try again.",
+};
+
 function CalendarPage() {
   const { user } = useAuth();
+  const nav = useNavigate();
+  const search = Route.useSearch();
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [month, setMonth] = useState(() => startOfMonth(new Date()));
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [markingPaidId, setMarkingPaidId] = useState<string | null>(null);
-  const [syncOpen, setSyncOpen] = useState(false);
+  const [syncOpen, setSyncOpen] = useState(!!(search.google_connected || search.google_error));
 
   useEffect(() => {
     if (!user) return;
@@ -217,6 +339,22 @@ function CalendarPage() {
       .catch((err) => console.error(err))
       .finally(() => setLoading(false));
   }, [user]);
+
+  // One-time: show the result of a just-completed (or abandoned) Google
+  // connect attempt, then strip these params so refreshing doesn't re-show
+  // the toast.
+  useEffect(() => {
+    if (search.google_connected) {
+      toast.success("Google Calendar connected — your deadlines will start appearing shortly.");
+      nav({ to: "/dashboard/calendar", search: {}, replace: true });
+    } else if (search.google_error) {
+      toast.error(
+        GOOGLE_ERROR_MESSAGES[search.google_error] ?? "Could not connect Google Calendar.",
+      );
+      nav({ to: "/dashboard/calendar", search: {}, replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function handleMarkPaid(propertyId: string) {
     setMarkingPaidId(propertyId);
@@ -313,7 +451,12 @@ function CalendarPage() {
         </div>
       </div>
 
-      {syncOpen && user && <GoogleSyncSection userId={user.id} />}
+      {syncOpen && user && (
+        <div className="grid gap-4 sm:grid-cols-2">
+          <GoogleConnectSection userId={user.id} />
+          <LinkSyncSection userId={user.id} />
+        </div>
+      )}
 
       <div className="card-elev p-4">
         <div className="flex items-center justify-between">
