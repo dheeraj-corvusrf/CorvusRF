@@ -10,6 +10,7 @@ import {
   type CategorizedUpload,
 } from "@/lib/document-categorize";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ChevronDown } from "lucide-react";
 
 export const Route = createFileRoute("/dashboard/_layout/documents")({
   component: Documents,
@@ -169,7 +170,12 @@ function Documents() {
         ) : documents.length > 0 ? (
           <div className="grid gap-4">
             {groups.map((group) => (
-              <PropertyDocGroup key={group.label} group={group} onDownload={handleDownload} />
+              <PropertyDocGroup
+                key={group.label}
+                group={group}
+                onDownload={handleDownload}
+                defaultExpanded={groups.length === 1}
+              />
             ))}
           </div>
         ) : (
@@ -268,37 +274,51 @@ function UploadRow({
 function PropertyDocGroup({
   group,
   onDownload,
+  defaultExpanded,
 }: {
   group: { label: string; docs: DocumentRecord[] };
   onDownload: (doc: DocumentRecord) => void;
+  defaultExpanded: boolean;
 }) {
+  const [expanded, setExpanded] = useState(defaultExpanded);
   return (
     <div className="card-elev p-4">
-      <div className="flex items-baseline justify-between gap-2">
-        <h2 className="font-semibold">{group.label}</h2>
+      <button
+        type="button"
+        onClick={() => setExpanded((e) => !e)}
+        className="flex w-full items-center justify-between gap-2 text-left"
+      >
+        <span className="flex items-center gap-2 min-w-0">
+          <ChevronDown
+            className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${expanded ? "rotate-180" : ""}`}
+          />
+          <h2 className="truncate font-semibold">{group.label}</h2>
+        </span>
         <span className="shrink-0 text-xs text-muted-foreground">
           {group.docs.length} document{group.docs.length === 1 ? "" : "s"}
         </span>
-      </div>
-      <div className="mt-2 grid gap-2">
-        {group.docs.map((doc) => (
-          <div
-            key={doc.id}
-            className="row-hover flex items-center justify-between gap-2 rounded-md px-2 py-2 flex-wrap"
-          >
-            <div className="min-w-0">
-              <div className="truncate text-sm font-medium">{doc.fileName}</div>
-              <div className="text-xs text-muted-foreground">
-                Uploaded {new Date(doc.uploadedAt).toLocaleDateString()}
-                {doc.documentType ? ` • ${doc.documentType}` : ""}
+      </button>
+      {expanded && (
+        <div className="mt-2 grid gap-2">
+          {group.docs.map((doc) => (
+            <div
+              key={doc.id}
+              className="row-hover flex items-center justify-between gap-2 rounded-md px-2 py-2 flex-wrap"
+            >
+              <div className="min-w-0">
+                <div className="truncate text-sm font-medium">{doc.fileName}</div>
+                <div className="text-xs text-muted-foreground">
+                  Uploaded {new Date(doc.uploadedAt).toLocaleDateString()}
+                  {doc.documentType ? ` • ${doc.documentType}` : ""}
+                </div>
               </div>
+              <button onClick={() => onDownload(doc)} className="btn-outline shrink-0 text-sm">
+                Download
+              </button>
             </div>
-            <button onClick={() => onDownload(doc)} className="btn-outline shrink-0 text-sm">
-              Download
-            </button>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
