@@ -1925,7 +1925,7 @@ async function enrichBIS(
 // county currently returns via the ArcGIS primary match) — same value tier as the
 // BIS-tier counties (Fort Bend/Grayson), no deed history.
 async function enrichWilliamson(
-  propertyAddress: string,
+  record: CadRecord,
   expectedHouseNumber: string,
 ): Promise<Partial<CadRecord> | null> {
   try {
@@ -1936,7 +1936,7 @@ async function enrichWilliamson(
     const taxYear = new Date().getFullYear();
     const url =
       "https://search.wcad.org/ProxyT/Search/Properties/" +
-      `?f=${encodeURIComponent(propertyAddress)}&ty=${taxYear}&pvty=${taxYear}&pn=1&st=9&so=1&pt=RP%3BPP%3BMH%3BNR&take=20&skip=0&page=1&pageSize=20`;
+      `?f=${encodeURIComponent(record.propertyAddress)}&ty=${taxYear}&pvty=${taxYear}&pn=1&st=9&so=1&pt=RP%3BPP%3BMH%3BNR&take=20&skip=0&page=1&pageSize=20`;
     const res = await fetch(url);
     if (!res.ok) return null;
     const json = (await res.json()) as { ResultList?: Array<Record<string, unknown>> };
@@ -1949,11 +1949,38 @@ async function enrichWilliamson(
     });
     if (!match) return null;
 
-    return {
+    const enrichment: Partial<CadRecord> = {
       legalDescription: (match.LegalDescription as string) || null,
       subdivision: (match.Subdivision as string) || null,
       mailingAddress: (match.OwnerFullAddress as string)?.trim() || null,
     };
+
+    // WCAD's own ArcGIS parcel layer (queryWilliamson's primary source, above)
+    // confirmed live 2026-09-04 to lag the current tax year: a real, actively
+    // assessed commercial parcel (account R039247) read CNTASSDVAL 0 there,
+    // while this same county's own live search portal already had the real,
+    // current $2,474,086 value for tax year 2026 — same property, same day.
+    // Only used as a fallback (never overwrites a real ArcGIS value) since
+    // this is filling a genuine gap, not second-guessing a good number.
+    if (!record.totalValue) {
+      const assessedValue = parseMoneyField(
+        (match.AssessedValue ?? match.MarketValue ?? match.PropertyValue) as number | string | null,
+      );
+      if (assessedValue) {
+        enrichment.totalValue = assessedValue;
+        const searchTaxYear = Number(match.TaxYear);
+        if (Number.isFinite(searchTaxYear)) enrichment.taxYear = searchTaxYear;
+        // The primary source's land value came from the exact same stale
+        // current-year block as its wrong $0 total — pairing a real total
+        // with that stale $0 land split would just look like a second bug,
+        // not a fix, so this clears it rather than leaving numbers that no
+        // longer add up. Left untouched if the primary source actually had
+        // a real land value on file.
+        if (!record.landValue) enrichment.landValue = null;
+      }
+    }
+
+    return enrichment;
   } catch {
     return null;
   }
@@ -2080,7 +2107,7 @@ async function enrichRecord(record: CadRecord): Promise<CadRecord> {
       : record.cad in BIS_CONFIG_BY_CAD
         ? await enrichBIS(record.cad, record.accountNumber, expectedHouseNumber)
         : record.cad === "Williamson Central Appraisal District"
-          ? await enrichWilliamson(record.propertyAddress, expectedHouseNumber)
+          ? await enrichWilliamson(record, expectedHouseNumber)
           : record.cad === "Dallas Central Appraisal District"
             ? await enrichDallas(record.accountNumber)
             : null;
