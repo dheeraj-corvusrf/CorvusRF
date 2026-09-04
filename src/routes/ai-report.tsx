@@ -100,7 +100,9 @@ import {
   PROTEST_EVIDENCE_DOCUMENT_TYPE,
   type DocumentRecord,
 } from "@/lib/documents";
-import { analyzeEvidence, type EvidenceAnalysis } from "@/lib/protest-reason";
+import { analyzeEvidence, type EvidenceAnalysis, type DocumentStatus } from "@/lib/protest-reason";
+import { buildEvidencePacket } from "@/lib/evidence-packet";
+import { downloadPdf } from "@/lib/protest-documents";
 import {
   listModuleOverrides,
   markNotApplicable as markModuleNotApplicable,
@@ -4305,6 +4307,11 @@ function ModulePreviewContent({
   const [analyzing, setAnalyzing] = useState(false);
   const [analysis, setAnalysis] = useState<EvidenceAnalysis | null>(null);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
+  // Evidence packet compile/download — see buildEvidencePacket() in
+  // evidence-packet.ts and Module 8's "evidence" case below. Same
+  // unconditional-top-of-component placement as the analysis state above.
+  const [downloadingPacket, setDownloadingPacket] = useState(false);
+  const [packetError, setPacketError] = useState<string | null>(null);
 
   if (m.requiresUserData) {
     const isNotApplicable = isModuleNotApplicable(overrides, "income");
@@ -5179,10 +5186,7 @@ function ModulePreviewContent({
       const focus = d.items.filter((i) => i.importance === "High" && i.availability === "Low");
       // Real protest-case evidence — same PROTEST_EVIDENCE_DOCUMENT_TYPE tag
       // CaseDetailModal's own evidence-checklist upload uses, so a file
-      // uploaded from either path shows up here together. This is the one
-      // upload widget Module 8 gets in Phase 1 — plain upload + list, no AI
-      // classification/status per file yet (see the plan this was built
-      // from for that roadmap).
+      // uploaded from either path shows up here together.
       const protestEvidenceDocs = evidenceDocs.filter(
         (doc) => doc.documentType === PROTEST_EVIDENCE_DOCUMENT_TYPE,
       );
@@ -5210,6 +5214,38 @@ function ModulePreviewContent({
           setAnalysisError(err instanceof Error ? err.message : "Could not analyze this evidence.");
         } finally {
           setAnalyzing(false);
+        }
+      }
+
+      // Only "Accepted"/"Needs Review"/"Additional Information Needed" ever
+      // make it into the packet — see INCLUDED_STATUSES in
+      // evidence-packet.ts for why "Incorrect Document"/"Duplicate" don't.
+      const packetEligibleCount =
+        analysis?.documentFindings.filter((f) =>
+          (
+            ["Accepted", "Needs Review", "Additional Information Needed"] as DocumentStatus[]
+          ).includes(f.status),
+        ).length ?? 0;
+
+      async function handleDownloadPacket() {
+        if (!resolvedProperty || !analysis) return;
+        setDownloadingPacket(true);
+        setPacketError(null);
+        try {
+          const bytes = await buildEvidencePacket(
+            resolvedProperty,
+            protestEvidenceDocs,
+            analysis.documentFindings,
+          );
+          const filenameBase = resolvedProperty.accountNumber ?? resolvedProperty.id;
+          downloadPdf(bytes, `Evidence-Packet-${filenameBase}.pdf`);
+          toast.success("Evidence packet downloaded.");
+        } catch (err) {
+          setPacketError(
+            getErrorMessage(err, "Could not compile the evidence packet. Please try again."),
+          );
+        } finally {
+          setDownloadingPacket(false);
         }
       }
 
@@ -5298,7 +5334,10 @@ function ModulePreviewContent({
                   <div className="grid gap-1.5">
                     {analysis.documentFindings.map((f, i) => (
                       <div key={i} className="rounded-md border border-border p-2 text-xs">
-                        <div className="font-medium">{f.fileName}</div>
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="min-w-0 flex-1 truncate font-medium">{f.fileName}</span>
+                          <DocumentStatusBadge status={f.status} />
+                        </div>
                         <p className="mt-0.5 text-muted-foreground">{f.assessment}</p>
                       </div>
                     ))}
@@ -5324,6 +5363,30 @@ function ModulePreviewContent({
                   )}
                 </div>
               )}
+            </div>
+          )}
+
+          {allowEvidenceUpload && analysis && (
+            <div className="border-t border-border/60 pt-4 print:hidden">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <div className="text-sm font-medium">Download Evidence Packet</div>
+                  <p className="text-xs text-muted-foreground">
+                    {packetEligibleCount > 0
+                      ? `Compiles your ${packetEligibleCount} accepted document${packetEligibleCount === 1 ? "" : "s"} into one organized PDF, with a cover page and your county's real filing instructions. Incorrect/duplicate uploads are left out.`
+                      : "No documents currently qualify — resolve any Incorrect Document/Duplicate flags above, or upload new evidence and re-analyze."}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleDownloadPacket}
+                  disabled={downloadingPacket || packetEligibleCount === 0}
+                  className="btn-outline shrink-0 whitespace-nowrap text-xs py-1 disabled:opacity-60"
+                >
+                  {downloadingPacket ? "Compiling…" : "Download Evidence Packet"}
+                </button>
+              </div>
+              {packetError && <p className="mt-1 text-xs text-destructive">{packetError}</p>}
             </div>
           )}
         </div>
@@ -5877,6 +5940,29 @@ function PriorityRow({
       )}
       <span className="min-w-0 flex-1 text-sm">{item}</span>
     </div>
+  );
+}
+
+// Module 8's per-document AI status — see analyzeEvidence() in
+// protest-reason.ts. "Duplicate" is the one value never AI-decided (a real
+// SHA-256 match, computed before the AI ever sees the documents), but reads
+// the same way here since the badge is just reflecting whatever status the
+// document ended up with.
+const DOCUMENT_STATUS_TONE: Record<DocumentStatus, string> = {
+  Accepted: "bg-success/15 text-success",
+  "Needs Review": "bg-warning/15 text-warning-foreground",
+  "Incorrect Document": "bg-destructive/10 text-destructive",
+  Duplicate: "bg-secondary/60 text-muted-foreground",
+  "Additional Information Needed": "bg-accent/15 text-accent",
+};
+
+function DocumentStatusBadge({ status }: { status: DocumentStatus }) {
+  return (
+    <span
+      className={`shrink-0 whitespace-nowrap rounded-full px-1.5 py-0.5 text-[9px] font-semibold ${DOCUMENT_STATUS_TONE[status]}`}
+    >
+      {status}
+    </span>
   );
 }
 
