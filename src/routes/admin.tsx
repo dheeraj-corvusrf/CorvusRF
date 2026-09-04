@@ -882,7 +882,9 @@ function BulkInviteForm({ onSent }: { onSent: () => void }) {
     if (successEmails.size > 0) onSent();
     const failCount = outcomes.length - successEmails.size;
     if (successEmails.size > 0 && failCount === 0) {
-      toast.success(`${successEmails.size} invite${successEmails.size === 1 ? "" : "s"} sent.`);
+      toast.success(
+        `Invitations sent to ${successEmails.size} address${successEmails.size === 1 ? "" : "es"}.`,
+      );
     } else if (successEmails.size > 0) {
       toast.success(`${successEmails.size} sent, ${failCount} failed — see details below.`);
     } else {
@@ -896,11 +898,64 @@ function BulkInviteForm({ onSent }: { onSent: () => void }) {
     setResults(null);
   }
 
+  // Starts a genuinely new batch after a completed send — clears the sent
+  // list/results so there's nothing left to accidentally resend, distinct
+  // from reset() (which closes the whole form).
+  function inviteMore() {
+    setRaw("");
+    setResults(null);
+  }
+
   if (!open) {
     return (
       <button onClick={() => setOpen(true)} className="btn-outline w-fit">
         Bulk Invite
       </button>
+    );
+  }
+
+  // Once a send has actually completed, this is a distinct confirmation
+  // screen — not the same form with "Send N Invites" still sitting there
+  // re-armed. Re-showing the live send form after a real send let an admin
+  // click it again on the exact same list and re-send every invite a
+  // second time (a real, reported duplicate-email incident) — the only way
+  // back to a sendable form now is the explicit "Invite More" action below,
+  // which starts a genuinely new, empty batch.
+  if (results) {
+    const successCount = results.filter((r) => r.ok).length;
+    const failCount = results.length - successCount;
+    return (
+      <div className="card-elev p-6 grid gap-4 max-w-2xl">
+        <div>
+          <p className="font-medium text-sm">
+            {successCount > 0
+              ? `Invitations sent to ${successCount} address${successCount === 1 ? "" : "es"}.`
+              : "No invites were sent."}
+          </p>
+          {failCount > 0 && (
+            <p className="mt-1 text-xs text-destructive">
+              {failCount} address{failCount === 1 ? "" : "es"} failed — see details below.
+            </p>
+          )}
+        </div>
+
+        <div className="grid gap-1 text-xs max-h-48 overflow-y-auto rounded-md border border-border p-3">
+          {results.map((r) => (
+            <div key={r.email} className={r.ok ? "text-success" : "text-destructive"}>
+              {r.ok ? "✓" : "✕"} {r.email} — {r.detail}
+            </div>
+          ))}
+        </div>
+
+        <div className="flex gap-2">
+          <button type="button" onClick={inviteMore} className="btn-outline">
+            Invite More
+          </button>
+          <button type="button" onClick={reset} className="btn-primary btn-primary-hover">
+            Done
+          </button>
+        </div>
+      </div>
     );
   }
 
@@ -914,10 +969,7 @@ function BulkInviteForm({ onSent }: { onSent: () => void }) {
         </p>
         <textarea
           value={raw}
-          onChange={(e) => {
-            setRaw(e.target.value);
-            setResults(null);
-          }}
+          onChange={(e) => setRaw(e.target.value)}
           rows={6}
           placeholder={"jane@example.com\njohn@example.com, sam@example.com"}
           className="mt-2 w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono"
@@ -939,16 +991,6 @@ function BulkInviteForm({ onSent }: { onSent: () => void }) {
           : `${parsed.length} address${parsed.length === 1 ? "" : "es"} recognized.`}
       </p>
 
-      {results && (
-        <div className="grid gap-1 text-xs max-h-48 overflow-y-auto rounded-md border border-border p-3">
-          {results.map((r) => (
-            <div key={r.email} className={r.ok ? "text-success" : "text-destructive"}>
-              {r.ok ? "✓" : "✕"} {r.email} — {r.detail}
-            </div>
-          ))}
-        </div>
-      )}
-
       <div className="flex gap-2">
         <button
           type="button"
@@ -961,7 +1003,7 @@ function BulkInviteForm({ onSent }: { onSent: () => void }) {
             : `Send ${parsed.length || ""} Invite${parsed.length === 1 ? "" : "s"}`}
         </button>
         <button type="button" onClick={reset} className="btn-outline">
-          {results ? "Done" : "Cancel"}
+          Cancel
         </button>
       </div>
     </div>
