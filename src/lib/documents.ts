@@ -85,6 +85,23 @@ export async function listDocuments(userId: string): Promise<DocumentRecord[]> {
   return (data as DocumentRow[]).map(fromRow);
 }
 
+// Real "Protest Evidence"-tagged documents for one property — the same
+// query ai-report.tsx's Module 8 already uses to show its own upload list
+// (queried directly, not scoped to any protest_evidence_items checklist
+// link), reused so anything that needs to know "how much evidence has this
+// customer actually uploaded" (CaseDetailModal's Upload Evidence prompt,
+// draftProtestReason, the Pre-Filing Check row) reads the same real,
+// single source of truth Module 8 writes to.
+export async function getProtestEvidenceDocuments(
+  userId: string,
+  propertyId: string,
+): Promise<DocumentRecord[]> {
+  const docs = await listDocuments(userId);
+  return docs.filter(
+    (d) => d.propertyId === propertyId && d.documentType === PROTEST_EVIDENCE_DOCUMENT_TYPE,
+  );
+}
+
 export async function getDocumentUrl(storagePath: string): Promise<string> {
   const { data, error } = await supabase.storage
     .from("documents")

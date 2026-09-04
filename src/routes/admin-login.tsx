@@ -58,7 +58,9 @@ function AdminLogin() {
       <p className="mt-2 text-muted-foreground">Restricted access.</p>
       <form onSubmit={onSubmit} className="mt-8 card-elev p-6 grid gap-4">
         <label className="grid gap-1 text-sm">
-          <span className="font-medium">Email</span>
+          <span className="font-medium">
+            Email<span className="text-destructive"> *</span>
+          </span>
           <input
             required
             type="email"
@@ -69,7 +71,9 @@ function AdminLogin() {
           />
         </label>
         <label className="grid gap-1 text-sm">
-          <span className="font-medium">Password</span>
+          <span className="font-medium">
+            Password<span className="text-destructive"> *</span>
+          </span>
           <input
             required
             type="password"

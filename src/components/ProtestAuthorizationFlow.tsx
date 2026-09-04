@@ -102,7 +102,6 @@ export function ProtestAuthorizationFlow({
         setPhone((prev) => prev || (profile.phone ?? ""));
       })
       .catch((err) => console.error("Could not load profile for autofill:", err));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, userId]);
 
   function reset() {
@@ -203,7 +202,9 @@ export function ProtestAuthorizationFlow({
             </p>
             <div className="grid gap-4 sm:grid-cols-2">
               <label className="grid gap-1 text-sm">
-                <span className="text-xs font-medium text-muted-foreground">First Name</span>
+                <span className="text-xs font-medium text-muted-foreground">
+                  First Name<span className="text-destructive"> *</span>
+                </span>
                 <input
                   required
                   value={firstName}
@@ -212,7 +213,9 @@ export function ProtestAuthorizationFlow({
                 />
               </label>
               <label className="grid gap-1 text-sm">
-                <span className="text-xs font-medium text-muted-foreground">Last Name</span>
+                <span className="text-xs font-medium text-muted-foreground">
+                  Last Name<span className="text-destructive"> *</span>
+                </span>
                 <input
                   required
                   value={lastName}
@@ -221,7 +224,9 @@ export function ProtestAuthorizationFlow({
                 />
               </label>
               <label className="grid gap-1 text-sm">
-                <span className="text-xs font-medium text-muted-foreground">Email Address</span>
+                <span className="text-xs font-medium text-muted-foreground">
+                  Email Address<span className="text-destructive"> *</span>
+                </span>
                 <input
                   required
                   type="email"
@@ -231,7 +236,9 @@ export function ProtestAuthorizationFlow({
                 />
               </label>
               <label className="grid gap-1 text-sm">
-                <span className="text-xs font-medium text-muted-foreground">Phone Number</span>
+                <span className="text-xs font-medium text-muted-foreground">
+                  Phone Number<span className="text-destructive"> *</span>
+                </span>
                 <input
                   required
                   value={phone}

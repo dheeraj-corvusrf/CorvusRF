@@ -36,11 +36,88 @@ export type FieldDef =
       // keystrokes — typing "30 years" is exactly what this exists to catch
       // and convert, so the field can't simply reject non-digit input.
       dateFormat?: boolean;
+      // Marked with a required-field asterisk and enforced by
+      // isFormComplete() below — only ever set where the real form itself,
+      // or the statute it implements (Tax Code §41.44(b) for 50-132), makes
+      // the field mandatory; see the comment above each schema export.
+      required?: boolean;
+      // Shows PdfFormEditor's "Generate Suggested Reason" button next to
+      // this field — only ever set on the one real free-text field this
+      // app can meaningfully draft from uploaded evidence (see
+      // protest-reason.ts). Never marks a field the AI would just be
+      // guessing at.
+      aiSuggestable?: boolean;
+      // Renders a <textarea> instead of a single-line <input> — set only
+      // on genuinely paragraph-length real fields (today: the one
+      // aiSuggestable field above), not a general styling knob.
+      multiline?: boolean;
     }
   | { type: "checkbox"; name: string; label: string }
-  | { type: "radio"; name: string; label: string; options: string[] };
+  | { type: "radio"; name: string; label: string; options: string[]; required?: boolean };
 
-export type FieldSection = { title: string; fields: FieldDef[] };
+export type FieldSection = {
+  title: string;
+  fields: FieldDef[];
+  // Set when the real form requires choosing at least one checkbox within
+  // this section (e.g. 50-132's Reasons for Protest, or either form's own
+  // "(check one)" groups) — a single checkbox can't be individually
+  // "required" since checking it isn't the only way to satisfy the group.
+  requireAtLeastOne?: boolean;
+};
+
+// Real-fields-only completeness check — same discipline as
+// pre-filing-check.ts: a field only counts as satisfied when it actually
+// has a real, non-blank value the user entered, never assumed. Drives both
+// the required-field asterisks and the Download/Sign gating in
+// PdfFormEditor.tsx.
+export function isFormComplete(sections: FieldSection[], values: FieldValues): boolean {
+  return getIncompleteRequiredLabels(sections, values).length === 0;
+}
+
+export function getIncompleteRequiredLabels(
+  sections: FieldSection[],
+  values: FieldValues,
+): string[] {
+  const labels: string[] = [];
+  for (const section of sections) {
+    for (const field of section.fields) {
+      if (field.type === "checkbox" || !field.required) continue;
+      const v = values[field.name];
+      if (!(typeof v === "string" && v.trim().length > 0)) labels.push(field.label);
+    }
+    if (section.requireAtLeastOne) {
+      const anyChecked = section.fields.some((f) => f.type === "checkbox" && !!values[f.name]);
+      if (!anyChecked) labels.push(`${section.title} — select at least one`);
+    }
+  }
+  return labels;
+}
+
+// The real field `name` of the first incomplete required field/group, in
+// schema order — drives PdfFormEditor's "Jump to next required field"
+// button. Shares the exact same completeness rules as
+// getIncompleteRequiredLabels() above (same discipline, one source of
+// truth) rather than a second, possibly-drifting implementation.
+export function getFirstIncompleteFieldName(
+  sections: FieldSection[],
+  values: FieldValues,
+): string | null {
+  for (const section of sections) {
+    for (const field of section.fields) {
+      if (field.type === "checkbox" || !field.required) continue;
+      const v = values[field.name];
+      if (!(typeof v === "string" && v.trim().length > 0)) return field.name;
+    }
+    if (section.requireAtLeastOne) {
+      const anyChecked = section.fields.some((f) => f.type === "checkbox" && !!values[f.name]);
+      if (!anyChecked) {
+        const firstCheckbox = section.fields.find((f) => f.type === "checkbox");
+        if (firstCheckbox) return firstCheckbox.name;
+      }
+    }
+  }
+  return null;
+}
 
 // MM/DD/YYYY — matches how these forms' own PDF text fields render a typed
 // date, and how the app already formats the real signed-at date in signPdf().
@@ -88,25 +165,47 @@ function formatMMDDYYYY(month: number, day: number, year: number): string {
 }
 
 const MONTH_NAMES = [
-  "january", "february", "march", "april", "may", "june",
-  "july", "august", "september", "october", "november", "december",
+  "january",
+  "february",
+  "march",
+  "april",
+  "may",
+  "june",
+  "july",
+  "august",
+  "september",
+  "october",
+  "november",
+  "december",
 ];
 
 // "August 24" / "24 August" / "24th Aug, 2026" — with or without a year. Not
 // used via the plain `new Date(string)` constructor: confirmed it silently
 // defaults a year-less date like "August 24" to 2001 (not the current year),
 // so this parses the month/day/year components explicitly instead.
-function tryParseMonthDay(trimmed: string): { month: number; day: number; year: number | null } | null {
+function tryParseMonthDay(
+  trimmed: string,
+): { month: number; day: number; year: number | null } | null {
   const lower = trimmed.toLowerCase();
   let m = lower.match(/^([a-z]+)\.?\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s+(\d{4}))?$/);
   if (m) {
     const monthIdx = MONTH_NAMES.findIndex((n) => n.startsWith(m![1]));
-    if (monthIdx >= 0) return { month: monthIdx + 1, day: parseInt(m[2], 10), year: m[3] ? parseInt(m[3], 10) : null };
+    if (monthIdx >= 0)
+      return {
+        month: monthIdx + 1,
+        day: parseInt(m[2], 10),
+        year: m[3] ? parseInt(m[3], 10) : null,
+      };
   }
   m = lower.match(/^(\d{1,2})(?:st|nd|rd|th)?\s+([a-z]+)\.?(?:,?\s+(\d{4}))?$/);
   if (m) {
     const monthIdx = MONTH_NAMES.findIndex((n) => n.startsWith(m![2]));
-    if (monthIdx >= 0) return { month: monthIdx + 1, day: parseInt(m[1], 10), year: m[3] ? parseInt(m[3], 10) : null };
+    if (monthIdx >= 0)
+      return {
+        month: monthIdx + 1,
+        day: parseInt(m[1], 10),
+        year: m[3] ? parseInt(m[3], 10) : null,
+      };
   }
   return null;
 }
@@ -164,6 +263,20 @@ export function resolveDateInput(raw: string): string {
   return trimmed;
 }
 
+// The reverse of resolveDateInput's ISO branch — a native <input type="date">
+// (the calendar picker in PdfFormEditor.tsx) requires its `value` in ISO
+// (YYYY-MM-DD), while every date this app stores/fills into the real PDF is
+// MM/DD/YYYY. Returns "" for anything that isn't a real MM/DD/YYYY date
+// (an empty native date input, never a guess).
+export function mmddyyyyToIso(value: string): string {
+  const m = value.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (!m) return "";
+  const month = parseInt(m[1], 10);
+  const day = parseInt(m[2], 10);
+  if (month < 1 || month > 12 || day < 1 || day > 31) return "";
+  return `${m[3]}-${m[1].padStart(2, "0")}-${m[2].padStart(2, "0")}`;
+}
+
 // Runs resolveDateInput() over every date-marked field in `values` — the
 // "one final pass at signing time" half of the fix, in case the user never
 // blurred a field after typing into it.
@@ -179,13 +292,30 @@ export function resolveDateFields(schema: FieldSection[], values: FieldValues): 
   return next;
 }
 
+// Required markers below are grounded in what actually makes a protest
+// legally sufficient under Tax Code §41.44(b) — the property owner's name,
+// identification of the property, and an indicated reason for protest —
+// plus the form's own signature block, which the app's signing flow itself
+// depends on (see expectedSignerName in CaseDetailModal.tsx). Account
+// Number is explicitly "(if known)" on the form and Legal description is
+// only the documented fallback when there's no street address, so neither
+// is marked required.
 export const NOTICE_OF_PROTEST_SCHEMA: FieldSection[] = [
   {
     title: "Appraisal District & Tax Year",
     fields: [
-      { type: "text", name: "Appraisal Districts Name", label: "Appraisal District's County" },
-      { type: "text", name: "Appraisal District Account Number", label: "Appraisal District Account Number (if known)" },
-      { type: "text", name: "Tax Year", label: "Tax Year" },
+      {
+        type: "text",
+        name: "Appraisal Districts Name",
+        label: "Appraisal District's County",
+        required: true,
+      },
+      {
+        type: "text",
+        name: "Appraisal District Account Number",
+        label: "Appraisal District Account Number (if known)",
+      },
+      { type: "text", name: "Tax Year", label: "Tax Year", required: true },
     ],
   },
   {
@@ -203,45 +333,102 @@ export const NOTICE_OF_PROTEST_SCHEMA: FieldSection[] = [
           "Spouse of a Military Service Member or Veteran",
         ],
       },
-      { type: "text", name: "Name of Property Owner or Lessee", label: "Name of Property Owner or Lessee" },
-      { type: "text", name: "Mailing Address City State ZIP Code", label: "Mailing Address, City, State, ZIP Code" },
-      { type: "text", name: "Phone Number area code and number", label: "Phone Number (area code and number)" },
+      {
+        type: "text",
+        name: "Name of Property Owner or Lessee",
+        label: "Name of Property Owner or Lessee",
+        required: true,
+      },
+      {
+        type: "text",
+        name: "Mailing Address City State ZIP Code",
+        label: "Mailing Address, City, State, ZIP Code",
+      },
+      {
+        type: "text",
+        name: "Phone Number area code and number",
+        label: "Phone Number (area code and number)",
+      },
     ],
   },
   {
     title: "Section 2: Property Description",
     fields: [
-      { type: "text", name: "Physical Address", label: "Physical Address, City, State, ZIP Code" },
-      { type: "text", name: "Legal description", label: "Legal description (if no street address)" },
-      { type: "text", name: "Mobile Home", label: "Mobile Home Make, Model and Identification (if applicable)" },
+      {
+        type: "text",
+        name: "Physical Address",
+        label: "Physical Address, City, State, ZIP Code",
+        required: true,
+      },
+      {
+        type: "text",
+        name: "Legal description",
+        label: "Legal description (if no street address)",
+      },
+      {
+        type: "text",
+        name: "Mobile Home",
+        label: "Mobile Home Make, Model and Identification (if applicable)",
+      },
     ],
   },
   {
     title: "Section 3: Reasons for Protest",
+    // At least one reason must be checked to preserve the right to raise it
+    // — the form's own text: "Failure to select the box that corresponds to
+    // each reason for your protest may result in your inability to protest
+    // an issue that you want to pursue."
+    requireAtLeastOne: true,
     fields: [
       {
         type: "checkbox",
         name: "Reason for protest 1",
-        label: "Incorrect appraised (market) value and/or value is unequal compared with other properties.",
+        label:
+          "Incorrect appraised (market) value and/or value is unequal compared with other properties.",
       },
-      { type: "text", name: "Taxing Unit", label: "Taxing unit (for “should not be taxed in …”, if that reason applies)" },
-      { type: "checkbox", name: "Reason for protest 2", label: "Property should not be taxed in the taxing unit named above." },
+      {
+        type: "text",
+        name: "Taxing Unit",
+        label: "Taxing unit (for “should not be taxed in …”, if that reason applies)",
+      },
+      {
+        type: "checkbox",
+        name: "Reason for protest 2",
+        label: "Property should not be taxed in the taxing unit named above.",
+      },
       {
         type: "checkbox",
         name: "Reason for protest 3",
         label:
           "Property is not located in this appraisal district or otherwise should not be included on the appraisal district's record.",
       },
-      { type: "text", name: "Type of notice", label: "Type of notice not received (for “failure to send required notice”, if that reason applies)" },
+      {
+        type: "text",
+        name: "Type of notice",
+        label:
+          "Type of notice not received (for “failure to send required notice”, if that reason applies)",
+      },
       { type: "checkbox", name: "Reason for protest 4", label: "Failure to send required notice." },
-      { type: "checkbox", name: "Reason for protest 5", label: "Exemption was denied, modified or canceled." },
-      { type: "checkbox", name: "Reason for protest 6", label: "Temporary disaster damage exemption was denied or modified." },
+      {
+        type: "checkbox",
+        name: "Reason for protest 5",
+        label: "Exemption was denied, modified or canceled.",
+      },
+      {
+        type: "checkbox",
+        name: "Reason for protest 6",
+        label: "Temporary disaster damage exemption was denied or modified.",
+      },
       {
         type: "checkbox",
         name: "Reason for protest 7",
         label: "Ag-use, open-space or other special appraisal was denied, modified or canceled.",
       },
-      { type: "checkbox", name: "Reason for protest 8", label: "Change in use of land appraised as ag-use, open-space or timberland." },
+      {
+        type: "checkbox",
+        name: "Reason for protest 8",
+        label: "Change in use of land appraised as ag-use, open-space or timberland.",
+      },
       {
         type: "checkbox",
         name: "Reason for protest 9",
@@ -249,16 +436,22 @@ export const NOTICE_OF_PROTEST_SCHEMA: FieldSection[] = [
           "Incorrect appraised or market value of land under special appraisal for ag-use, open-space or other special appraisal.",
       },
       { type: "checkbox", name: "Reason for protest 10", label: "Owner's name is incorrect." },
-      { type: "checkbox", name: "Reason for protest 11", label: "Property description is incorrect." },
+      {
+        type: "checkbox",
+        name: "Reason for protest 11",
+        label: "Property description is incorrect.",
+      },
       {
         type: "checkbox",
         name: "Reason for protest 12",
-        label: "Incorrect damage assessment rating for a property qualified for a temporary disaster exemption.",
+        label:
+          "Incorrect damage assessment rating for a property qualified for a temporary disaster exemption.",
       },
       {
         type: "checkbox",
         name: "Reason for protest 13",
-        label: "Circuit breaker limitation on appraised value for all other real property was denied, modified or canceled.",
+        label:
+          "Circuit breaker limitation on appraised value for all other real property was denied, modified or canceled.",
       },
       {
         type: "checkbox",
@@ -266,22 +459,45 @@ export const NOTICE_OF_PROTEST_SCHEMA: FieldSection[] = [
         label:
           "Incorrect appraised value and allocation of value of a structure, archaeological site and land necessary for access under a historic site exemption.",
       },
-      { type: "text", name: "Other disaster exemption", label: "Other (describe, if applicable to a reason above)" },
-      { type: "text", name: "Other description", label: "Other reason (for the “Other” box, if that reason applies)" },
+      {
+        type: "text",
+        name: "Other disaster exemption",
+        label: "Other (describe, if applicable to a reason above)",
+      },
+      {
+        type: "text",
+        name: "Other description",
+        label: "Other reason (for the “Other” box, if that reason applies)",
+      },
       { type: "checkbox", name: "Reason for protest 15", label: "Other." },
     ],
   },
   {
     title: "Section 4: Additional Facts",
     fields: [
-      { type: "text", name: "Opinion of property value", label: "What is your opinion of your property's value? (optional) $" },
-      { type: "text", name: "Facts to resolve protest", label: "Facts that may help resolve this protest" },
+      {
+        type: "text",
+        name: "Opinion of property value",
+        label: "What is your opinion of your property's value? (optional) $",
+      },
+      {
+        type: "text",
+        name: "Facts to resolve protest",
+        label: "Facts that may help resolve this protest",
+        aiSuggestable: true,
+        multiline: true,
+      },
     ],
   },
   {
     title: "Section 5: Hearing Type",
     fields: [
-      { type: "radio", name: "Do you request an informal conference", label: "Request an informal conference before the hearing?", options: ["Yes", "No"] },
+      {
+        type: "radio",
+        name: "Do you request an informal conference",
+        label: "Request an informal conference before the hearing?",
+        options: ["Yes", "No"],
+      },
       {
         type: "radio",
         name: "ARB panel",
@@ -308,9 +524,17 @@ export const NOTICE_OF_PROTEST_SCHEMA: FieldSection[] = [
         type: "radio",
         name: "Notice of hearing",
         label: "Deliver my notice of hearing by",
-        options: ["Regular first-class mail", "Certified mail and agree to pay the cost (if applicable)"],
+        options: [
+          "Regular first-class mail",
+          "Certified mail and agree to pay the cost (if applicable)",
+        ],
       },
-      { type: "radio", name: "Hearing Procedures", label: "Send me a copy of the ARB's hearing procedures?", options: ["Yes", "No"] },
+      {
+        type: "radio",
+        name: "Hearing Procedures",
+        label: "Send me a copy of the ARB's hearing procedures?",
+        options: ["Yes", "No"],
+      },
       {
         type: "radio",
         name: "Electronic reminder",
@@ -329,10 +553,29 @@ export const NOTICE_OF_PROTEST_SCHEMA: FieldSection[] = [
   {
     title: "Section 7: Special Panel Request ($62.9 Million or More)",
     fields: [
-      { type: "radio", name: "Request for special panel", label: "Request a special panel to hear my protest?", options: ["Yes", "No"] },
-      { type: "radio", name: "Property is appraised at $57 million or greater", label: "Property is appraised at $57 million or greater", options: ["No"] },
-      { type: "radio", name: "Property is appraised at $62.9 million or greater", label: "Property is appraised at $62.9 million or greater", options: ["Yes"] },
-      { type: "text", name: "Appraisal districts value assigned to property", label: "Appraisal district's value assigned to your property $" },
+      {
+        type: "radio",
+        name: "Request for special panel",
+        label: "Request a special panel to hear my protest?",
+        options: ["Yes", "No"],
+      },
+      {
+        type: "radio",
+        name: "Property is appraised at $57 million or greater",
+        label: "Property is appraised at $57 million or greater",
+        options: ["No"],
+      },
+      {
+        type: "radio",
+        name: "Property is appraised at $62.9 million or greater",
+        label: "Property is appraised at $62.9 million or greater",
+        options: ["Yes"],
+      },
+      {
+        type: "text",
+        name: "Appraisal districts value assigned to property",
+        label: "Appraisal district's value assigned to your property $",
+      },
       {
         type: "radio",
         name: "Classification of your property",
@@ -354,18 +597,44 @@ export const NOTICE_OF_PROTEST_SCHEMA: FieldSection[] = [
         name: "Certification and Signature",
         label: "Signing as",
         options: ["Property Owner", "Property Owner's agent", "Other (please specify)"],
+        required: true,
       },
-      { type: "text", name: "Print Name of Property Owner or Authorized Representative", label: "Print Name of Property Owner or Authorized Representative" },
-      { type: "text", name: "Date of Signature", label: "Date", suggestions: todaySuggestion, dateFormat: true },
+      {
+        type: "text",
+        name: "Print Name of Property Owner or Authorized Representative",
+        label: "Print Name of Property Owner or Authorized Representative",
+        required: true,
+      },
+      {
+        type: "text",
+        name: "Date of Signature",
+        label: "Date",
+        suggestions: todaySuggestion,
+        dateFormat: true,
+        required: true,
+      },
     ],
   },
 ];
 
+// Required markers below are grounded in the form's own text (see the
+// pdftotext extraction this was checked against): STEP 2 and STEP 4 are
+// each explicitly "(check one)" groups, STEP 6's signing-capacity boxes are
+// the same, and the signature block (Date/Printed Name) is required to
+// execute the form at all. Per-property account number/address/legal
+// description are each only "at least one of" and only when NOT granting
+// authority for all property — genuinely conditional, so left unmarked
+// rather than approximated.
 export const APPOINTMENT_OF_AGENT_SCHEMA: FieldSection[] = [
   {
     title: "Appraisal District",
     fields: [
-      { type: "text", name: "Appraisal District Name", label: "Appraisal District Name" },
+      {
+        type: "text",
+        name: "Appraisal District Name",
+        label: "Appraisal District Name",
+        required: true,
+      },
       {
         type: "text",
         name: "Date Received appraisal district use only",
@@ -377,59 +646,135 @@ export const APPOINTMENT_OF_AGENT_SCHEMA: FieldSection[] = [
   {
     title: "STEP 1: Owner's Name and Address",
     fields: [
-      { type: "text", name: "Name", label: "Name" },
-      { type: "text", name: "Telephone Number include area code", label: "Telephone Number (include area code)" },
+      { type: "text", name: "Name", label: "Name", required: true },
+      {
+        type: "text",
+        name: "Telephone Number include area code",
+        label: "Telephone Number (include area code)",
+      },
       { type: "text", name: "Address", label: "Address" },
       { type: "text", name: "City State Zip Code", label: "City, State, Zip Code" },
     ],
   },
   {
     title: "STEP 2: Identify the Property",
+    requireAtLeastOne: true,
     fields: [
-      { type: "checkbox", name: "all property listed for me at the above address", label: "All property listed for me at the above address" },
-      { type: "checkbox", name: "the property(ies) listed below:", label: "The property(ies) listed below" },
-      { type: "text", name: "Appraisal District Account Number_2", label: "Property 1 — Appraisal District Account Number" },
-      { type: "text", name: "Physical or Situs Address of Property_2", label: "Property 1 — Physical or Situs Address" },
+      {
+        type: "checkbox",
+        name: "all property listed for me at the above address",
+        label: "All property listed for me at the above address",
+      },
+      {
+        type: "checkbox",
+        name: "the property(ies) listed below:",
+        label: "The property(ies) listed below",
+      },
+      {
+        type: "text",
+        name: "Appraisal District Account Number_2",
+        label: "Property 1 — Appraisal District Account Number",
+      },
+      {
+        type: "text",
+        name: "Physical or Situs Address of Property_2",
+        label: "Property 1 — Physical or Situs Address",
+      },
       { type: "text", name: "Legal Description_2", label: "Property 1 — Legal Description" },
-      { type: "text", name: "Appraisal District Account Number_3", label: "Property 2 — Appraisal District Account Number" },
-      { type: "text", name: "Physical or Situs Address of Property_3", label: "Property 2 — Physical or Situs Address" },
+      {
+        type: "text",
+        name: "Appraisal District Account Number_3",
+        label: "Property 2 — Appraisal District Account Number",
+      },
+      {
+        type: "text",
+        name: "Physical or Situs Address of Property_3",
+        label: "Property 2 — Physical or Situs Address",
+      },
       { type: "text", name: "Legal Description_3", label: "Property 2 — Legal Description" },
-      { type: "text", name: "Appraisal District Account Number_4", label: "Property 3 — Appraisal District Account Number" },
-      { type: "text", name: "Physical or Situs Address of Property_4", label: "Property 3 — Physical or Situs Address" },
+      {
+        type: "text",
+        name: "Appraisal District Account Number_4",
+        label: "Property 3 — Appraisal District Account Number",
+      },
+      {
+        type: "text",
+        name: "Physical or Situs Address of Property_4",
+        label: "Property 3 — Physical or Situs Address",
+      },
       { type: "text", name: "Legal Description_4", label: "Property 3 — Legal Description" },
-      { type: "text", name: "Appraisal District Account Number_5", label: "Property 4 — Appraisal District Account Number" },
-      { type: "text", name: "Physical or Situs Address of Property_5", label: "Property 4 — Physical or Situs Address" },
+      {
+        type: "text",
+        name: "Appraisal District Account Number_5",
+        label: "Property 4 — Appraisal District Account Number",
+      },
+      {
+        type: "text",
+        name: "Physical or Situs Address of Property_5",
+        label: "Property 4 — Physical or Situs Address",
+      },
       { type: "text", name: "Legal Description_5", label: "Property 4 — Legal Description" },
-      { type: "text", name: "Number of additional sheets attatched", label: "Number of additional sheets attached" },
+      {
+        type: "text",
+        name: "Number of additional sheets attatched",
+        label: "Number of additional sheets attached",
+      },
     ],
   },
   {
     title: "STEP 3: Identify the Agent",
     fields: [
-      { type: "text", name: "Name_2", label: "Name" },
-      { type: "text", name: "Telephone Number include area code_2", label: "Telephone Number (include area code)" },
+      { type: "text", name: "Name_2", label: "Name", required: true },
+      {
+        type: "text",
+        name: "Telephone Number include area code_2",
+        label: "Telephone Number (include area code)",
+      },
       { type: "text", name: "Address_2", label: "Address" },
       { type: "text", name: "City State Zip Code_2", label: "City, State, Zip Code" },
     ],
   },
   {
     title: "STEP 4: Specify the Agent's Authority",
+    requireAtLeastOne: true,
     fields: [
-      { type: "checkbox", name: "all property tax matters concerning the property identified", label: "All property tax matters concerning the property identified" },
-      { type: "checkbox", name: "the following specific property tax matters:", label: "The following specific property tax matters" },
-      { type: "text", name: "specific property tax matters", label: "Specific property tax matters (if the box above is checked)" },
+      {
+        type: "checkbox",
+        name: "all property tax matters concerning the property identified",
+        label: "All property tax matters concerning the property identified",
+      },
+      {
+        type: "checkbox",
+        name: "the following specific property tax matters:",
+        label: "The following specific property tax matters",
+      },
+      {
+        type: "text",
+        name: "specific property tax matters",
+        label: "Specific property tax matters (if the box above is checked)",
+      },
       {
         type: "radio",
         name: "The agent identified above is authorized to receive confidential information pursuant to Tax Code §§11.48(b)(2), 22.27(b)(2), 23.123(c)(2), 23.126(c)(2), and 23.45(b)(2):",
         label: "Agent authorized to receive confidential information?",
         options: ["Yes", "No"],
+        required: true,
       },
-      { type: "checkbox", name: "all communications from the chief appraiser", label: "Deliver all communications from the chief appraiser to the agent" },
-      { type: "checkbox", name: "all communications from the appraisal review board", label: "Deliver all communications from the appraisal review board to the agent" },
+      {
+        type: "checkbox",
+        name: "all communications from the chief appraiser",
+        label: "Deliver all communications from the chief appraiser to the agent",
+      },
+      {
+        type: "checkbox",
+        name: "all communications from the appraisal review board",
+        label: "Deliver all communications from the appraisal review board to the agent",
+      },
       {
         type: "checkbox",
         name: "all communications from all taxing units participating in the appraisal district",
-        label: "Deliver all communications from all taxing units participating in the appraisal district to the agent",
+        label:
+          "Deliver all communications from all taxing units participating in the appraisal district to the agent",
       },
     ],
   },
@@ -447,20 +792,39 @@ export const APPOINTMENT_OF_AGENT_SCHEMA: FieldSection[] = [
   },
   {
     title: "STEP 6: Identification, Signature, and Date",
+    requireAtLeastOne: true,
     fields: [
-      { type: "text", name: "Date", label: "Date", suggestions: todaySuggestion, dateFormat: true },
-      { type: "text", name: "Name of Property Owner", label: "Printed Name of Property Owner, Property Manager or Other Authorized Person" },
+      {
+        type: "text",
+        name: "Date",
+        label: "Date",
+        suggestions: todaySuggestion,
+        dateFormat: true,
+        required: true,
+      },
+      {
+        type: "text",
+        name: "Name of Property Owner",
+        label: "Printed Name of Property Owner, Property Manager or Other Authorized Person",
+        required: true,
+      },
       { type: "text", name: "Title", label: "Title" },
-      { type: "checkbox", name: "the property owner", label: "The individual signing this form is the property owner" },
+      {
+        type: "checkbox",
+        name: "the property owner",
+        label: "The individual signing this form is the property owner",
+      },
       {
         type: "checkbox",
         name: "a property manager authorized to designate agents for the owner",
-        label: "The individual signing this form is a property manager authorized to designate agents for the owner",
+        label:
+          "The individual signing this form is a property manager authorized to designate agents for the owner",
       },
       {
         type: "checkbox",
         name: "other person authorized to act on behalf of the owner other than the person being designated as agent",
-        label: "The individual signing this form is another person authorized to act on behalf of the owner (other than the agent)",
+        label:
+          "The individual signing this form is another person authorized to act on behalf of the owner (other than the agent)",
       },
     ],
   },
@@ -652,9 +1016,35 @@ export async function buildPdf(
 // PDFs — see the comment on SIGNATURE_FIELD_RECT — not guessed). The Date
 // field next to each signature IS a normal text field, so it goes through
 // the regular fillFields() pass like everything else.
-const SIGNATURE_FIELD_RECT: Record<string, { page: number; x: number; y: number; width: number; height: number }> = {
-  "forms/50-132.pdf": { page: 1, x: 63.8907, y: 117.289, width: 299.7253, height: 12.96 },
-  "forms/50-162.pdf": { page: 1, x: 68.1542, y: 242.502, width: 295.5988, height: 32.001 },
+// maxDrawHeight is NOT the widget's own height above (that's just the box
+// around the printed line itself, a couple points tall) — it's real
+// clearance measured against the actual PDF's neighboring field widgets, so
+// a drawn signature can rise above the line the way ink actually does on a
+// paper form, without overlapping the field above it:
+//   50-132: "Print Name..." widget sits right above, its bottom edge at
+//     y=148.606 vs. this signature line at y=117.289 — 28pt stays clear.
+//   50-162: "Date Agent's Authority Ends" sits above, its bottom edge at
+//     y=293.74 vs. this signature line at y=242.502 — 38pt stays clear.
+const SIGNATURE_FIELD_RECT: Record<
+  string,
+  { page: number; x: number; y: number; width: number; height: number; maxDrawHeight: number }
+> = {
+  "forms/50-132.pdf": {
+    page: 1,
+    x: 63.8907,
+    y: 117.289,
+    width: 299.7253,
+    height: 12.96,
+    maxDrawHeight: 28,
+  },
+  "forms/50-162.pdf": {
+    page: 1,
+    x: 68.1542,
+    y: 242.502,
+    width: 295.5988,
+    height: 32.001,
+    maxDrawHeight: 38,
+  },
 };
 const DATE_FIELD_NAME: Record<string, string> = {
   "forms/50-132.pdf": "Date of Signature",
@@ -682,12 +1072,19 @@ export async function signPdf(
     const page = doc.getPages()[rect.page];
     if (signature.type === "draw") {
       const png = await doc.embedPng(signature.data);
-      const scale = Math.min(rect.width / png.width, rect.height / png.height, 1);
+      // Scaled against the real clearance above the line (maxDrawHeight),
+      // not the printed line's own sliver of a widget box — that box is
+      // just where the line sits, not how much room a real signature needs
+      // to rise above it. Width is still capped to the line's real length.
+      const scale = Math.min(rect.width / png.width, rect.maxDrawHeight / png.height, 1);
       const w = png.width * scale;
       const h = png.height * scale;
       page.drawImage(png, {
         x: rect.x + (rect.width - w) / 2,
-        y: rect.y + (rect.height - h) / 2,
+        // Bottom of the signature sits right at the line, rising upward —
+        // how a real signature actually sits on a printed line, rather
+        // than centered inside the line's own tiny widget box.
+        y: rect.y,
         width: w,
         height: h,
       });

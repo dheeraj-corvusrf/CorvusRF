@@ -10,7 +10,10 @@ import { getEffectiveTaxRate } from "./texas-tax-rates";
 // produces something real instead of just a status row. See the
 // protest_evidence_items table and the new protests.strategy_* columns in
 // supabase/schema.sql.
-export type EvidenceDocument = { id: string; fileName: string };
+// storagePath is included so a real evidence document can actually be read
+// back later (e.g. draftProtestReason() downloading the real file content
+// to hand to the AI) — not just displayed by name.
+export type EvidenceDocument = { id: string; fileName: string; storagePath: string };
 
 export type EvidenceItemRecord = {
   id: string;
@@ -169,13 +172,17 @@ export async function getCase(protestId: string): Promise<ProtestCase> {
   if (itemIds.length > 0) {
     const { data: docs } = await supabase
       .from("documents")
-      .select("id, file_name, evidence_item_id")
+      .select("id, file_name, storage_path, evidence_item_id")
       .in("evidence_item_id", itemIds)
       .order("uploaded_at", { ascending: true });
-    for (const d of (docs as Array<{ id: string; file_name: string; evidence_item_id: string }>) ??
-      []) {
+    for (const d of (docs as Array<{
+      id: string;
+      file_name: string;
+      storage_path: string;
+      evidence_item_id: string;
+    }>) ?? []) {
       const list = documentsByItemId.get(d.evidence_item_id) ?? [];
-      list.push({ id: d.id, fileName: d.file_name });
+      list.push({ id: d.id, fileName: d.file_name, storagePath: d.storage_path });
       documentsByItemId.set(d.evidence_item_id, list);
     }
   }

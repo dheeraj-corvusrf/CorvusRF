@@ -224,7 +224,9 @@ function SignIn() {
           {mode === "signup" && (
             <div className="grid gap-4 sm:grid-cols-2">
               <label className="grid gap-1 text-sm min-w-0">
-                <span className="font-medium">First Name</span>
+                <span className="font-medium">
+                  First Name<span className="text-destructive"> *</span>
+                </span>
                 <input
                   required
                   type="text"
@@ -235,7 +237,9 @@ function SignIn() {
                 />
               </label>
               <label className="grid gap-1 text-sm min-w-0">
-                <span className="font-medium">Last Name</span>
+                <span className="font-medium">
+                  Last Name<span className="text-destructive"> *</span>
+                </span>
                 <input
                   required
                   type="text"
@@ -276,7 +280,9 @@ function SignIn() {
             </label>
           )}
           <label className="grid gap-1 text-sm">
-            <span className="font-medium">Email</span>
+            <span className="font-medium">
+              Email<span className="text-destructive"> *</span>
+            </span>
             <input
               required
               type="email"
@@ -287,7 +293,9 @@ function SignIn() {
             />
           </label>
           <label className="grid gap-1 text-sm">
-            <span className="font-medium">Password</span>
+            <span className="font-medium">
+              Password<span className="text-destructive"> *</span>
+            </span>
             <input
               required
               type="password"
@@ -308,7 +316,9 @@ function SignIn() {
           )}
           {mode === "signup" && (
             <label className="grid gap-1 text-sm">
-              <span className="font-medium">Confirm Password</span>
+              <span className="font-medium">
+                Confirm Password<span className="text-destructive"> *</span>
+              </span>
               <input
                 required
                 type="password"

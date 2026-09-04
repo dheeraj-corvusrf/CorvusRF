@@ -114,7 +114,7 @@ function BppAccountsContent() {
             required
             value={businessName}
             onChange={(e) => setBusinessName(e.target.value)}
-            placeholder="Business name"
+            placeholder="Business name *"
             className="rounded-md border border-input bg-background px-3 py-2 text-sm sm:col-span-2"
           />
           <input

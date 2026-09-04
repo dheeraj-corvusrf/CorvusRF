@@ -1,25 +1,26 @@
-// Deterministic "Ready to File" checklist shown before a user can open the
-// Notice of Protest form (see PreFilingCheckSection in CaseDetailModal.tsx).
-// Every row here is either a real field already on the property/protest
-// record, or static app copy — never a guessed or fabricated per-county
-// answer. In particular, Filing Method and County Contact are NOT
-// county-specific today (no real, verified per-county filing-method/contact
-// database exists anywhere in this app yet) — they show the app's own
-// honest, already-established default ("download and deliver it yourself")
-// rather than claiming an online/email/mail answer we haven't actually
-// confirmed for that county. See the plan this was built from for the
-// broader roadmap to replace this with real per-county data later.
+// Deterministic "Ready to File" checklist — the blocking gate Corvus runs
+// before a user can open the Notice of Protest form (see
+// PreFilingCheckSection in CaseDetailModal.tsx). Every row here is either a
+// real field already on the property/protest/evidence records, or a real,
+// hand-verified per-county fact from county-protest-info.ts — never a
+// guessed or fabricated answer. Where a fact genuinely isn't verified for a
+// county, the row honestly says "Not confirmed" rather than assuming a
+// typical answer.
 import type { PropertyRecord } from "./properties";
 import type { ProtestRecord } from "./protests";
+import { getCountyProtestInfo } from "./county-protest-info";
 
 export type PreFilingCheckItem = {
   label: string;
   value: string | null;
   status: "confirmed" | "missing";
   // Blocking rows are this case's own real identity/deadline data — if any
-  // are missing, filing shouldn't proceed until they're fixed. Non-blocking
-  // rows are static, always-true app copy (the real form, the honest filing-
-  // method default) — never "missing" since nothing here is ever guessed.
+  // are missing, filing stops until they're fixed (isPreFilingBlocked /
+  // PreFilingCheckSection enforce this). Non-blocking rows are informational
+  // — procedural facts that are either always-true app copy or a real,
+  // possibly-unconfirmed per-county answer — never treated as a reason to
+  // stop filing, since the app's own generic form/instructions remain a
+  // valid fallback even when a specific county detail isn't confirmed.
   blocking: boolean;
 };
 
@@ -27,9 +28,21 @@ function row(label: string, value: string | null, blocking: boolean): PreFilingC
   return { label, value, status: value ? "confirmed" : "missing", blocking };
 }
 
+function yesNo(value: boolean | null, whenTrue: string, whenFalse: string): string {
+  if (value === true) return whenTrue;
+  if (value === false) return whenFalse;
+  return "Not confirmed";
+}
+
 export function getPreFilingCheck(
   property: PropertyRecord,
   protest: ProtestRecord,
+  // Real count of "Protest Evidence"-tagged documents uploaded for this
+  // property (see getProtestEvidenceDocuments in documents.ts) — evidence
+  // now uploads exclusively through Module 8 (ai-report.tsx), a flat
+  // document list, not the older per-checklist-item structure, so this is
+  // a plain count rather than "N of M items."
+  evidenceDocumentCount?: number,
 ): PreFilingCheckItem[] {
   // protestDeadline is a date-only string ("2026-05-15") — parsing it as-is
   // is interpreted as UTC midnight, which toLocaleDateString then renders in
@@ -45,22 +58,62 @@ export function getPreFilingCheck(
       })
     : null;
   const taxYear = protest.taxYear ?? property.taxYear;
+  const countyInfo = getCountyProtestInfo(property.cad);
+  const filingMethod = countyInfo?.filingMethod ?? null;
+  const mailOrInPerson = filingMethod?.mail ?? filingMethod?.inPerson ?? null;
 
-  return [
+  const filingMethodValue = filingMethod?.online
+    ? `Online — ${filingMethod.online.url}`
+    : mailOrInPerson
+      ? `Mail or deliver to ${mailOrInPerson.address}`
+      : // No verified per-county entry yet — the app's own honest default
+        // (see DocumentsSection's "download or deliver this PDF" copy),
+        // never a guessed online/mail/email answer.
+        "Download and deliver to your county";
+
+  const evidenceStatus =
+    evidenceDocumentCount == null
+      ? null
+      : evidenceDocumentCount === 0
+        ? "None uploaded yet"
+        : `${evidenceDocumentCount} document${evidenceDocumentCount === 1 ? "" : "s"} uploaded`;
+
+  const contactValue = countyInfo?.arbContact
+    ? [countyInfo.arbContact.phone, countyInfo.arbContact.email].filter(Boolean).join(" · ") || null
+    : null;
+
+  const items: PreFilingCheckItem[] = [
     row("County", property.cad, true),
     row("Property Address", property.address, true),
     row("Account Number", property.accountNumber, true),
     row("Tax Year", taxYear != null ? String(taxYear) : null, true),
     row("Owner / Entity", property.ownerName, true),
-    row("Protest Deadline", deadline, true),
     row("Property Type", property.propertyType ?? "Not on file", false),
+    row("Protest Deadline", deadline, true),
     row("Applicable Form", "Comptroller Form 50-132 — Notice of Protest", false),
-    // The app's own current, honest default (see DocumentsSection's own
-    // "download or deliver this PDF to your appraisal district" copy) — not
-    // a per-county answer, since none is verified yet.
-    row("Filing Method", "Download and deliver to your county", false),
+    row("Filing Method", filingMethodValue, false),
     row("Signature Required", "Yes — property owner or authorized agent", false),
+    row("Required Supporting Documents", evidenceStatus ?? "Not on file", false),
+    row("Applicable County Instructions", countyInfo?.sourceUrl ?? "Not on file", false),
+    row(
+      "Online Filing Available",
+      yesNo(filingMethod ? filingMethod.online != null : null, "Yes", "No"),
+      false,
+    ),
+    row("Email Filing Available", yesNo(filingMethod?.email.available ?? null, "Yes", "No"), false),
+    row(
+      "Mail / In-Person Filing",
+      mailOrInPerson
+        ? filingMethod?.online
+          ? "Available (alternative to online)"
+          : "Required (no confirmed online option)"
+        : "Not confirmed",
+      false,
+    ),
+    row("County Contact Information", contactValue ?? "Not confirmed", false),
   ];
+
+  return items;
 }
 
 export function isPreFilingBlocked(items: PreFilingCheckItem[]): boolean {

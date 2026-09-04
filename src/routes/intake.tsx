@@ -434,7 +434,9 @@ function Intake() {
             className="mt-4 grid gap-3"
           >
             <label className="grid gap-1 text-sm">
-              <span className="font-medium">County / CAD</span>
+              <span className="font-medium">
+                County / CAD<span className="text-destructive"> *</span>
+              </span>
               <select
                 value={manualLookupCad}
                 onChange={(e) => setManualLookupCad(e.target.value)}
@@ -452,7 +454,9 @@ function Intake() {
               </select>
             </label>
             <label className="grid gap-1 text-sm">
-              <span className="font-medium">Account / parcel number</span>
+              <span className="font-medium">
+                Account / parcel number<span className="text-destructive"> *</span>
+              </span>
               <input
                 value={manualLookupAccount}
                 onChange={(e) => setManualLookupAccount(e.target.value)}

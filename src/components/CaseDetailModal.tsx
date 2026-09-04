@@ -1,13 +1,17 @@
 import { useEffect, useState } from "react";
-import type { ChangeEvent, FormEvent } from "react";
+import type { FormEvent } from "react";
+import { useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
-import type { PropertyRecord } from "@/lib/properties";
-import type { ProtestRecord } from "@/lib/protests";
-import { currency } from "@/lib/intake-store";
+import {
+  updatePropertyIdentity,
+  buildAiReportIntakePatch,
+  type PropertyRecord,
+} from "@/lib/properties";
+import { acknowledgeGuidance, type ProtestRecord } from "@/lib/protests";
+import { currency, updateIntake } from "@/lib/intake-store";
 import {
   getCase,
   generateCasePrep,
-  linkEvidenceDocument,
   markFiled,
   recordSettlementOffer,
   acceptSettlement,
@@ -19,7 +23,18 @@ import {
   getCaseResults,
   type ProtestCase,
 } from "@/lib/protest-case";
-import { uploadDocument } from "@/lib/documents";
+import { getCaseGuidance } from "@/lib/case-guidance";
+import {
+  getCountyProtestInfo,
+  COUNTY_PROTEST_INFO,
+  type CountyProtestInfo,
+} from "@/lib/county-protest-info";
+import {
+  getPreFilingCheck,
+  isPreFilingBlocked,
+  type PreFilingCheckItem,
+} from "@/lib/pre-filing-check";
+import { uploadDocument, getProtestEvidenceDocuments, type DocumentRecord } from "@/lib/documents";
 import { getAuthorization, type AuthorizationRecord } from "@/lib/protest-authorizations";
 import {
   getNoticeOfProtestDefaults,
@@ -40,14 +55,16 @@ import {
   type FormType,
 } from "@/lib/protest-form-submissions";
 import { searchPropertiesByOwner } from "@/lib/cad-owner-search";
+import { draftProtestReason } from "@/lib/protest-reason";
 import { PdfFormEditor } from "@/components/PdfFormEditor";
+import { FilingMethodsList } from "@/components/FilingMethodsList";
 import { Modal } from "@/components/Modal";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { SignatureValue } from "@/components/SignaturePad";
 
 export function CaseDetailModal({
   userId,
-  property,
+  property: propertyProp,
   protest,
   onClose,
 }: {
@@ -59,6 +76,28 @@ export function CaseDetailModal({
   const [caseData, setCaseData] = useState<ProtestCase | null>(null);
   const [loading, setLoading] = useState(true);
   const [current, setCurrent] = useState<ProtestRecord>(protest);
+  // Local, editable copy — the Pre-Filing Check gate lets the customer
+  // correct/confirm a missing identity field (see PreFilingGate) right
+  // where Corvus flags it as blocking, without leaving this modal.
+  const [property, setProperty] = useState<PropertyRecord>(propertyProp);
+  const [acknowledging, setAcknowledging] = useState(false);
+  // Per-open, not per-case: the notice must appear every time the customer
+  // clicks View Case, not just the first time — deliberately not derived
+  // from corvusGuidanceAckAt below, since that would only show it once ever.
+  const [acknowledgedThisOpen, setAcknowledgedThisOpen] = useState(false);
+  // Real signed_at off the Notice of Protest submission (see
+  // protest-form-submissions.ts) — the one honest signal this app has for
+  // "has the customer actually signed this," distinct from and never
+  // conflated with "filed." Lifted here (not local to DocumentsSection) so
+  // CorvusGuidancePanel/NextStepFooter can give correct guidance too.
+  const [noticeSignedAt, setNoticeSignedAt] = useState<string | null>(null);
+  // Real "Protest Evidence"-tagged documents for this property — evidence
+  // now uploads exclusively through Module 8 (ai-report.tsx), not a
+  // checklist inside this modal (see CasePlanSection's "Upload Evidence —
+  // Go to Module 8" button below), so this is the one real source every
+  // evidence-aware feature here (Corvus's guidance, Pre-Filing Check,
+  // Generate Suggested Reason) reads from.
+  const [evidenceDocuments, setEvidenceDocuments] = useState<DocumentRecord[]>([]);
 
   function load() {
     setLoading(true);
@@ -66,9 +105,36 @@ export function CaseDetailModal({
       .then(setCaseData)
       .catch((err) => toast.error(err instanceof Error ? err.message : "Could not load this case."))
       .finally(() => setLoading(false));
+    getSubmission(protest.id, "notice_of_protest")
+      .then((s) => setNoticeSignedAt(s?.signedAt ?? null))
+      .catch((err) => console.error("Could not load Notice of Protest signing status:", err));
+    getProtestEvidenceDocuments(userId, property.id)
+      .then(setEvidenceDocuments)
+      .catch((err) => console.error("Could not load this case's evidence documents:", err));
   }
 
   useEffect(load, [protest.id]);
+
+  async function handleAcknowledgeGuidance() {
+    setAcknowledging(true);
+    try {
+      // Still recorded on the case every time, for an audit trail of when the
+      // notice was shown/accepted — it just no longer gates whether the
+      // notice is shown again on the next open (see acknowledgedThisOpen).
+      await acknowledgeGuidance(protest.id);
+      setCurrent((prev) => ({ ...prev, corvusGuidanceAckAt: new Date().toISOString() }));
+      setAcknowledgedThisOpen(true);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not continue — please try again.");
+    } finally {
+      setAcknowledging(false);
+    }
+  }
+
+  // Gates entry into a not-yet-filed case until the customer acknowledges
+  // Corvus's guidance notice for THIS open of the case — shown every time
+  // View Case is clicked on a not-yet-filed case, not just the first time.
+  const needsGuidanceAck = current.status === "requested" && !acknowledgedThisOpen;
 
   return (
     <Modal onClose={onClose} wide>
@@ -82,8 +148,20 @@ export function CaseDetailModal({
           <Skeleton className="h-4 w-48" />
           <Skeleton className="h-16 w-full" />
         </div>
+      ) : needsGuidanceAck ? (
+        <CorvusGuidanceGate
+          onAcknowledge={handleAcknowledgeGuidance}
+          acknowledging={acknowledging}
+        />
       ) : (
         <>
+          <CorvusGuidancePanel
+            property={property}
+            protest={current}
+            evidenceDocumentCount={evidenceDocuments.length}
+            noticeSignedAt={noticeSignedAt}
+          />
+
           <CasePlanSection
             userId={userId}
             property={property}
@@ -92,19 +170,43 @@ export function CaseDetailModal({
             onReload={load}
           />
 
-          <DocumentsSection
-            userId={userId}
-            protest={current}
-            property={property}
-            strategyRecommendation={caseData?.strategyRecommendation ?? null}
-            onUpdate={(patch) => setCurrent((prev) => ({ ...prev, ...patch }))}
-          />
+          {current.status === "requested" ? (
+            <PreFilingGate
+              userId={userId}
+              property={property}
+              protest={current}
+              caseData={caseData}
+              evidenceDocuments={evidenceDocuments}
+              noticeSignedAt={noticeSignedAt}
+              onUpdate={(patch) => setCurrent((prev) => ({ ...prev, ...patch }))}
+              onPropertyUpdate={(patch) => setProperty((prev) => ({ ...prev, ...patch }))}
+              onNoticeSigned={setNoticeSignedAt}
+            />
+          ) : (
+            <DocumentsSection
+              userId={userId}
+              protest={current}
+              property={property}
+              strategyRecommendation={caseData?.strategyRecommendation ?? null}
+              noticeSignedAt={noticeSignedAt}
+              evidenceDocuments={evidenceDocuments}
+              onUpdate={(patch) => setCurrent((prev) => ({ ...prev, ...patch }))}
+              onNoticeSigned={setNoticeSignedAt}
+            />
+          )}
 
           <CaseProgress
             protest={current}
             property={property}
             caseData={caseData}
             onUpdate={(patch) => setCurrent((prev) => ({ ...prev, ...patch }))}
+          />
+
+          <NextStepFooter
+            property={property}
+            protest={current}
+            evidenceDocumentCount={evidenceDocuments.length}
+            noticeSignedAt={noticeSignedAt}
           />
         </>
       )}
@@ -115,6 +217,442 @@ export function CaseDetailModal({
         </button>
       </div>
     </Modal>
+  );
+}
+
+// Consent screen gating entry into a not-yet-filed case, shown on every open
+// (not just the first) per explicit product direction — exact copy per the
+// spec this was built from. An acknowledgment, not a legal document, so a
+// checkbox + button is enough (no signature capture, unlike the real Service
+// Agreement in ProtestAuthorizationFlow.tsx).
+function CorvusGuidanceGate({
+  onAcknowledge,
+  acknowledging,
+}: {
+  onAcknowledge: () => void;
+  acknowledging: boolean;
+}) {
+  const [checked, setChecked] = useState(false);
+  return (
+    <div className="mt-4 grid gap-4">
+      <div className="card-elev p-4">
+        <h4 className="text-sm font-semibold">AI Guidance & Filing Notice</h4>
+        <div className="mt-2 grid gap-2 text-sm text-muted-foreground">
+          <p>
+            Corvus is an AI assistant designed to guide you through the property protest process and
+            help prepare and complete the required forms and documents.
+          </p>
+          <p>
+            By proceeding, you authorize Corvus to assist with completing forms and preparing filing
+            materials on your behalf.
+          </p>
+          <p>
+            You are responsible for reviewing and verifying all information before signing, filing,
+            or submitting any document.
+          </p>
+          <p>
+            Corvus does not replace your responsibility to verify the accuracy of the information or
+            comply with county requirements.
+          </p>
+        </div>
+      </div>
+      <label className="flex items-start gap-2 text-sm">
+        <input
+          type="checkbox"
+          checked={checked}
+          onChange={(e) => setChecked(e.target.checked)}
+          className="mt-0.5"
+        />
+        I have read and understand this notice.
+      </label>
+      <button
+        onClick={onAcknowledge}
+        disabled={!checked || acknowledging}
+        className="btn-accent w-fit text-sm disabled:opacity-60"
+      >
+        {acknowledging ? "Continuing…" : "Continue to Case"}
+      </button>
+    </div>
+  );
+}
+
+// Shared by CorvusGuidancePanel and NextStepFooter below — a GuidanceStep's
+// action.anchor is either a real element id already rendered by an existing
+// section (scroll to it) or a real external URL (open it), never a route
+// change or a new surface.
+function goToGuidanceAnchor(anchor: string) {
+  if (anchor.startsWith("http")) {
+    window.open(anchor, "_blank", "noopener,noreferrer");
+    return;
+  }
+  document.getElementById(anchor)?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+// Ambient, ongoing guidance — purely additive, sits above the existing
+// sections on every visit once the notice above has been acknowledged for
+// this open. Every fact it shows comes from getCaseGuidance()'s
+// deterministic mapping of real case/property/county data — never
+// AI-generated. No checkbox, no gating: informational only, and nothing
+// below it is disabled or hidden by its presence.
+function CorvusGuidancePanel({
+  property,
+  protest,
+  evidenceDocumentCount,
+  noticeSignedAt,
+}: {
+  property: PropertyRecord;
+  protest: ProtestRecord;
+  evidenceDocumentCount: number;
+  noticeSignedAt: string | null;
+}) {
+  const [countyOpen, setCountyOpen] = useState(false);
+  const countyInfo = getCountyProtestInfo(property.cad);
+  const guidance = getCaseGuidance(
+    property,
+    protest,
+    evidenceDocumentCount,
+    countyInfo,
+    noticeSignedAt,
+  );
+
+  return (
+    <div className="mt-4 card-elev p-4">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          Corvus Guidance
+        </span>
+        <span className="badge-soft">{guidance.stageLabel}</span>
+      </div>
+      <p className="mt-2 text-sm">{guidance.summary}</p>
+
+      {guidance.nextSteps.length > 0 && (
+        <div className="mt-3 grid gap-2">
+          <h5 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            What to do next
+          </h5>
+          <ul className="grid gap-1.5">
+            {guidance.nextSteps.map((step, i) => (
+              <li key={i} className="text-sm">
+                <span className="font-medium">{step.label}</span>
+                {step.detail && <span className="text-muted-foreground"> — {step.detail}</span>}
+                {step.action && (
+                  <button
+                    onClick={() => goToGuidanceAnchor(step.action!.anchor)}
+                    className="ml-2 text-xs text-accent hover:underline"
+                  >
+                    {step.action.label} →
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {countyInfo && (
+        <div className="mt-3 border-t border-border pt-3">
+          <button
+            onClick={() => setCountyOpen((v) => !v)}
+            className="text-xs font-semibold text-accent hover:underline"
+          >
+            {countyOpen ? "Hide" : "Show"} your county's protest process
+          </button>
+          {countyOpen && (
+            <div className="mt-2 grid gap-2 text-xs text-muted-foreground">
+              <div>
+                <span className="font-medium text-foreground">How to file: </span>
+                <FilingMethodsList countyInfo={countyInfo} />
+              </div>
+              {countyInfo.arbContact &&
+                (countyInfo.arbContact.phone || countyInfo.arbContact.email) && (
+                  <div>
+                    <span className="font-medium text-foreground">ARB contact: </span>
+                    {[countyInfo.arbContact.phone, countyInfo.arbContact.email]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </div>
+                )}
+              {countyInfo.informalReview && (
+                <div>
+                  <span className="font-medium text-foreground">Informal review: </span>
+                  {countyInfo.informalReview.howToRequest}
+                </div>
+              )}
+              <div className="pt-1">
+                Source:{" "}
+                <a
+                  href={countyInfo.sourceUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="hover:underline"
+                >
+                  {countyInfo.cad}
+                </a>{" "}
+                (verified {countyInfo.verifiedAt})
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Repeats just the single most important next step at the very bottom of
+// the modal, right above Close — CorvusGuidancePanel's own copy of this
+// sits at the top, which a user scrolled down to Evidence
+// Checklist/Documents/Case Progress (e.g. right after uploading a file or
+// downloading a form) won't see without scrolling back up. Same real
+// getCaseGuidance() data, not a separate/invented message. Renders nothing
+// once there's genuinely no next step (e.g. a resolved case).
+function NextStepFooter({
+  property,
+  protest,
+  evidenceDocumentCount,
+  noticeSignedAt,
+}: {
+  property: PropertyRecord;
+  protest: ProtestRecord;
+  evidenceDocumentCount: number;
+  noticeSignedAt: string | null;
+}) {
+  const countyInfo = getCountyProtestInfo(property.cad);
+  const guidance = getCaseGuidance(
+    property,
+    protest,
+    evidenceDocumentCount,
+    countyInfo,
+    noticeSignedAt,
+  );
+  const next = guidance.nextSteps[0];
+  if (!next) return null;
+
+  return (
+    <div className="mt-5 rounded-md border border-accent/30 bg-accent/5 p-3 text-sm">
+      <span className="font-semibold">Next: {next.label}.</span>
+      {next.detail && <span className="text-muted-foreground"> {next.detail}</span>}
+      {next.action && (
+        <button
+          onClick={() => goToGuidanceAnchor(next.action!.anchor)}
+          className="ml-2 text-xs text-accent hover:underline"
+        >
+          {next.action.label} →
+        </button>
+      )}
+    </div>
+  );
+}
+
+// Runs before the user can reach Documents/filing at all. Every fact comes
+// from getPreFilingCheck() — real case/property/evidence fields, plus real
+// per-county data from county-protest-info.ts, never AI-invented. If a
+// blocking field (case identity/deadline) is missing, filing stops here and
+// DocumentsSection is not rendered until it's corrected — the non-blocking
+// procedural rows (filing method, county contact, etc.) are informational
+// and never stop filing on their own, since the app's own generic form is
+// always a valid fallback even where a specific county detail isn't
+// confirmed.
+function PreFilingGate({
+  userId,
+  property,
+  protest,
+  caseData,
+  evidenceDocuments,
+  noticeSignedAt,
+  onUpdate,
+  onPropertyUpdate,
+  onNoticeSigned,
+}: {
+  userId: string;
+  property: PropertyRecord;
+  protest: ProtestRecord;
+  caseData: ProtestCase | null;
+  evidenceDocuments: DocumentRecord[];
+  noticeSignedAt: string | null;
+  onUpdate: (patch: Partial<ProtestRecord>) => void;
+  onPropertyUpdate: (patch: Partial<PropertyRecord>) => void;
+  onNoticeSigned: (signedAt: string | null) => void;
+}) {
+  const items = getPreFilingCheck(property, protest, evidenceDocuments.length);
+  const blocked = isPreFilingBlocked(items);
+
+  return (
+    <>
+      <div className="mt-5 border-t border-border pt-5">
+        <PreFilingCheckList
+          items={items}
+          blocked={blocked}
+          propertyId={property.id}
+          onFixed={onPropertyUpdate}
+        />
+        {blocked && (
+          <div className="mt-3 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
+            Corvus can't confirm this case is ready to file — please correct or confirm the field(s)
+            marked "Missing" above before filing. Use "Confirm/edit" next to each one. Documents are
+            hidden until this is resolved.
+          </div>
+        )}
+      </div>
+      {!blocked && (
+        <DocumentsSection
+          userId={userId}
+          protest={protest}
+          property={property}
+          strategyRecommendation={caseData?.strategyRecommendation ?? null}
+          noticeSignedAt={noticeSignedAt}
+          evidenceDocuments={evidenceDocuments}
+          onUpdate={onUpdate}
+          onNoticeSigned={onNoticeSigned}
+        />
+      )}
+    </>
+  );
+}
+
+// Maps a blocking PreFilingCheckItem's label to the real property field it
+// corrects and the input shape that field needs — County uses a closed
+// dropdown of the exact cad strings the rest of the app recognizes (a
+// free-typed county would silently break every county-specific lookup),
+// everything else is free text/number/date.
+const BLOCKING_FIELD_MAP: Record<
+  string,
+  {
+    key: "cad" | "address" | "accountNumber" | "ownerName" | "taxYear" | "protestDeadline";
+    type: "select" | "text" | "number" | "date";
+  }
+> = {
+  County: { key: "cad", type: "select" },
+  "Property Address": { key: "address", type: "text" },
+  "Account Number": { key: "accountNumber", type: "text" },
+  "Tax Year": { key: "taxYear", type: "number" },
+  "Owner / Entity": { key: "ownerName", type: "text" },
+  "Protest Deadline": { key: "protestDeadline", type: "date" },
+};
+
+function PreFilingCheckList({
+  items,
+  blocked,
+  propertyId,
+  onFixed,
+}: {
+  items: PreFilingCheckItem[];
+  blocked: boolean;
+  propertyId: string;
+  onFixed: (patch: Partial<PropertyRecord>) => void;
+}) {
+  return (
+    <div>
+      <div className="flex items-center justify-between gap-2">
+        <h4 className="text-sm font-semibold">Pre-Filing Check</h4>
+        <span
+          className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+            blocked ? "bg-destructive/10 text-destructive" : "bg-success/15 text-success"
+          }`}
+        >
+          {blocked ? "Action Needed" : "Ready to File"}
+        </span>
+      </div>
+      <div className="mt-2 grid gap-1.5 sm:grid-cols-2">
+        {items.map((item) => {
+          const missing = item.status === "missing";
+          const field = missing ? BLOCKING_FIELD_MAP[item.label] : undefined;
+          return (
+            <div key={item.label} className="grid gap-1 text-xs">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-muted-foreground">{item.label}</span>
+                <span
+                  className={`truncate ${missing ? "text-destructive" : "text-success"}`}
+                  title={item.value ?? undefined}
+                >
+                  {missing ? "Missing" : (item.value ?? "Confirmed")}
+                </span>
+              </div>
+              {field && (
+                <PreFilingFixRow
+                  label={item.label}
+                  field={field.key}
+                  inputType={field.type}
+                  propertyId={propertyId}
+                  onFixed={onFixed}
+                />
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// Lets the customer directly correct/confirm a missing blocking field,
+// right where Corvus flags it — the real fix for a property that never had
+// this data (e.g. added via CAD search rather than an uploaded notice AI
+// could extract a real deadline from). Saves via updatePropertyIdentity and
+// bubbles the real updated field back up so PreFilingGate re-evaluates
+// immediately, same pattern as CaseProgress's forms.
+function PreFilingFixRow({
+  label,
+  field,
+  inputType,
+  propertyId,
+  onFixed,
+}: {
+  label: string;
+  field: "cad" | "address" | "accountNumber" | "ownerName" | "taxYear" | "protestDeadline";
+  inputType: "select" | "text" | "number" | "date";
+  propertyId: string;
+  onFixed: (patch: Partial<PropertyRecord>) => void;
+}) {
+  const [value, setValue] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  async function handleSave() {
+    if (!value.trim()) return;
+    setSaving(true);
+    try {
+      const patch = field === "taxYear" ? { taxYear: Number(value) } : { [field]: value };
+      const updated = await updatePropertyIdentity(propertyId, patch);
+      onFixed(updated);
+      toast.success(`${label} saved.`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : `Could not save ${label}.`);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      {inputType === "select" ? (
+        <select
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          className="min-w-0 flex-1 rounded-md border border-input bg-background px-1.5 py-1 text-xs"
+        >
+          <option value="">Select {label}…</option>
+          {Object.keys(COUNTY_PROTEST_INFO).map((cad) => (
+            <option key={cad} value={cad}>
+              {cad}
+            </option>
+          ))}
+        </select>
+      ) : (
+        <input
+          type={inputType === "number" ? "number" : inputType === "date" ? "date" : "text"}
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder={`Enter ${label}`}
+          className="min-w-0 flex-1 rounded-md border border-input bg-background px-1.5 py-1 text-xs"
+        />
+      )}
+      <button
+        onClick={handleSave}
+        disabled={saving || !value.trim()}
+        className="shrink-0 btn-outline px-2 py-1 text-[11px] disabled:opacity-60"
+      >
+        {saving ? "Saving…" : "Confirm/edit"}
+      </button>
+    </div>
   );
 }
 
@@ -134,15 +672,22 @@ export function CasePlanSection({
   protestId,
   caseData,
   onReload,
+  // Module 8 lives on the customer's own /ai-report page, keyed to
+  // whoever is currently signed in — for staff (AdminCaseProgressModal),
+  // that's the admin, not the customer, so navigating there would try to
+  // resolve/create this property under the ADMIN's account instead.
+  // Customer view leaves this at its default (true); admin passes false.
+  allowEvidenceUpload = true,
 }: {
   userId: string;
   property: PropertyRecord;
   protestId: string;
   caseData: ProtestCase | null;
   onReload: () => void;
+  allowEvidenceUpload?: boolean;
 }) {
   const [generating, setGenerating] = useState(false);
-  const [uploadingItemId, setUploadingItemId] = useState<string | null>(null);
+  const navigate = useNavigate();
 
   async function handleGenerate() {
     setGenerating(true);
@@ -156,33 +701,18 @@ export function CasePlanSection({
     }
   }
 
-  async function handleUpload(itemId: string, e: ChangeEvent<HTMLInputElement>) {
-    const files = Array.from(e.target.files ?? []);
-    e.target.value = "";
-    if (files.length === 0) return;
-    setUploadingItemId(itemId);
-    try {
-      // Sequential, not Promise.all — several checklist items genuinely need
-      // multiple files (e.g. 3 years of income statements), and uploading them
-      // one at a time keeps storage writes and the resulting toast/error in a
-      // predictable order rather than racing.
-      for (const file of files) {
-        const doc = await uploadDocument(userId, property.id, file, "Protest Evidence");
-        await linkEvidenceDocument(itemId, doc.id);
-      }
-      onReload();
-      toast.success(files.length === 1 ? "Evidence uploaded." : `${files.length} files uploaded.`);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not upload this file.");
-    } finally {
-      setUploadingItemId(null);
-    }
+  // Evidence upload lives in exactly one place now — Module 8 on the AI
+  // Report page — rather than duplicated here too. Sets this property as
+  // the report's subject the same real way "View AI Report" already does
+  // from the Properties dashboard (buildAiReportIntakePatch), then deep
+  // links straight into the Evidence module (ai-report.tsx's own
+  // ?openModule=evidence handling, built for exactly this button).
+  function goToModule8() {
+    updateIntake(buildAiReportIntakePatch(property));
+    navigate({ to: "/ai-report", search: { openModule: "evidence" } });
   }
 
-  const hasAnyPlan =
-    !!caseData && (!!caseData.strategyRecommendation || caseData.evidenceItems.length > 0);
-  const uploadedCount = caseData?.evidenceItems.filter((i) => i.documents.length > 0).length ?? 0;
-  const totalCount = caseData?.evidenceItems.length ?? 0;
+  const hasAnyPlan = !!caseData?.strategyRecommendation;
 
   if (!hasAnyPlan) {
     return (
@@ -229,69 +759,13 @@ export function CasePlanSection({
         )}
       </section>
 
-      <section>
-        <div className="flex items-center justify-between">
-          <h4 className="text-sm font-semibold">Evidence Checklist</h4>
-          {totalCount > 0 && (
-            <span className="text-xs text-muted-foreground">
-              {uploadedCount} of {totalCount} uploaded
-            </span>
-          )}
-        </div>
-        {totalCount > 0 ? (
-          <div className="mt-2 grid gap-2">
-            {caseData!.evidenceItems.map((item, i) => (
-              <div
-                key={item.id}
-                className="min-w-0 grid gap-1.5 rounded-md border border-border p-2.5 text-sm list-item-enter transition-colors hover:bg-secondary/30"
-                style={{ animationDelay: `${Math.min(i * 50, 400)}ms` }}
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <span className="min-w-0 flex-1 truncate">{item.label}</span>
-                  <label
-                    className={`shrink-0 btn-outline text-xs py-1 cursor-pointer ${
-                      uploadingItemId === item.id ? "opacity-60 pointer-events-none" : ""
-                    }`}
-                  >
-                    {uploadingItemId === item.id
-                      ? "Uploading…"
-                      : item.documents.length > 0
-                        ? "Add another file"
-                        : "Upload"}
-                    <input
-                      type="file"
-                      multiple
-                      className="hidden"
-                      accept=".pdf,image/*"
-                      onChange={(e) => handleUpload(item.id, e)}
-                    />
-                  </label>
-                </div>
-                {item.documents.length > 0 && (
-                  <ul className="grid gap-0.5">
-                    {item.documents.map((doc) => (
-                      <li key={doc.id} className="truncate text-xs text-success">
-                        ✓ {doc.fileName}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="mt-1 flex items-center gap-2">
-            <span className="text-sm text-muted-foreground">Not available yet.</span>
-            <button
-              onClick={handleGenerate}
-              disabled={generating}
-              className="text-xs text-accent hover:underline disabled:opacity-60"
-            >
-              {generating ? "Retrying…" : "Retry"}
-            </button>
-          </div>
-        )}
-      </section>
+      {allowEvidenceUpload && (
+        <section>
+          <button onClick={goToModule8} className="btn-outline w-fit text-sm">
+            Upload Evidence — Go to Module 8
+          </button>
+        </section>
+      )}
     </div>
   );
 }
@@ -301,7 +775,10 @@ export function DocumentsSection({
   protest,
   property,
   strategyRecommendation,
+  noticeSignedAt,
+  evidenceDocuments,
   onUpdate,
+  onNoticeSigned,
   // Staff must never sign a legal filing on a customer's behalf — the admin
   // panel's copy of this section (AdminCaseProgressModal) passes false to
   // hide signing entirely, keeping Save Progress/Download available for
@@ -312,9 +789,13 @@ export function DocumentsSection({
   protest: ProtestRecord;
   property: PropertyRecord;
   strategyRecommendation: string | null;
+  noticeSignedAt: string | null;
+  evidenceDocuments: DocumentRecord[];
   onUpdate: (patch: Partial<ProtestRecord>) => void;
+  onNoticeSigned: (signedAt: string | null) => void;
   allowSigning?: boolean;
 }) {
+  const [markingFiled, setMarkingFiled] = useState(false);
   const [authorization, setAuthorization] = useState<AuthorizationRecord | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [editingForm, setEditingForm] = useState<"protest" | "agent" | null>(null);
@@ -324,6 +805,12 @@ export function DocumentsSection({
   const [signingOpen, setSigningOpen] = useState(false);
   const [signature, setSignature] = useState<SignatureValue | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [generatingReason, setGeneratingReason] = useState(false);
+  // Same real signed_at signal as the Notice of Protest's noticeSignedAt
+  // (see CaseDetailModal.tsx), but for the Appointment of Agent form —
+  // kept local here rather than lifted, since nothing outside Documents
+  // currently needs it. Loaded whenever the agent editor opens, below.
+  const [agentFormSignedAt, setAgentFormSignedAt] = useState<string | null>(null);
 
   useEffect(() => {
     getAuthorization(protest.id)
@@ -362,8 +849,14 @@ export function DocumentsSection({
     setEditingForm("agent");
     setSigningOpen(false);
     setSignature(null);
+    setAgentFormSignedAt(null);
     getSubmission(protest.id, "appointment_of_agent")
-      .then((existing) => existing && setValues(existing.fieldValues))
+      .then((existing) => {
+        if (existing) {
+          setValues(existing.fieldValues);
+          setAgentFormSignedAt(existing.signedAt);
+        }
+      })
       .catch((err) => console.error("Could not load saved Appointment of Agent draft:", err))
       .finally(fillAdditionalOwnerProperties);
   }
@@ -430,9 +923,15 @@ export function DocumentsSection({
           : `Appointment-of-Agent-${filenameBase}.pdf`,
       );
       // Downloading shouldn't be able to lose edits either — save silently
-      // alongside it, without its own toast (Download already has one).
+      // alongside it (no separate toast — the real next-step message below
+      // covers this action).
       if (formType)
         await saveDraft(userId, protest.id, formType, values).catch((err) => console.error(err));
+      toast.success(
+        editingForm === "protest"
+          ? "Downloaded. Review it, then use Sign & Submit above to file this protest — or deliver this PDF to your county yourself."
+          : "Downloaded. Once signed, deliver this PDF to your appraisal district.",
+      );
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not generate this document.");
     } finally {
@@ -464,17 +963,20 @@ export function DocumentsSection({
         editingForm === "protest" ? "Signed Notice of Protest" : "Signed Appointment of Agent",
       );
       await signAndSubmit(userId, protest.id, formType, resolvedValues, signature, doc.id);
-      if (editingForm === "protest") {
-        await markFiled(protest.id);
-        onUpdate({ status: "filed" });
-      }
+      // Signing here is NOT the same as filing — this app has no e-filing
+      // integration with any county, so it can't truthfully claim the
+      // protest has been filed the moment it's signed. Status stays
+      // "requested"; the customer confirms filing themselves, once they've
+      // actually delivered it, via the "Mark as Filed" action below.
+      if (editingForm === "protest") onNoticeSigned(signedAt.toISOString());
+      else setAgentFormSignedAt(signedAt.toISOString());
       downloadPdf(bytes, fileName);
       setSigningOpen(false);
       setSignature(null);
       toast.success(
         editingForm === "protest"
-          ? "Signed and saved — this case is now marked Filed. Download or deliver this PDF to your appraisal district to complete filing."
-          : "Signed and saved.",
+          ? 'Signed and saved. This does not file your protest — deliver it to your county (online, by mail, or in person), then click "Mark as Filed" below.'
+          : "Signed and saved. Deliver this PDF to your appraisal district to put it into effect.",
       );
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not sign this document.");
@@ -483,16 +985,56 @@ export function DocumentsSection({
     }
   }
 
+  // The customer's own explicit confirmation that they actually delivered
+  // the signed Notice of Protest to their county — this app has no way to
+  // verify that on its own (no e-filing integration with any county), so
+  // it never sets status to "filed" by itself; this is the one honest
+  // source of that fact. Only advances a case still at "requested" —
+  // markFiled() itself is a no-op if something else already moved it on.
+  async function handleMarkFiled() {
+    setMarkingFiled(true);
+    try {
+      await markFiled(protest.id);
+      onUpdate({ status: "filed" });
+      toast.success("Marked as filed.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not mark this case as filed.");
+    } finally {
+      setMarkingFiled(false);
+    }
+  }
+
+  // Reads the customer's own uploaded evidence and drafts a suggestion for
+  // Form 50-132's "Facts to resolve protest" field — never auto-inserted,
+  // never automatic; only ever runs from the explicit "Generate Suggested
+  // Reason" click inside PdfFormEditor, and always lands in an editable
+  // field the customer must review before signing. See protest-reason.ts.
+  async function handleGenerateReason() {
+    setGeneratingReason(true);
+    try {
+      const text = await draftProtestReason(property, strategyRecommendation, evidenceDocuments);
+      handleFieldChange("Facts to resolve protest", text);
+      toast.success("Suggested — review and edit before signing.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not generate a suggestion.");
+    } finally {
+      setGeneratingReason(false);
+    }
+  }
+
+  const countyInfo = getCountyProtestInfo(property.cad);
+  const hasEvidence = evidenceDocuments.length > 0;
+
   return (
-    <div className="mt-5 border-t border-border pt-5">
+    <div id="case-documents" className="mt-5 border-t border-border pt-5">
       <h4 className="text-sm font-semibold">Documents</h4>
       <p className="text-xs text-muted-foreground">
         Official Texas Comptroller forms, pre-filled from this case. Review or edit every field
         in-app, then download.
       </p>
       <div className="mt-2 flex flex-wrap gap-2">
-        <button onClick={openProtestEditor} className="btn-outline text-xs py-1.5">
-          Review Notice of Protest (Form 50-132)
+        <button onClick={openProtestEditor} className="btn-accent text-xs py-1.5">
+          File Protest
         </button>
         <button
           onClick={openAgentEditor}
@@ -504,9 +1046,70 @@ export function DocumentsSection({
               : undefined
           }
         >
-          Review Appointment of Agent (Form 50-162)
+          Complete Agent Representation Form (Optional)
         </button>
       </div>
+      <p className="mt-1 text-xs text-muted-foreground">
+        <span className="font-medium text-foreground">Optional.</span> Complete this form only if a
+        tax agent or other authorized representative will represent you in the protest.
+      </p>
+
+      {/* Filing itself always happens on the county's own site or mailbox —
+          CorvusRF has no e-filing integration with any appraisal district
+          (none publish a public submission API), so this can only ever
+          prepare the real forms and point you at every real way this county
+          actually accepts one, never submit on your behalf. Shown plainly
+          here, every type at once, not buried in a collapsed panel or
+          collapsed down to a single "the" method. */}
+      <div className="mt-3 rounded-md border border-border p-3 text-sm">
+        <p className="font-medium">
+          How to actually file this — every way {property.cad ?? "your county"} accepts it
+        </p>
+        {countyInfo ? (
+          <>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {countyInfo.cad} is a separate system — CorvusRF prepares your real forms above, but
+              doesn't submit to any of these on your behalf.
+            </p>
+            <div className="mt-2 text-xs text-muted-foreground">
+              <FilingMethodsList countyInfo={countyInfo} />
+            </div>
+            {countyInfo.filingMethod.online && (
+              <a
+                href={countyInfo.filingMethod.online.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn-accent mt-2 inline-flex text-xs py-1.5"
+              >
+                File Online at {countyInfo.cad} →
+              </a>
+            )}
+          </>
+        ) : (
+          <p className="mt-1 text-xs text-muted-foreground">
+            We don't have this county's confirmed filing methods on file yet — download your signed
+            Notice of Protest above and check {property.cad ?? "your appraisal district"}'s website
+            directly for the current address or any online option.
+          </p>
+        )}
+      </div>
+
+      {noticeSignedAt && protest.status === "requested" && (
+        <div className="mt-3 rounded-md border border-accent/30 bg-accent/5 p-3 text-sm">
+          <p>
+            You've signed your Notice of Protest — that only prepares the document. It isn't filed
+            with {property.cad ?? "your county"} until you actually deliver it (online, by mail, or
+            in person). Once you have, confirm it below.
+          </p>
+          <button
+            onClick={handleMarkFiled}
+            disabled={markingFiled}
+            className="btn-accent mt-2 text-xs py-1.5 disabled:opacity-60"
+          >
+            {markingFiled ? "Saving…" : "I've delivered this — Mark as Filed"}
+          </button>
+        </div>
+      )}
 
       {editingForm && (
         <PdfFormEditor
@@ -545,6 +1148,15 @@ export function DocumentsSection({
             return typeof v === "string" && v ? v : undefined;
           })()}
           onClose={() => setEditingForm(null)}
+          formKind={editingForm === "protest" ? "protest" : "agent"}
+          countyInfo={countyInfo}
+          signedAt={editingForm === "protest" ? noticeSignedAt : agentFormSignedAt}
+          caseStatus={protest.status}
+          onMarkFiled={handleMarkFiled}
+          markingFiled={markingFiled}
+          hasEvidence={hasEvidence}
+          generatingReason={generatingReason}
+          onGenerateReason={handleGenerateReason}
         />
       )}
     </div>
@@ -706,7 +1318,7 @@ export function CaseProgress({
   const results = getCaseResults(protest, property);
 
   return (
-    <div className="mt-5 border-t border-border pt-5">
+    <div id="case-progress" className="mt-5 border-t border-border pt-5">
       <h4 className="text-sm font-semibold">Case Progress</h4>
 
       {protest.status === "resolved" ? (
@@ -760,7 +1372,7 @@ export function CaseProgress({
                     className="grid gap-2 sm:grid-cols-[1fr_1fr_auto] items-end"
                   >
                     <label className="grid gap-1 text-xs">
-                      Offer amount
+                      Offer amount<span className="text-destructive"> *</span>
                       <input
                         required
                         value={offerValue}
@@ -770,7 +1382,7 @@ export function CaseProgress({
                       />
                     </label>
                     <label className="grid gap-1 text-xs">
-                      Date received
+                      Date received<span className="text-destructive"> *</span>
                       <input
                         required
                         type="date"
@@ -842,7 +1454,7 @@ export function CaseProgress({
                         </select>
                       </label>
                       <label className="grid gap-1 text-xs">
-                        Decision date
+                        Decision date<span className="text-destructive"> *</span>
                         <input
                           required
                           type="date"
@@ -852,7 +1464,7 @@ export function CaseProgress({
                         />
                       </label>
                       <label className="grid gap-1 text-xs sm:col-span-2">
-                        Final determined value
+                        Final determined value<span className="text-destructive"> *</span>
                         <input
                           required
                           value={decisionValue}
@@ -876,7 +1488,7 @@ export function CaseProgress({
                   {showHearingForm ? (
                     <form onSubmit={submitHearing} className="flex flex-wrap items-end gap-2">
                       <label className="grid gap-1 text-xs">
-                        Hearing date
+                        Hearing date<span className="text-destructive"> *</span>
                         <input
                           required
                           type="date"
@@ -982,7 +1594,7 @@ export function CaseProgress({
               {showCloseForm ? (
                 <form onSubmit={submitClose} className="mt-2 flex flex-wrap items-end gap-2">
                   <label className="grid gap-1 text-xs">
-                    Final determined value
+                    Final determined value<span className="text-destructive"> *</span>
                     <input
                       required
                       value={closeValue}

@@ -140,7 +140,9 @@ function Contact() {
             ) : (
               <>
                 <label className="grid gap-1 text-sm">
-                  <span className="font-medium">Name</span>
+                  <span className="font-medium">
+                    Name<span className="text-destructive"> *</span>
+                  </span>
                   <input
                     required
                     value={name}
@@ -149,7 +151,9 @@ function Contact() {
                   />
                 </label>
                 <label className="grid gap-1 text-sm">
-                  <span className="font-medium">Email</span>
+                  <span className="font-medium">
+                    Email<span className="text-destructive"> *</span>
+                  </span>
                   <input
                     required
                     type="email"
@@ -161,7 +165,9 @@ function Contact() {
               </>
             )}
             <label className="grid gap-1 text-sm">
-              <span className="font-medium">How can we help?</span>
+              <span className="font-medium">
+                How can we help?<span className="text-destructive"> *</span>
+              </span>
               <textarea
                 rows={5}
                 required
