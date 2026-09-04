@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
-import { useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
 import {
   updatePropertyIdentity,
@@ -737,7 +736,6 @@ export function CasePlanSection({
   allowEvidenceUpload?: boolean;
 }) {
   const [generating, setGenerating] = useState(false);
-  const navigate = useNavigate();
 
   async function handleGenerate() {
     setGenerating(true);
@@ -756,10 +754,13 @@ export function CasePlanSection({
   // the report's subject the same real way "View AI Report" already does
   // from the Properties dashboard (buildAiReportIntakePatch), then deep
   // links straight into the Evidence module (ai-report.tsx's own
-  // ?openModule=evidence handling, built for exactly this button).
+  // ?openModule=evidence handling, built for exactly this button). Opens in
+  // a new tab (window.open, not router navigate) so the case modal stays
+  // open behind it — the sessionStorage write above happens synchronously
+  // before the tab opens, so the new same-origin tab inherits it.
   function goToModule8() {
     updateIntake(buildAiReportIntakePatch(property));
-    navigate({ to: "/ai-report", search: { openModule: "evidence" } });
+    window.open("/ai-report?openModule=evidence", "_blank");
   }
 
   const hasAnyPlan = !!caseData?.strategyRecommendation;
@@ -1030,7 +1031,6 @@ export function DocumentsSection({
   onNoticeSigned: (signedAt: string | null) => void;
   allowSigning?: boolean;
 }) {
-  const navigate = useNavigate();
   const [markingFiled, setMarkingFiled] = useState(false);
   const [authorization, setAuthorization] = useState<AuthorizationRecord | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -1153,10 +1153,11 @@ export function DocumentsSection({
   // Same real deep link as CasePlanSection's own goToModule8 — evidence
   // upload lives in exactly one place (Module 8 on the AI Report page), so
   // this button just gets the user there rather than duplicating an upload
-  // widget in a second location.
+  // widget in a second location. Opens in a new tab so the case modal
+  // stays open behind it.
   function goToModule8() {
     updateIntake(buildAiReportIntakePatch(property));
-    navigate({ to: "/ai-report", search: { openModule: "evidence" } });
+    window.open("/ai-report?openModule=evidence", "_blank");
   }
 
   // Form 50-162 authorizes an agent for possibly several properties at once —
