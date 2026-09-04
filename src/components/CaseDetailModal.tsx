@@ -1,13 +1,17 @@
 import { useEffect, useState } from "react";
-import type { ChangeEvent, FormEvent } from "react";
+import type { FormEvent } from "react";
+import { useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
-import { updatePropertyIdentity, type PropertyRecord } from "@/lib/properties";
+import {
+  updatePropertyIdentity,
+  buildAiReportIntakePatch,
+  type PropertyRecord,
+} from "@/lib/properties";
 import { acknowledgeGuidance, type ProtestRecord } from "@/lib/protests";
-import { currency } from "@/lib/intake-store";
+import { currency, updateIntake } from "@/lib/intake-store";
 import {
   getCase,
   generateCasePrep,
-  linkEvidenceDocument,
   markFiled,
   recordSettlementOffer,
   acceptSettlement,
@@ -18,7 +22,6 @@ import {
   closeCase,
   getCaseResults,
   type ProtestCase,
-  type EvidenceItemRecord,
 } from "@/lib/protest-case";
 import { getCaseGuidance } from "@/lib/case-guidance";
 import {
@@ -31,7 +34,7 @@ import {
   isPreFilingBlocked,
   type PreFilingCheckItem,
 } from "@/lib/pre-filing-check";
-import { uploadDocument } from "@/lib/documents";
+import { uploadDocument, getProtestEvidenceDocuments, type DocumentRecord } from "@/lib/documents";
 import { getAuthorization, type AuthorizationRecord } from "@/lib/protest-authorizations";
 import {
   getNoticeOfProtestDefaults,
@@ -88,6 +91,13 @@ export function CaseDetailModal({
   // conflated with "filed." Lifted here (not local to DocumentsSection) so
   // CorvusGuidancePanel/NextStepFooter can give correct guidance too.
   const [noticeSignedAt, setNoticeSignedAt] = useState<string | null>(null);
+  // Real "Protest Evidence"-tagged documents for this property — evidence
+  // now uploads exclusively through Module 8 (ai-report.tsx), not a
+  // checklist inside this modal (see CasePlanSection's "Upload Evidence —
+  // Go to Module 8" button below), so this is the one real source every
+  // evidence-aware feature here (Corvus's guidance, Pre-Filing Check,
+  // Generate Suggested Reason) reads from.
+  const [evidenceDocuments, setEvidenceDocuments] = useState<DocumentRecord[]>([]);
 
   function load() {
     setLoading(true);
@@ -98,6 +108,9 @@ export function CaseDetailModal({
     getSubmission(protest.id, "notice_of_protest")
       .then((s) => setNoticeSignedAt(s?.signedAt ?? null))
       .catch((err) => console.error("Could not load Notice of Protest signing status:", err));
+    getProtestEvidenceDocuments(userId, property.id)
+      .then(setEvidenceDocuments)
+      .catch((err) => console.error("Could not load this case's evidence documents:", err));
   }
 
   useEffect(load, [protest.id]);
@@ -145,7 +158,7 @@ export function CaseDetailModal({
           <CorvusGuidancePanel
             property={property}
             protest={current}
-            caseData={caseData}
+            evidenceDocumentCount={evidenceDocuments.length}
             noticeSignedAt={noticeSignedAt}
           />
 
@@ -163,6 +176,7 @@ export function CaseDetailModal({
               property={property}
               protest={current}
               caseData={caseData}
+              evidenceDocuments={evidenceDocuments}
               noticeSignedAt={noticeSignedAt}
               onUpdate={(patch) => setCurrent((prev) => ({ ...prev, ...patch }))}
               onPropertyUpdate={(patch) => setProperty((prev) => ({ ...prev, ...patch }))}
@@ -175,7 +189,7 @@ export function CaseDetailModal({
               property={property}
               strategyRecommendation={caseData?.strategyRecommendation ?? null}
               noticeSignedAt={noticeSignedAt}
-              evidenceItems={caseData?.evidenceItems ?? []}
+              evidenceDocuments={evidenceDocuments}
               onUpdate={(patch) => setCurrent((prev) => ({ ...prev, ...patch }))}
               onNoticeSigned={setNoticeSignedAt}
             />
@@ -191,7 +205,7 @@ export function CaseDetailModal({
           <NextStepFooter
             property={property}
             protest={current}
-            caseData={caseData}
+            evidenceDocumentCount={evidenceDocuments.length}
             noticeSignedAt={noticeSignedAt}
           />
         </>
@@ -283,12 +297,12 @@ function goToGuidanceAnchor(anchor: string) {
 function CorvusGuidancePanel({
   property,
   protest,
-  caseData,
+  evidenceDocumentCount,
   noticeSignedAt,
 }: {
   property: PropertyRecord;
   protest: ProtestRecord;
-  caseData: ProtestCase | null;
+  evidenceDocumentCount: number;
   noticeSignedAt: string | null;
 }) {
   const [countyOpen, setCountyOpen] = useState(false);
@@ -296,7 +310,7 @@ function CorvusGuidancePanel({
   const guidance = getCaseGuidance(
     property,
     protest,
-    caseData?.evidenceItems,
+    evidenceDocumentCount,
     countyInfo,
     noticeSignedAt,
   );
@@ -394,19 +408,19 @@ function CorvusGuidancePanel({
 function NextStepFooter({
   property,
   protest,
-  caseData,
+  evidenceDocumentCount,
   noticeSignedAt,
 }: {
   property: PropertyRecord;
   protest: ProtestRecord;
-  caseData: ProtestCase | null;
+  evidenceDocumentCount: number;
   noticeSignedAt: string | null;
 }) {
   const countyInfo = getCountyProtestInfo(property.cad);
   const guidance = getCaseGuidance(
     property,
     protest,
-    caseData?.evidenceItems,
+    evidenceDocumentCount,
     countyInfo,
     noticeSignedAt,
   );
@@ -443,6 +457,7 @@ function PreFilingGate({
   property,
   protest,
   caseData,
+  evidenceDocuments,
   noticeSignedAt,
   onUpdate,
   onPropertyUpdate,
@@ -452,12 +467,13 @@ function PreFilingGate({
   property: PropertyRecord;
   protest: ProtestRecord;
   caseData: ProtestCase | null;
+  evidenceDocuments: DocumentRecord[];
   noticeSignedAt: string | null;
   onUpdate: (patch: Partial<ProtestRecord>) => void;
   onPropertyUpdate: (patch: Partial<PropertyRecord>) => void;
   onNoticeSigned: (signedAt: string | null) => void;
 }) {
-  const items = getPreFilingCheck(property, protest, caseData?.evidenceItems);
+  const items = getPreFilingCheck(property, protest, evidenceDocuments.length);
   const blocked = isPreFilingBlocked(items);
 
   return (
@@ -484,7 +500,7 @@ function PreFilingGate({
           property={property}
           strategyRecommendation={caseData?.strategyRecommendation ?? null}
           noticeSignedAt={noticeSignedAt}
-          evidenceItems={caseData?.evidenceItems ?? []}
+          evidenceDocuments={evidenceDocuments}
           onUpdate={onUpdate}
           onNoticeSigned={onNoticeSigned}
         />
@@ -656,15 +672,22 @@ export function CasePlanSection({
   protestId,
   caseData,
   onReload,
+  // Module 8 lives on the customer's own /ai-report page, keyed to
+  // whoever is currently signed in — for staff (AdminCaseProgressModal),
+  // that's the admin, not the customer, so navigating there would try to
+  // resolve/create this property under the ADMIN's account instead.
+  // Customer view leaves this at its default (true); admin passes false.
+  allowEvidenceUpload = true,
 }: {
   userId: string;
   property: PropertyRecord;
   protestId: string;
   caseData: ProtestCase | null;
   onReload: () => void;
+  allowEvidenceUpload?: boolean;
 }) {
   const [generating, setGenerating] = useState(false);
-  const [uploadingItemId, setUploadingItemId] = useState<string | null>(null);
+  const navigate = useNavigate();
 
   async function handleGenerate() {
     setGenerating(true);
@@ -678,44 +701,18 @@ export function CasePlanSection({
     }
   }
 
-  async function handleUpload(itemId: string, e: ChangeEvent<HTMLInputElement>) {
-    const files = Array.from(e.target.files ?? []);
-    e.target.value = "";
-    if (files.length === 0) return;
-    setUploadingItemId(itemId);
-    try {
-      // Sequential, not Promise.all — several checklist items genuinely need
-      // multiple files (e.g. 3 years of income statements), and uploading them
-      // one at a time keeps storage writes and the resulting toast/error in a
-      // predictable order rather than racing.
-      for (const file of files) {
-        const doc = await uploadDocument(userId, property.id, file, "Protest Evidence");
-        await linkEvidenceDocument(itemId, doc.id);
-      }
-      onReload();
-      // Real remaining count, not a guess — every OTHER checklist item that
-      // still has zero documents, regardless of this item's own prior state.
-      const remaining =
-        caseData?.evidenceItems.filter((i) => i.id !== itemId && i.documents.length === 0).length ??
-        0;
-      const uploadedMsg =
-        files.length === 1 ? "Evidence uploaded." : `${files.length} files uploaded.`;
-      toast.success(
-        remaining === 0
-          ? `${uploadedMsg} That's every item on your checklist — you're ready to file your Notice of Protest below.`
-          : `${uploadedMsg} ${remaining} item${remaining === 1 ? "" : "s"} still need${remaining === 1 ? "s" : ""} a document.`,
-      );
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not upload this file.");
-    } finally {
-      setUploadingItemId(null);
-    }
+  // Evidence upload lives in exactly one place now — Module 8 on the AI
+  // Report page — rather than duplicated here too. Sets this property as
+  // the report's subject the same real way "View AI Report" already does
+  // from the Properties dashboard (buildAiReportIntakePatch), then deep
+  // links straight into the Evidence module (ai-report.tsx's own
+  // ?openModule=evidence handling, built for exactly this button).
+  function goToModule8() {
+    updateIntake(buildAiReportIntakePatch(property));
+    navigate({ to: "/ai-report", search: { openModule: "evidence" } });
   }
 
-  const hasAnyPlan =
-    !!caseData && (!!caseData.strategyRecommendation || caseData.evidenceItems.length > 0);
-  const uploadedCount = caseData?.evidenceItems.filter((i) => i.documents.length > 0).length ?? 0;
-  const totalCount = caseData?.evidenceItems.length ?? 0;
+  const hasAnyPlan = !!caseData?.strategyRecommendation;
 
   if (!hasAnyPlan) {
     return (
@@ -762,69 +759,13 @@ export function CasePlanSection({
         )}
       </section>
 
-      <section id="case-evidence-checklist">
-        <div className="flex items-center justify-between">
-          <h4 className="text-sm font-semibold">Evidence Checklist</h4>
-          {totalCount > 0 && (
-            <span className="text-xs text-muted-foreground">
-              {uploadedCount} of {totalCount} uploaded
-            </span>
-          )}
-        </div>
-        {totalCount > 0 ? (
-          <div className="mt-2 grid gap-2">
-            {caseData!.evidenceItems.map((item, i) => (
-              <div
-                key={item.id}
-                className="min-w-0 grid gap-1.5 rounded-md border border-border p-2.5 text-sm list-item-enter transition-colors hover:bg-secondary/30"
-                style={{ animationDelay: `${Math.min(i * 50, 400)}ms` }}
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <span className="min-w-0 flex-1 truncate">{item.label}</span>
-                  <label
-                    className={`shrink-0 btn-outline text-xs py-1 cursor-pointer ${
-                      uploadingItemId === item.id ? "opacity-60 pointer-events-none" : ""
-                    }`}
-                  >
-                    {uploadingItemId === item.id
-                      ? "Uploading…"
-                      : item.documents.length > 0
-                        ? "Add another file"
-                        : "Upload"}
-                    <input
-                      type="file"
-                      multiple
-                      className="hidden"
-                      accept=".pdf,image/*"
-                      onChange={(e) => handleUpload(item.id, e)}
-                    />
-                  </label>
-                </div>
-                {item.documents.length > 0 && (
-                  <ul className="grid gap-0.5">
-                    {item.documents.map((doc) => (
-                      <li key={doc.id} className="truncate text-xs text-success">
-                        ✓ {doc.fileName}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="mt-1 flex items-center gap-2">
-            <span className="text-sm text-muted-foreground">Not available yet.</span>
-            <button
-              onClick={handleGenerate}
-              disabled={generating}
-              className="text-xs text-accent hover:underline disabled:opacity-60"
-            >
-              {generating ? "Retrying…" : "Retry"}
-            </button>
-          </div>
-        )}
-      </section>
+      {allowEvidenceUpload && (
+        <section>
+          <button onClick={goToModule8} className="btn-outline w-fit text-sm">
+            Upload Evidence — Go to Module 8
+          </button>
+        </section>
+      )}
     </div>
   );
 }
@@ -835,7 +776,7 @@ export function DocumentsSection({
   property,
   strategyRecommendation,
   noticeSignedAt,
-  evidenceItems,
+  evidenceDocuments,
   onUpdate,
   onNoticeSigned,
   // Staff must never sign a legal filing on a customer's behalf — the admin
@@ -849,7 +790,7 @@ export function DocumentsSection({
   property: PropertyRecord;
   strategyRecommendation: string | null;
   noticeSignedAt: string | null;
-  evidenceItems: EvidenceItemRecord[];
+  evidenceDocuments: DocumentRecord[];
   onUpdate: (patch: Partial<ProtestRecord>) => void;
   onNoticeSigned: (signedAt: string | null) => void;
   allowSigning?: boolean;
@@ -1071,7 +1012,7 @@ export function DocumentsSection({
   async function handleGenerateReason() {
     setGeneratingReason(true);
     try {
-      const text = await draftProtestReason(property, strategyRecommendation, evidenceItems);
+      const text = await draftProtestReason(property, strategyRecommendation, evidenceDocuments);
       handleFieldChange("Facts to resolve protest", text);
       toast.success("Suggested — review and edit before signing.");
     } catch (err) {
@@ -1082,7 +1023,7 @@ export function DocumentsSection({
   }
 
   const countyInfo = getCountyProtestInfo(property.cad);
-  const hasEvidence = evidenceItems.some((i) => i.documents.length > 0);
+  const hasEvidence = evidenceDocuments.length > 0;
 
   return (
     <div id="case-documents" className="mt-5 border-t border-border pt-5">

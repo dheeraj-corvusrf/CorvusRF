@@ -1,8 +1,7 @@
-import { getDocumentUrl } from "./documents";
+import { getDocumentUrl, type DocumentRecord } from "./documents";
 import { invokeEdgeFunction } from "./edge-functions";
 import { bytesToBase64 } from "./pdf-utils";
 import type { PropertyRecord } from "./properties";
-import type { EvidenceItemRecord } from "./protest-case";
 
 // Real uploaded evidence documents in, real editable suggested text out —
 // see supabase/functions/draft-protest-reason/index.ts for the actual
@@ -10,6 +9,11 @@ import type { EvidenceItemRecord } from "./protest-case";
 // ("Generate Suggested Reason" in PdfFormEditor.tsx) — never automatic,
 // and the result always lands in an editable field the user must review
 // before signing, never inserted or submitted on its own.
+//
+// Reads from the same real "Protest Evidence"-tagged document list Module
+// 8 (ai-report.tsx) writes to (see getProtestEvidenceDocuments in
+// documents.ts) — not the older per-checklist-item links, since evidence
+// upload now happens exclusively through Module 8.
 
 const MAX_DOCS = 5;
 // Stay well under Gemini's practical inline-data limits — a document over
@@ -28,7 +32,7 @@ async function blobToDataUrl(blob: Blob): Promise<string> {
 
 export class NoEvidenceDocumentsError extends Error {
   constructor() {
-    super("No evidence documents to read yet — upload some in the Evidence Checklist first.");
+    super("No evidence documents to read yet — upload some via Module 8 (Evidence) first.");
     this.name = "NoEvidenceDocumentsError";
   }
 }
@@ -36,13 +40,12 @@ export class NoEvidenceDocumentsError extends Error {
 export async function draftProtestReason(
   property: PropertyRecord,
   strategyRecommendation: string | null,
-  evidenceItems: EvidenceItemRecord[],
+  evidenceDocuments: DocumentRecord[],
 ): Promise<string> {
-  const allDocs = evidenceItems.flatMap((item) => item.documents);
-  if (allDocs.length === 0) throw new NoEvidenceDocumentsError();
+  if (evidenceDocuments.length === 0) throw new NoEvidenceDocumentsError();
 
   const documents: { fileName: string; mimeType: string; dataUrl: string }[] = [];
-  for (const doc of allDocs.slice(0, MAX_DOCS)) {
+  for (const doc of evidenceDocuments.slice(0, MAX_DOCS)) {
     const url = await getDocumentUrl(doc.storagePath);
     const res = await fetch(url);
     if (!res.ok) continue; // one bad file shouldn't sink the whole suggestion

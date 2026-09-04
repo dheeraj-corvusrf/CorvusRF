@@ -2,7 +2,6 @@ import { describe, it, expect } from "vitest";
 import { getPreFilingCheck, isPreFilingBlocked } from "./pre-filing-check";
 import type { PropertyRecord } from "./properties";
 import type { ProtestRecord } from "./protests";
-import type { EvidenceItemRecord } from "./protest-case";
 
 const property: PropertyRecord = {
   id: "prop-1",
@@ -94,20 +93,26 @@ describe("getPreFilingCheck", () => {
     }
   });
 
-  it("reflects real evidence-checklist completeness in Required Supporting Documents", () => {
-    const missing: EvidenceItemRecord[] = [
-      { id: "e1", protestId: "protest-1", label: "Photos", documents: [], createdAt: "2026-01-01" },
-      {
-        id: "e2",
-        protestId: "protest-1",
-        label: "Comps",
-        documents: [{ id: "d1", fileName: "comp.pdf", storagePath: "u/p/comp.pdf" }],
-        createdAt: "2026-01-01",
-      },
-    ];
-    const items = getPreFilingCheck(property, protest, missing);
-    const row = items.find((i) => i.label === "Required Supporting Documents");
-    expect(row?.value).toBe("1 of 2 uploaded");
+  it("reflects the real uploaded-evidence-document count in Required Supporting Documents", () => {
+    expect(
+      getPreFilingCheck(property, protest, 3).find(
+        (i) => i.label === "Required Supporting Documents",
+      )?.value,
+    ).toBe("3 documents uploaded");
+    expect(
+      getPreFilingCheck(property, protest, 1).find(
+        (i) => i.label === "Required Supporting Documents",
+      )?.value,
+    ).toBe("1 document uploaded");
+    expect(
+      getPreFilingCheck(property, protest, 0).find(
+        (i) => i.label === "Required Supporting Documents",
+      )?.value,
+    ).toBe("None uploaded yet");
+    expect(
+      getPreFilingCheck(property, protest).find((i) => i.label === "Required Supporting Documents")
+        ?.value,
+    ).toBe("Not on file");
   });
 
   it("uses the real per-county filing method and portal for a county with data", () => {

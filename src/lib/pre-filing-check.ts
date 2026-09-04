@@ -8,7 +8,6 @@
 // typical answer.
 import type { PropertyRecord } from "./properties";
 import type { ProtestRecord } from "./protests";
-import type { EvidenceItemRecord } from "./protest-case";
 import { getCountyProtestInfo } from "./county-protest-info";
 
 export type PreFilingCheckItem = {
@@ -38,7 +37,12 @@ function yesNo(value: boolean | null, whenTrue: string, whenFalse: string): stri
 export function getPreFilingCheck(
   property: PropertyRecord,
   protest: ProtestRecord,
-  evidenceItems?: EvidenceItemRecord[],
+  // Real count of "Protest Evidence"-tagged documents uploaded for this
+  // property (see getProtestEvidenceDocuments in documents.ts) — evidence
+  // now uploads exclusively through Module 8 (ai-report.tsx), a flat
+  // document list, not the older per-checklist-item structure, so this is
+  // a plain count rather than "N of M items."
+  evidenceDocumentCount?: number,
 ): PreFilingCheckItem[] {
   // protestDeadline is a date-only string ("2026-05-15") — parsing it as-is
   // is interpreted as UTC midnight, which toLocaleDateString then renders in
@@ -67,11 +71,12 @@ export function getPreFilingCheck(
         // never a guessed online/mail/email answer.
         "Download and deliver to your county";
 
-  const evidenceStatus = !evidenceItems
-    ? null
-    : evidenceItems.length === 0
-      ? "Not generated yet"
-      : `${evidenceItems.filter((i) => i.documents.length > 0).length} of ${evidenceItems.length} uploaded`;
+  const evidenceStatus =
+    evidenceDocumentCount == null
+      ? null
+      : evidenceDocumentCount === 0
+        ? "None uploaded yet"
+        : `${evidenceDocumentCount} document${evidenceDocumentCount === 1 ? "" : "s"} uploaded`;
 
   const contactValue = countyInfo?.arbContact
     ? [countyInfo.arbContact.phone, countyInfo.arbContact.email].filter(Boolean).join(" · ") || null
@@ -88,11 +93,7 @@ export function getPreFilingCheck(
     row("Applicable Form", "Comptroller Form 50-132 — Notice of Protest", false),
     row("Filing Method", filingMethodValue, false),
     row("Signature Required", "Yes — property owner or authorized agent", false),
-    row(
-      "Required Supporting Documents",
-      evidenceStatus ?? "Generate a case plan to see your evidence checklist",
-      false,
-    ),
+    row("Required Supporting Documents", evidenceStatus ?? "Not on file", false),
     row("Applicable County Instructions", countyInfo?.sourceUrl ?? "Not on file", false),
     row(
       "Online Filing Available",

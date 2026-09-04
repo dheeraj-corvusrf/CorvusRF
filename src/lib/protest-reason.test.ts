@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { PropertyRecord } from "./properties";
-import type { EvidenceItemRecord } from "./protest-case";
+import type { DocumentRecord } from "./documents";
 
 vi.mock("./documents", () => ({
   getDocumentUrl: vi.fn(async (path: string) => `https://signed.example/${path}`),
@@ -34,18 +34,16 @@ const property: PropertyRecord = {
   valueHistory: null,
 };
 
-function evidenceWith(
-  documents: { id: string; fileName: string; storagePath: string }[],
-): EvidenceItemRecord[] {
-  return [
-    {
-      id: "e1",
-      protestId: "protest-1",
-      label: "Independent Fee Appraisal Report",
-      documents,
-      createdAt: "2026-01-01",
-    },
-  ];
+function doc(overrides: Partial<DocumentRecord>): DocumentRecord {
+  return {
+    id: "d1",
+    propertyId: "prop-1",
+    fileName: "rent-roll.pdf",
+    storagePath: "u/p/rr.pdf",
+    documentType: "Protest Evidence",
+    uploadedAt: "2026-01-01T00:00:00Z",
+    ...overrides,
+  };
 }
 
 function mockFetchOk(bytes = new Uint8Array([1, 2, 3]), type = "application/pdf") {
@@ -67,7 +65,7 @@ beforeEach(() => {
 });
 
 describe("draftProtestReason", () => {
-  it("throws NoEvidenceDocumentsError when there are no evidence items at all", async () => {
+  it("throws NoEvidenceDocumentsError when there are no documents at all", async () => {
     await expect(draftProtestReason(property, null, [])).rejects.toThrow(NoEvidenceDocumentsError);
   });
 
@@ -76,20 +74,14 @@ describe("draftProtestReason", () => {
       "fetch",
       vi.fn(async () => ({ ok: false })),
     );
-    const items = evidenceWith([
-      { id: "d1", fileName: "rent-roll.pdf", storagePath: "u/p/rr.pdf" },
-    ]);
-    await expect(draftProtestReason(property, null, items)).rejects.toThrow(
+    await expect(draftProtestReason(property, null, [doc({})])).rejects.toThrow(
       NoEvidenceDocumentsError,
     );
   });
 
   it("downloads real document bytes via getDocumentUrl and calls the edge function", async () => {
     mockFetchOk();
-    const items = evidenceWith([
-      { id: "d1", fileName: "rent-roll.pdf", storagePath: "u/p/rr.pdf" },
-    ]);
-    const result = await draftProtestReason(property, "Market Value", items);
+    const result = await draftProtestReason(property, "Market Value", [doc({})]);
 
     expect(result).toBe("Suggested reason text.");
     expect(getDocumentUrl).toHaveBeenCalledWith("u/p/rr.pdf");
@@ -111,35 +103,18 @@ describe("draftProtestReason", () => {
   it("skips a document over the size cap rather than sending or guessing at it", async () => {
     const big = new Uint8Array(9 * 1024 * 1024); // over the 8MB cap
     mockFetchOk(big);
-    const items = evidenceWith([{ id: "d1", fileName: "huge.pdf", storagePath: "u/p/huge.pdf" }]);
-    await expect(draftProtestReason(property, null, items)).rejects.toThrow(
-      NoEvidenceDocumentsError,
-    );
+    await expect(
+      draftProtestReason(property, null, [doc({ fileName: "huge.pdf" })]),
+    ).rejects.toThrow(NoEvidenceDocumentsError);
   });
 
-  it("sends up to 5 documents across multiple evidence items, not just the first item's", async () => {
+  it("sends up to 5 documents, not more", async () => {
     mockFetchOk();
-    const items: EvidenceItemRecord[] = [
-      {
-        id: "e1",
-        protestId: "protest-1",
-        label: "Rent Roll",
-        documents: [{ id: "d1", fileName: "a.pdf", storagePath: "u/p/a.pdf" }],
-        createdAt: "2026-01-01",
-      },
-      {
-        id: "e2",
-        protestId: "protest-1",
-        label: "Photos",
-        documents: [
-          { id: "d2", fileName: "b.jpg", storagePath: "u/p/b.jpg" },
-          { id: "d3", fileName: "c.jpg", storagePath: "u/p/c.jpg" },
-        ],
-        createdAt: "2026-01-01",
-      },
-    ];
-    await draftProtestReason(property, null, items);
+    const documents = Array.from({ length: 8 }, (_, i) =>
+      doc({ id: `d${i}`, fileName: `f${i}.pdf`, storagePath: `u/p/f${i}.pdf` }),
+    );
+    await draftProtestReason(property, null, documents);
     const call = vi.mocked(invokeEdgeFunction).mock.calls[0][1] as { documents: unknown[] };
-    expect(call.documents).toHaveLength(3);
+    expect(call.documents).toHaveLength(5);
   });
 });

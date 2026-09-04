@@ -2,7 +2,6 @@ import { describe, it, expect } from "vitest";
 import { getCaseGuidance, type CaseStage } from "./case-guidance";
 import type { PropertyRecord } from "./properties";
 import type { ProtestRecord, ProtestStatus } from "./protests";
-import type { EvidenceItemRecord } from "./protest-case";
 import type { CountyProtestInfo } from "./county-protest-info";
 
 const property: PropertyRecord = {
@@ -78,7 +77,7 @@ const ALL_STATUSES: ProtestStatus[] = [
 describe("getCaseGuidance", () => {
   it("maps every real ProtestStatus to a stage with no crash and no null-field reference", () => {
     for (const status of ALL_STATUSES) {
-      const guidance = getCaseGuidance(property, protestWith({ status }), [], countyInfo);
+      const guidance = getCaseGuidance(property, protestWith({ status }), undefined, countyInfo);
       expect(guidance.stage).toBeTruthy();
       expect(guidance.stageLabel).toBeTruthy();
       expect(guidance.summary.length).toBeGreaterThan(0);
@@ -89,7 +88,7 @@ describe("getCaseGuidance", () => {
     const guidance = getCaseGuidance(
       property,
       protestWith({ status: "requested" }),
-      [],
+      undefined,
       countyInfo,
     );
     expect(guidance.stage).toBe<CaseStage>("prepare_file");
@@ -101,7 +100,7 @@ describe("getCaseGuidance", () => {
     const guidance = getCaseGuidance(
       property,
       protestWith({ status: "requested" }),
-      [],
+      undefined,
       countyInfo,
       "2026-01-02T00:00:00Z",
     );
@@ -114,7 +113,7 @@ describe("getCaseGuidance", () => {
     const guidance = getCaseGuidance(
       property,
       protestWith({ status: "requested" }),
-      [],
+      undefined,
       countyInfo,
       null,
     );
@@ -123,44 +122,34 @@ describe("getCaseGuidance", () => {
 
   it("never mentions a deadline that has already passed", () => {
     const past = { ...property, protestDeadline: "2020-01-01" };
-    const guidance = getCaseGuidance(past, protestWith({ status: "requested" }), [], countyInfo);
+    const guidance = getCaseGuidance(
+      past,
+      protestWith({ status: "requested" }),
+      undefined,
+      countyInfo,
+    );
     expect(guidance.summary).not.toContain("2020");
   });
 
-  it("includes an evidence-upload step only when items are genuinely missing documents", () => {
-    const missing: EvidenceItemRecord[] = [
-      { id: "e1", protestId: "protest-1", label: "Photos", documents: [], createdAt: "2026-01-01" },
-    ];
-    const complete: EvidenceItemRecord[] = [
-      {
-        id: "e1",
-        protestId: "protest-1",
-        label: "Photos",
-        documents: [{ id: "d1", fileName: "photo.jpg", storagePath: "u/p/photo.jpg" }],
-        createdAt: "2026-01-01",
-      },
-    ];
-    const withMissing = getCaseGuidance(
+  it("includes an evidence-upload step only when the real uploaded count is known to be zero", () => {
+    const withNone = getCaseGuidance(property, protestWith({ status: "requested" }), 0, countyInfo);
+    const withSome = getCaseGuidance(property, protestWith({ status: "requested" }), 3, countyInfo);
+    const withUnknown = getCaseGuidance(
       property,
       protestWith({ status: "requested" }),
-      missing,
+      undefined,
       countyInfo,
     );
-    const withComplete = getCaseGuidance(
-      property,
-      protestWith({ status: "requested" }),
-      complete,
-      countyInfo,
-    );
-    expect(withMissing.nextSteps.some((s) => s.label.includes("Upload evidence"))).toBe(true);
-    expect(withComplete.nextSteps.some((s) => s.label.includes("Upload evidence"))).toBe(false);
+    expect(withNone.nextSteps.some((s) => s.label.includes("Upload evidence"))).toBe(true);
+    expect(withSome.nextSteps.some((s) => s.label.includes("Upload evidence"))).toBe(false);
+    expect(withUnknown.nextSteps.some((s) => s.label.includes("Upload evidence"))).toBe(false);
   });
 
   it("degrades gracefully with countyInfo null (a county not yet researched)", () => {
     const guidance = getCaseGuidance(
       property,
       protestWith({ status: "hearing_scheduled" }),
-      [],
+      undefined,
       null,
     );
     expect(guidance.countyInfo).toBeNull();
@@ -174,7 +163,7 @@ describe("getCaseGuidance", () => {
     const guidance = getCaseGuidance(
       property,
       protestWith({ status: "offer_received", settlementOfferValue: 425000 }),
-      [],
+      undefined,
       countyInfo,
     );
     expect(guidance.stage).toBe<CaseStage>("informal_review");
@@ -185,7 +174,7 @@ describe("getCaseGuidance", () => {
     const guidance = getCaseGuidance(
       property,
       protestWith({ status: "resolved", finalValue: 460000 }),
-      [],
+      undefined,
       countyInfo,
     );
     expect(guidance.summary).toContain("$460,000");
@@ -193,9 +182,9 @@ describe("getCaseGuidance", () => {
   });
 
   it("every action anchor references a real, already-existing section id", () => {
-    const KNOWN_ANCHORS = new Set(["case-documents", "case-evidence-checklist", "case-progress"]);
+    const KNOWN_ANCHORS = new Set(["case-documents", "case-progress"]);
     for (const status of ALL_STATUSES) {
-      const guidance = getCaseGuidance(property, protestWith({ status }), [], countyInfo);
+      const guidance = getCaseGuidance(property, protestWith({ status }), undefined, countyInfo);
       for (const step of guidance.nextSteps) {
         if (step.action && !step.action.anchor.startsWith("http")) {
           expect(KNOWN_ANCHORS.has(step.action.anchor)).toBe(true);

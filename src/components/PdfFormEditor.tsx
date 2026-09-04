@@ -604,7 +604,7 @@ function TextRow({
             type="button"
             onClick={onGenerateReason}
             disabled={!hasEvidence || generatingReason}
-            title={!hasEvidence ? "Upload evidence in the Evidence Checklist first" : undefined}
+            title={!hasEvidence ? "Upload evidence via Module 8 (Evidence) first" : undefined}
             className="rounded-full border border-accent/40 bg-accent/10 px-2 py-0.5 text-[11px] font-medium text-accent hover:bg-accent/20 disabled:opacity-50"
           >
             {generatingReason
@@ -613,7 +613,7 @@ function TextRow({
           </button>
           {!hasEvidence && (
             <p className="mt-1 text-[11px] text-muted-foreground">
-              Upload your evidence in the Evidence Checklist for a stronger, AI-suggested reason.
+              Upload your evidence — Go to Module 8 — for a stronger, AI-suggested reason.
             </p>
           )}
           {value && (
