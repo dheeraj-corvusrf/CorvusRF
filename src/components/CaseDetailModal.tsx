@@ -18,6 +18,7 @@ import {
   closeCase,
   getCaseResults,
   type ProtestCase,
+  type EvidenceItemRecord,
 } from "@/lib/protest-case";
 import { getCaseGuidance } from "@/lib/case-guidance";
 import {
@@ -51,7 +52,9 @@ import {
   type FormType,
 } from "@/lib/protest-form-submissions";
 import { searchPropertiesByOwner } from "@/lib/cad-owner-search";
+import { draftProtestReason } from "@/lib/protest-reason";
 import { PdfFormEditor } from "@/components/PdfFormEditor";
+import { FilingMethodsList } from "@/components/FilingMethodsList";
 import { Modal } from "@/components/Modal";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { SignatureValue } from "@/components/SignaturePad";
@@ -172,6 +175,7 @@ export function CaseDetailModal({
               property={property}
               strategyRecommendation={caseData?.strategyRecommendation ?? null}
               noticeSignedAt={noticeSignedAt}
+              evidenceItems={caseData?.evidenceItems ?? []}
               onUpdate={(patch) => setCurrent((prev) => ({ ...prev, ...patch }))}
               onNoticeSigned={setNoticeSignedAt}
             />
@@ -268,65 +272,6 @@ function goToGuidanceAnchor(anchor: string) {
     return;
   }
   document.getElementById(anchor)?.scrollIntoView({ behavior: "smooth", block: "start" });
-}
-
-// Every real way this county accepts a filing, shown as its own row — never
-// collapsed into one "the" method. Shared by CorvusGuidancePanel's county-
-// process detail and DocumentsSection's "How to actually file this" block,
-// so the two never drift out of sync with each other. Renders nothing for a
-// channel this county's real data doesn't confirm — never guesses a filler
-// address or "contact us" line to fill an empty row.
-function FilingMethodsList({ countyInfo }: { countyInfo: CountyProtestInfo }) {
-  const { filingMethod: fm } = countyInfo;
-  const hasAny = fm.online || fm.mail || fm.inPerson || fm.email.available === true;
-  if (!hasAny) {
-    return <span>No confirmed filing method on file yet — check {countyInfo.cad}'s website.</span>;
-  }
-  return (
-    <div className="grid gap-1.5">
-      {fm.online && (
-        <div>
-          <span className="font-medium text-foreground">Online: </span>
-          <a
-            href={fm.online.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="break-all text-accent hover:underline"
-          >
-            {fm.online.url}
-          </a>
-          {fm.online.notes && <span> — {fm.online.notes}</span>}
-        </div>
-      )}
-      {fm.mail && (
-        <div>
-          <span className="font-medium text-foreground">Mail: </span>
-          {fm.mail.address}
-          {fm.mail.notes && <span> — {fm.mail.notes}</span>}
-        </div>
-      )}
-      {fm.inPerson && (!fm.mail || fm.inPerson.address !== fm.mail.address) && (
-        <div>
-          <span className="font-medium text-foreground">In person: </span>
-          {fm.inPerson.address}
-          {fm.inPerson.notes && <span> — {fm.inPerson.notes}</span>}
-        </div>
-      )}
-      {fm.email.available === true && (
-        <div>
-          <span className="font-medium text-foreground">Email: </span>
-          {fm.email.address ?? "Accepted"}
-          {fm.email.notes && <span> — {fm.email.notes}</span>}
-        </div>
-      )}
-      {fm.email.available === false && (
-        <div>
-          <span className="font-medium text-foreground">Email: </span>
-          Not accepted.
-        </div>
-      )}
-    </div>
-  );
 }
 
 // Ambient, ongoing guidance — purely additive, sits above the existing
@@ -539,6 +484,7 @@ function PreFilingGate({
           property={property}
           strategyRecommendation={caseData?.strategyRecommendation ?? null}
           noticeSignedAt={noticeSignedAt}
+          evidenceItems={caseData?.evidenceItems ?? []}
           onUpdate={onUpdate}
           onNoticeSigned={onNoticeSigned}
         />
@@ -889,6 +835,7 @@ export function DocumentsSection({
   property,
   strategyRecommendation,
   noticeSignedAt,
+  evidenceItems,
   onUpdate,
   onNoticeSigned,
   // Staff must never sign a legal filing on a customer's behalf — the admin
@@ -902,6 +849,7 @@ export function DocumentsSection({
   property: PropertyRecord;
   strategyRecommendation: string | null;
   noticeSignedAt: string | null;
+  evidenceItems: EvidenceItemRecord[];
   onUpdate: (patch: Partial<ProtestRecord>) => void;
   onNoticeSigned: (signedAt: string | null) => void;
   allowSigning?: boolean;
@@ -916,6 +864,7 @@ export function DocumentsSection({
   const [signingOpen, setSigningOpen] = useState(false);
   const [signature, setSignature] = useState<SignatureValue | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [generatingReason, setGeneratingReason] = useState(false);
 
   useEffect(() => {
     getAuthorization(protest.id)
@@ -1102,7 +1051,26 @@ export function DocumentsSection({
     }
   }
 
+  // Reads the customer's own uploaded evidence and drafts a suggestion for
+  // Form 50-132's "Facts to resolve protest" field — never auto-inserted,
+  // never automatic; only ever runs from the explicit "Generate Suggested
+  // Reason" click inside PdfFormEditor, and always lands in an editable
+  // field the customer must review before signing. See protest-reason.ts.
+  async function handleGenerateReason() {
+    setGeneratingReason(true);
+    try {
+      const text = await draftProtestReason(property, strategyRecommendation, evidenceItems);
+      handleFieldChange("Facts to resolve protest", text);
+      toast.success("Suggested — review and edit before signing.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not generate a suggestion.");
+    } finally {
+      setGeneratingReason(false);
+    }
+  }
+
   const countyInfo = getCountyProtestInfo(property.cad);
+  const hasEvidence = evidenceItems.some((i) => i.documents.length > 0);
 
   return (
     <div id="case-documents" className="mt-5 border-t border-border pt-5">
@@ -1112,8 +1080,8 @@ export function DocumentsSection({
         in-app, then download.
       </p>
       <div className="mt-2 flex flex-wrap gap-2">
-        <button onClick={openProtestEditor} className="btn-outline text-xs py-1.5">
-          Review Notice of Protest (Form 50-132)
+        <button onClick={openProtestEditor} className="btn-accent text-xs py-1.5">
+          File Protest
         </button>
         <button
           onClick={openAgentEditor}
@@ -1223,6 +1191,15 @@ export function DocumentsSection({
             return typeof v === "string" && v ? v : undefined;
           })()}
           onClose={() => setEditingForm(null)}
+          isProtestForm={editingForm === "protest"}
+          countyInfo={countyInfo}
+          noticeSignedAt={editingForm === "protest" ? noticeSignedAt : null}
+          caseStatus={protest.status}
+          onMarkFiled={handleMarkFiled}
+          markingFiled={markingFiled}
+          hasEvidence={hasEvidence}
+          generatingReason={generatingReason}
+          onGenerateReason={handleGenerateReason}
         />
       )}
     </div>

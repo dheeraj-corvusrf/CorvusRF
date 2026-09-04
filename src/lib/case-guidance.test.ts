@@ -136,7 +136,7 @@ describe("getCaseGuidance", () => {
         id: "e1",
         protestId: "protest-1",
         label: "Photos",
-        documents: [{ id: "d1", fileName: "photo.jpg" }],
+        documents: [{ id: "d1", fileName: "photo.jpg", storagePath: "u/p/photo.jpg" }],
         createdAt: "2026-01-01",
       },
     ];

@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   isFormComplete,
   getIncompleteRequiredLabels,
+  getFirstIncompleteFieldName,
   mmddyyyyToIso,
   NOTICE_OF_PROTEST_SCHEMA,
   APPOINTMENT_OF_AGENT_SCHEMA,
@@ -70,6 +71,19 @@ describe("isFormComplete / getIncompleteRequiredLabels", () => {
     expect(getIncompleteRequiredLabels(simpleSchema, values)).toContain(
       "Section B — select at least one",
     );
+  });
+
+  it("getFirstIncompleteFieldName returns the real field name in schema order", () => {
+    expect(getFirstIncompleteFieldName(simpleSchema, {})).toBe("req_text");
+    expect(getFirstIncompleteFieldName(simpleSchema, { req_text: "hi" })).toBe("req_radio");
+    expect(getFirstIncompleteFieldName(simpleSchema, { req_text: "hi", req_radio: "A" })).toBe(
+      "box1",
+    );
+  });
+
+  it("getFirstIncompleteFieldName returns null once the form is complete", () => {
+    const values: FieldValues = { req_text: "hi", req_radio: "A", box1: true };
+    expect(getFirstIncompleteFieldName(simpleSchema, values)).toBeNull();
   });
 
   it("never requires an optional field", () => {

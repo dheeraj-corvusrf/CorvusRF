@@ -74,6 +74,7 @@ export function AdminCaseProgressModal({
             property={property}
             strategyRecommendation={caseData?.strategyRecommendation ?? null}
             noticeSignedAt={noticeSignedAt}
+            evidenceItems={caseData?.evidenceItems ?? []}
             onUpdate={onUpdate}
             onNoticeSigned={setNoticeSignedAt}
             allowSigning={false}

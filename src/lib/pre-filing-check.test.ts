@@ -101,7 +101,7 @@ describe("getPreFilingCheck", () => {
         id: "e2",
         protestId: "protest-1",
         label: "Comps",
-        documents: [{ id: "d1", fileName: "comp.pdf" }],
+        documents: [{ id: "d1", fileName: "comp.pdf", storagePath: "u/p/comp.pdf" }],
         createdAt: "2026-01-01",
       },
     ];

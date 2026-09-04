@@ -41,6 +41,16 @@ export type FieldDef =
       // or the statute it implements (Tax Code §41.44(b) for 50-132), makes
       // the field mandatory; see the comment above each schema export.
       required?: boolean;
+      // Shows PdfFormEditor's "Generate Suggested Reason" button next to
+      // this field — only ever set on the one real free-text field this
+      // app can meaningfully draft from uploaded evidence (see
+      // protest-reason.ts). Never marks a field the AI would just be
+      // guessing at.
+      aiSuggestable?: boolean;
+      // Renders a <textarea> instead of a single-line <input> — set only
+      // on genuinely paragraph-length real fields (today: the one
+      // aiSuggestable field above), not a general styling knob.
+      multiline?: boolean;
     }
   | { type: "checkbox"; name: string; label: string }
   | { type: "radio"; name: string; label: string; options: string[]; required?: boolean };
@@ -81,6 +91,32 @@ export function getIncompleteRequiredLabels(
     }
   }
   return labels;
+}
+
+// The real field `name` of the first incomplete required field/group, in
+// schema order — drives PdfFormEditor's "Jump to next required field"
+// button. Shares the exact same completeness rules as
+// getIncompleteRequiredLabels() above (same discipline, one source of
+// truth) rather than a second, possibly-drifting implementation.
+export function getFirstIncompleteFieldName(
+  sections: FieldSection[],
+  values: FieldValues,
+): string | null {
+  for (const section of sections) {
+    for (const field of section.fields) {
+      if (field.type === "checkbox" || !field.required) continue;
+      const v = values[field.name];
+      if (!(typeof v === "string" && v.trim().length > 0)) return field.name;
+    }
+    if (section.requireAtLeastOne) {
+      const anyChecked = section.fields.some((f) => f.type === "checkbox" && !!values[f.name]);
+      if (!anyChecked) {
+        const firstCheckbox = section.fields.find((f) => f.type === "checkbox");
+        if (firstCheckbox) return firstCheckbox.name;
+      }
+    }
+  }
+  return null;
 }
 
 // MM/DD/YYYY — matches how these forms' own PDF text fields render a typed
@@ -448,6 +484,8 @@ export const NOTICE_OF_PROTEST_SCHEMA: FieldSection[] = [
         type: "text",
         name: "Facts to resolve protest",
         label: "Facts that may help resolve this protest",
+        aiSuggestable: true,
+        multiline: true,
       },
     ],
   },
