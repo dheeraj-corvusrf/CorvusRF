@@ -4,6 +4,7 @@ import {
   Link,
   createRootRouteWithContext,
   useRouter,
+  useRouterState,
   HeadContent,
   Scripts,
 } from "@tanstack/react-router";
@@ -157,7 +158,15 @@ function RootComponent() {
 // nothing here rather than a flash of a tracker they can't act on.
 function SignedInJourney() {
   const { user, loading } = useAuth();
-  if (loading || !user) return null;
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  // Deliberately narrower than AppShell's own shouldShowShell (which also
+  // excludes "/" and "/sign-in", where a signed-in visitor's journey should
+  // still show) — an admin's own property journey, if they happen to have
+  // one, has no business showing up while they're working the admin panel,
+  // a different persona entirely from "my properties."
+  const isAdminRoute =
+    pathname === "/admin" || pathname.startsWith("/admin/") || pathname === "/admin-login";
+  if (loading || !user || isAdminRoute) return null;
   return (
     <div className="container-page pt-10 pb-10">
       <JourneyTracker />
