@@ -7,7 +7,6 @@ import {
   Upload,
   Sparkles,
   ArrowUpRight,
-  Trash2,
   AlertTriangle,
   Building2,
   FileText,
@@ -28,7 +27,7 @@ import {
 } from "recharts";
 import { useAuth } from "@/lib/auth";
 import { currency, resetIntake, classifyAndStoreDocument, updateIntake } from "@/lib/intake-store";
-import { listProperties, deleteProperty, type PropertyRecord } from "@/lib/properties";
+import { listProperties, type PropertyRecord } from "@/lib/properties";
 import { useSavingsBackfill } from "@/hooks/use-savings-backfill";
 import { useHealthScoreBackfill } from "@/hooks/use-health-score-backfill";
 import { listHealthScores, type PropertyAiScore } from "@/lib/property-scores";
@@ -47,7 +46,6 @@ import { getHearingNudge } from "@/lib/hearing-nudge";
 import { AnimatedNumber } from "@/components/AnimatedNumber";
 import { useFileDrop } from "@/hooks/use-file-drop";
 import { ICON_COLORS } from "@/lib/icon-colors";
-import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 
 export const Route = createFileRoute("/dashboard/_layout/")({
   component: Overview,
@@ -65,8 +63,6 @@ const STATUS_LABEL: Record<ProtestStatus, string> = {
   resolved: "Resolved",
 };
 
-type ActivityItem = { ts: number; label: string; detail: string; propertyId?: string };
-
 function Overview() {
   const nav = useNavigate();
   const { user } = useAuth();
@@ -79,7 +75,6 @@ function Overview() {
   const [uploading, setUploading] = useState(false);
   const [askQuery, setAskQuery] = useState("");
   const [asking, setAsking] = useState(false);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [nudge, setNudge] = useState<string | null>(null);
   const nudgedPropertyId = useRef<string | null>(null);
   const [hearingNudge, setHearingNudge] = useState<string | null>(null);
@@ -232,32 +227,6 @@ function Overview() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hearingReminders.length > 0 ? hearingReminders[0].protest.id : null]);
 
-  const activity: ActivityItem[] = [
-    ...properties.map((p) => ({
-      ts: new Date(p.createdAt).getTime(),
-      label: "Property added",
-      detail: p.address,
-      propertyId: p.id,
-    })),
-    ...bppAccounts.map((b) => ({
-      ts: new Date(b.createdAt).getTime(),
-      label: "BPP account added",
-      detail: b.businessName,
-    })),
-    ...documents.map((d) => ({
-      ts: new Date(d.uploadedAt).getTime(),
-      label: "Document uploaded",
-      detail: d.fileName,
-    })),
-    ...protests.map((pr) => ({
-      ts: new Date(pr.requestedAt).getTime(),
-      label: "Protest requested",
-      detail: addressFor(pr.propertyId),
-    })),
-  ]
-    .sort((a, b) => b.ts - a.ts)
-    .slice(0, 8);
-
   async function onUploadNotice(f: File) {
     setUploading(true);
     try {
@@ -273,20 +242,6 @@ function Overview() {
     onUploadNotice,
     uploading,
   );
-
-  async function handleDeleteProperty(id: string) {
-    if (!window.confirm("Remove this property from your dashboard?")) return;
-    setDeletingId(id);
-    try {
-      await deleteProperty(id);
-      setProperties((prev) => prev.filter((p) => p.id !== id));
-      toast.success("Property removed.");
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not remove this property.");
-    } finally {
-      setDeletingId(null);
-    }
-  }
 
   async function submitAsk(e: React.FormEvent) {
     e.preventDefault();
@@ -538,43 +493,6 @@ function Overview() {
                 </p>
               )}
             </div>
-          </div>
-
-          <div className="card-elev p-5 min-w-0">
-            <h3 className="text-base font-bold">Recent Activity</h3>
-            {activity.length > 0 ? (
-              <div className="mt-3 grid min-w-0 gap-2">
-                {activity.map((a, i) => (
-                  <div
-                    key={i}
-                    className="group row-hover rounded-md flex items-center justify-between gap-2 px-2 py-1 text-sm min-w-0"
-                  >
-                    <span className="shrink-0 text-muted-foreground">{a.label}</span>
-                    <span className="truncate min-w-0">{a.detail}</span>
-                    <span className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
-                      {new Date(a.ts).toLocaleDateString()}
-                      {a.propertyId && (
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <button
-                              onClick={() => handleDeleteProperty(a.propertyId!)}
-                              disabled={deletingId === a.propertyId}
-                              aria-label="Delete property"
-                              className="opacity-100 transition-all hover:scale-110 hover:text-destructive disabled:opacity-60 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100 text-muted-foreground"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </button>
-                          </TooltipTrigger>
-                          <TooltipContent>Delete property</TooltipContent>
-                        </Tooltip>
-                      )}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="mt-2 text-sm text-muted-foreground">No activity yet.</p>
-            )}
           </div>
         </div>
       </div>
