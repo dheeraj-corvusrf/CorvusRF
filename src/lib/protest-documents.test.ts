@@ -6,9 +6,12 @@ import {
   mmddyyyyToIso,
   NOTICE_OF_PROTEST_SCHEMA,
   APPOINTMENT_OF_AGENT_SCHEMA,
+  EVIDENCE_DECLARATION_SCHEMA,
+  getEvidenceDeclarationDefaults,
   type FieldSection,
   type FieldValues,
 } from "./protest-documents";
+import type { PropertyRecord } from "./properties";
 
 describe("mmddyyyyToIso", () => {
   it("converts a real MM/DD/YYYY date to ISO for the native date picker", () => {
@@ -140,5 +143,72 @@ describe("real schema completeness", () => {
       "the property owner": true,
     };
     expect(isFormComplete(APPOINTMENT_OF_AGENT_SCHEMA, values)).toBe(true);
+  });
+
+  it("Evidence Declaration is incomplete when blank", () => {
+    expect(isFormComplete(EVIDENCE_DECLARATION_SCHEMA, {})).toBe(false);
+  });
+
+  it("Evidence Declaration becomes complete once every real required field/group is filled", () => {
+    const values: FieldValues = {
+      "Appraisal Districts County Name": "Collin Central Appraisal District",
+      "Tax Year": "2026",
+      "Name of Property Owner or Lessee": "Test Owner LLC",
+      "Sect2-1": "123 Main St, Plano, TX",
+      "Reason for protest 1": true,
+      "ARB hearing": "I intend to appear in person at the hearing.  ",
+      "Texas County name": "Collin",
+      "Affiant Name": "Jane Owner",
+      "Affiant Name_2": "Jane Owner",
+      "day of": "1",
+      "Sig Month": "January",
+      "Sig Year": "26",
+    };
+    expect(isFormComplete(EVIDENCE_DECLARATION_SCHEMA, values)).toBe(true);
+  });
+});
+
+describe("getEvidenceDeclarationDefaults", () => {
+  const property: PropertyRecord = {
+    id: "prop-1",
+    address: "123 Main St, Plano, TX 75023",
+    cad: "Collin Central Appraisal District",
+    accountNumber: "12345",
+    ownerName: "Test Owner LLC",
+    propertyType: "Commercial",
+    landValue: 100000,
+    improvementValue: 400000,
+    totalValue: 500000,
+    taxYear: 2026,
+    protestDeadline: "2099-05-15",
+    paymentDueDate: null,
+    taxAmountDue: null,
+    paidAt: null,
+    estimatedSavings: null,
+    savingsBasis: null,
+    createdAt: "2026-01-01T00:00:00Z",
+    valueHistory: null,
+  };
+
+  it("autofills the real property facts it knows", () => {
+    const values = getEvidenceDeclarationDefaults(property, property.taxYear, 3);
+    expect(values["Appraisal Districts County Name"]).toBe("Collin Central Appraisal District");
+    expect(values.ADAN).toBe("12345");
+    expect(values["Tax Year"]).toBe("2026");
+    expect(values["Name of Property Owner or Lessee"]).toBe("Test Owner LLC");
+    expect(values["Affiant Name"]).toBe("Test Owner LLC");
+    expect(values["Affiant Name_2"]).toBe("Test Owner LLC");
+  });
+
+  it("fills both real evidence-count fields from the actual uploaded count", () => {
+    const values = getEvidenceDeclarationDefaults(property, property.taxYear, 4);
+    expect(values["Sect4-1"]).toBe("4");
+    expect(values.sect7_4).toBe("4");
+  });
+
+  it("leaves the evidence-count fields blank rather than claiming 0 documents", () => {
+    const values = getEvidenceDeclarationDefaults(property, property.taxYear, 0);
+    expect(values["Sect4-1"]).toBe("");
+    expect(values.sect7_4).toBe("");
   });
 });

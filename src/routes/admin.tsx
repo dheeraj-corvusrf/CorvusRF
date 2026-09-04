@@ -50,7 +50,8 @@ export const Route = createFileRoute("/admin")({
   component: AdminPanel,
 });
 
-type AdminTab = "users" | "invited" | "beta" | "activity";
+type AdminTab =
+  "users" | "owner_managed" | "corvus_managed" | "admins" | "invited" | "beta" | "activity";
 
 function AdminPanel() {
   const nav = useNavigate();
@@ -338,13 +339,133 @@ function AdminPanel() {
 
   if (loading || !user || !isAdmin) return null;
 
-  // Excludes yourself — same self-protection as the single-row Delete User
-  // button (isSelf), just applied to "select all" and bulk delete too, so
-  // there's no way to bulk-delete your own account from this list.
-  const selectableUserIds = users.filter((u) => u.id !== user.id).map((u) => u.id);
+  // Same real `users` list, just three different views onto it — not a
+  // separate fetch. "Owner Managed"/"Corvus Managed" split on the same real
+  // per-property monthly plan values Stripe checkout writes (see the
+  // profiles_plan_check constraint in schema.sql); "Admins" is whoever
+  // actually has is_admin set, independent of plan.
+  const ownerManagedUsers = users.filter((u) => u.plan === "owner_managed");
+  const corvusManagedUsers = users.filter((u) => u.plan === "corvusrf_managed");
+  const adminUsers = users.filter((u) => u.isAdmin);
+
+  // Shared by the "Users" tab and the three filtered plan/role tabs below —
+  // same select-all/bulk-delete/row-list markup, just handed a different
+  // slice of the same `users` state, so there's one real implementation of
+  // this instead of four that could drift. selectedUserIds/bulkDeleting
+  // stay lifted in the parent (not reset per-tab) so a selection made in one
+  // filtered view survives switching tabs, and handleBulkDeleteUsers already
+  // just deletes by id regardless of which view is currently showing.
+  function renderUserRows(records: AdminUserRecord[]) {
+    const selectableIds = records.filter((u) => u.id !== user!.id).map((u) => u.id);
+    return (
+      <>
+        {!usersLoading && records.length > 0 && (
+          <div className="mt-6 flex flex-wrap items-center gap-3 text-sm">
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={
+                  selectableIds.length > 0 && selectableIds.every((id) => selectedUserIds.has(id))
+                }
+                onChange={(e) =>
+                  setSelectedUserIds((prev) => {
+                    if (!e.target.checked) {
+                      const next = new Set(prev);
+                      for (const id of selectableIds) next.delete(id);
+                      return next;
+                    }
+                    return new Set([...prev, ...selectableIds]);
+                  })
+                }
+              />
+              Select all
+            </label>
+            {selectedUserIds.size > 0 && (
+              <>
+                <span className="text-muted-foreground">{selectedUserIds.size} selected</span>
+                <button
+                  type="button"
+                  onClick={handleBulkDeleteUsers}
+                  disabled={bulkDeleting}
+                  className="btn-outline text-xs text-destructive disabled:opacity-60"
+                >
+                  {bulkDeleting
+                    ? "Deleting…"
+                    : `Delete ${selectedUserIds.size} User${selectedUserIds.size === 1 ? "" : "s"}`}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedUserIds(new Set())}
+                  className="text-xs text-muted-foreground hover:text-foreground"
+                >
+                  Clear selection
+                </button>
+              </>
+            )}
+          </div>
+        )}
+
+        <div className="mt-4 grid gap-4">
+          {usersLoading ? (
+            <>
+              <UserRowSkeleton />
+              <UserRowSkeleton />
+              <UserRowSkeleton />
+            </>
+          ) : records.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No users in this view yet.</p>
+          ) : (
+            records.map((u, i) => (
+              <UserRow
+                key={u.id}
+                record={u}
+                isSelf={u.id === user!.id}
+                selected={selectedUserIds.has(u.id)}
+                onToggleSelect={() =>
+                  setSelectedUserIds((prev) => {
+                    const next = new Set(prev);
+                    if (next.has(u.id)) next.delete(u.id);
+                    else next.add(u.id);
+                    return next;
+                  })
+                }
+                expanded={expandedId === u.id}
+                onToggleExpand={() => setExpandedId(expandedId === u.id ? null : u.id)}
+                onPlanChange={(plan) => handlePlanChange(u.id, plan)}
+                onToggleAdmin={(makeAdmin) => handleToggleAdmin(u.id, makeAdmin)}
+                onDelete={() => handleDeleteUser(u.id)}
+                onImpersonate={() => handleImpersonateUser(u.id)}
+                delayMs={Math.min(i * 40, 320)}
+                protests={protests.filter((p) => p.userId === u.id)}
+                protestsLoading={protestsLoading}
+                expandedProtestId={expandedProtestId}
+                onToggleExpandProtest={(protestId) =>
+                  setExpandedProtestId(expandedProtestId === protestId ? null : protestId)
+                }
+                onProtestStatusChange={handleProtestStatusChange}
+                onProtestNotesChange={handleProtestNotesChange}
+                onOpenCase={setCaseRecord}
+              />
+            ))
+          )}
+        </div>
+      </>
+    );
+  }
 
   const TABS: { key: AdminTab; label: string; count: number | null }[] = [
     { key: "users", label: "Users", count: usersLoading ? null : users.length },
+    {
+      key: "owner_managed",
+      label: "Owner Managed",
+      count: usersLoading ? null : ownerManagedUsers.length,
+    },
+    {
+      key: "corvus_managed",
+      label: "Corvus Managed",
+      count: usersLoading ? null : corvusManagedUsers.length,
+    },
+    { key: "admins", label: "Admins", count: usersLoading ? null : adminUsers.length },
     {
       key: "invited",
       label: "Invited Users",
@@ -411,88 +532,58 @@ function AdminPanel() {
 
           {usersError && <p className="mt-4 text-sm text-destructive">{usersError}</p>}
 
-          {!usersLoading && users.length > 0 && (
-            <div className="mt-6 flex flex-wrap items-center gap-3 text-sm">
-              <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={
-                    selectableUserIds.length > 0 &&
-                    selectableUserIds.every((id) => selectedUserIds.has(id))
-                  }
-                  onChange={(e) =>
-                    setSelectedUserIds(e.target.checked ? new Set(selectableUserIds) : new Set())
-                  }
-                />
-                Select all
-              </label>
-              {selectedUserIds.size > 0 && (
-                <>
-                  <span className="text-muted-foreground">{selectedUserIds.size} selected</span>
-                  <button
-                    type="button"
-                    onClick={handleBulkDeleteUsers}
-                    disabled={bulkDeleting}
-                    className="btn-outline text-xs text-destructive disabled:opacity-60"
-                  >
-                    {bulkDeleting
-                      ? "Deleting…"
-                      : `Delete ${selectedUserIds.size} User${selectedUserIds.size === 1 ? "" : "s"}`}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedUserIds(new Set())}
-                    className="text-xs text-muted-foreground hover:text-foreground"
-                  >
-                    Clear selection
-                  </button>
-                </>
-              )}
-            </div>
-          )}
+          {renderUserRows(users)}
+        </div>
+      )}
 
-          <div className="mt-4 grid gap-4">
-            {usersLoading ? (
-              <>
-                <UserRowSkeleton />
-                <UserRowSkeleton />
-                <UserRowSkeleton />
-              </>
-            ) : (
-              users.map((u, i) => (
-                <UserRow
-                  key={u.id}
-                  record={u}
-                  isSelf={u.id === user.id}
-                  selected={selectedUserIds.has(u.id)}
-                  onToggleSelect={() =>
-                    setSelectedUserIds((prev) => {
-                      const next = new Set(prev);
-                      if (next.has(u.id)) next.delete(u.id);
-                      else next.add(u.id);
-                      return next;
-                    })
-                  }
-                  expanded={expandedId === u.id}
-                  onToggleExpand={() => setExpandedId(expandedId === u.id ? null : u.id)}
-                  onPlanChange={(plan) => handlePlanChange(u.id, plan)}
-                  onToggleAdmin={(makeAdmin) => handleToggleAdmin(u.id, makeAdmin)}
-                  onDelete={() => handleDeleteUser(u.id)}
-                  onImpersonate={() => handleImpersonateUser(u.id)}
-                  delayMs={Math.min(i * 40, 320)}
-                  protests={protests.filter((p) => p.userId === u.id)}
-                  protestsLoading={protestsLoading}
-                  expandedProtestId={expandedProtestId}
-                  onToggleExpandProtest={(protestId) =>
-                    setExpandedProtestId(expandedProtestId === protestId ? null : protestId)
-                  }
-                  onProtestStatusChange={handleProtestStatusChange}
-                  onProtestNotesChange={handleProtestNotesChange}
-                  onOpenCase={setCaseRecord}
-                />
-              ))
+      {activeTab === "owner_managed" && (
+        <div className="mt-8">
+          <div className="flex flex-wrap items-baseline gap-2">
+            <h2 className="font-serif text-xl font-semibold">Owner Managed</h2>
+            {!usersLoading && (
+              <span className="badge-soft">
+                {ownerManagedUsers.length} user{ownerManagedUsers.length === 1 ? "" : "s"}
+              </span>
             )}
           </div>
+          <p className="text-sm text-muted-foreground">
+            Self-filing customers on the Owner Managed plan.
+          </p>
+          {renderUserRows(ownerManagedUsers)}
+        </div>
+      )}
+
+      {activeTab === "corvus_managed" && (
+        <div className="mt-8">
+          <div className="flex flex-wrap items-baseline gap-2">
+            <h2 className="font-serif text-xl font-semibold">Corvus Managed</h2>
+            {!usersLoading && (
+              <span className="badge-soft">
+                {corvusManagedUsers.length} user{corvusManagedUsers.length === 1 ? "" : "s"}
+              </span>
+            )}
+          </div>
+          <p className="text-sm text-muted-foreground">
+            Customers on the CorvusPT Managed plan, filed on their behalf.
+          </p>
+          {renderUserRows(corvusManagedUsers)}
+        </div>
+      )}
+
+      {activeTab === "admins" && (
+        <div className="mt-8">
+          <div className="flex flex-wrap items-baseline gap-2">
+            <h2 className="font-serif text-xl font-semibold">Admins</h2>
+            {!usersLoading && (
+              <span className="badge-soft">
+                {adminUsers.length} admin{adminUsers.length === 1 ? "" : "s"}
+              </span>
+            )}
+          </div>
+          <p className="text-sm text-muted-foreground">
+            Staff accounts with admin-panel access, regardless of plan.
+          </p>
+          {renderUserRows(adminUsers)}
         </div>
       )}
 

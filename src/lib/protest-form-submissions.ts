@@ -2,7 +2,7 @@ import { supabase } from "./supabase";
 import type { FieldValues } from "./protest-documents";
 import type { SignatureValue } from "@/components/SignaturePad";
 
-export type FormType = "notice_of_protest" | "appointment_of_agent";
+export type FormType = "notice_of_protest" | "appointment_of_agent" | "evidence_declaration";
 
 export type FormSubmission = {
   fieldValues: FieldValues;
@@ -31,7 +31,10 @@ function fromRow(row: SubmissionRow): FormSubmission {
   };
 }
 
-export async function getSubmission(protestId: string, formType: FormType): Promise<FormSubmission | null> {
+export async function getSubmission(
+  protestId: string,
+  formType: FormType,
+): Promise<FormSubmission | null> {
   const { data, error } = await supabase
     .from("protest_form_submissions")
     .select("field_values, signature_type, signature_data, signed_at, document_id")
@@ -50,18 +53,16 @@ export async function saveDraft(
   formType: FormType,
   values: FieldValues,
 ): Promise<void> {
-  const { error } = await supabase
-    .from("protest_form_submissions")
-    .upsert(
-      {
-        protest_id: protestId,
-        user_id: userId,
-        form_type: formType,
-        field_values: JSON.stringify(values),
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "protest_id,form_type" },
-    );
+  const { error } = await supabase.from("protest_form_submissions").upsert(
+    {
+      protest_id: protestId,
+      user_id: userId,
+      form_type: formType,
+      field_values: JSON.stringify(values),
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "protest_id,form_type" },
+  );
   if (error) throw error;
 }
 
@@ -73,21 +74,19 @@ export async function signAndSubmit(
   signature: SignatureValue,
   documentId: string,
 ): Promise<void> {
-  const { error } = await supabase
-    .from("protest_form_submissions")
-    .upsert(
-      {
-        protest_id: protestId,
-        user_id: userId,
-        form_type: formType,
-        field_values: JSON.stringify(values),
-        signature_type: signature.type,
-        signature_data: signature.data,
-        signed_at: new Date().toISOString(),
-        document_id: documentId,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "protest_id,form_type" },
-    );
+  const { error } = await supabase.from("protest_form_submissions").upsert(
+    {
+      protest_id: protestId,
+      user_id: userId,
+      form_type: formType,
+      field_values: JSON.stringify(values),
+      signature_type: signature.type,
+      signature_data: signature.data,
+      signed_at: new Date().toISOString(),
+      document_id: documentId,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "protest_id,form_type" },
+  );
   if (error) throw error;
 }

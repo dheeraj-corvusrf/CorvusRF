@@ -10,7 +10,9 @@ vi.mock("./edge-functions", () => ({
     text: "Suggested reason text.",
     suggestedReason: "Suggested reason text.",
     summary: "Overall summary.",
-    documentFindings: [{ fileName: "rent-roll.pdf", assessment: "Shows real occupancy data." }],
+    documentFindings: [
+      { fileName: "rent-roll.pdf", status: "Accepted", assessment: "Shows real occupancy data." },
+    ],
   })),
 }));
 
@@ -62,6 +64,29 @@ function mockFetchOk(bytes = new Uint8Array([1, 2, 3]), type = "application/pdf"
         arrayBuffer: async () => bytes.buffer,
       }),
     })),
+  );
+}
+
+// Real per-document content, keyed by the same signed URL getDocumentUrl's
+// mock returns (https://signed.example/<storagePath>) — lets a duplicate-
+// detection test give two documents genuinely identical bytes while a third
+// gets different ones, which a single shared mockFetchOk() can't express.
+function mockFetchByPath(byPath: Record<string, { bytes: Uint8Array; type?: string }>) {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string) => {
+      const path = url.replace("https://signed.example/", "");
+      const entry = byPath[path];
+      if (!entry) return { ok: false };
+      return {
+        ok: true,
+        blob: async () => ({
+          size: entry.bytes.length,
+          type: entry.type ?? "application/pdf",
+          arrayBuffer: async () => entry.bytes.buffer,
+        }),
+      };
+    }),
   );
 }
 
@@ -136,7 +161,7 @@ describe("analyzeEvidence", () => {
     expect(result.summary).toBe("Overall summary.");
     expect(result.suggestedReason).toBe("Suggested reason text.");
     expect(result.documentFindings).toEqual([
-      { fileName: "rent-roll.pdf", assessment: "Shows real occupancy data." },
+      { fileName: "rent-roll.pdf", status: "Accepted", assessment: "Shows real occupancy data." },
     ]);
   });
 
@@ -146,5 +171,43 @@ describe("analyzeEvidence", () => {
     await expect(analyzeEvidence(property, null, [doc({ fileName: "huge.pdf" })])).rejects.toThrow(
       NoEvidenceDocumentsError,
     );
+  });
+
+  it("flags a byte-identical re-upload as Duplicate without asking the AI", async () => {
+    mockFetchByPath({
+      "u/p/a.pdf": { bytes: new Uint8Array([1, 2, 3]) },
+      "u/p/b.pdf": { bytes: new Uint8Array([1, 2, 3]) }, // identical content
+    });
+    const result = await analyzeEvidence(property, null, [
+      doc({ id: "a", fileName: "a.pdf", storagePath: "u/p/a.pdf" }),
+      doc({ id: "b", fileName: "b.pdf", storagePath: "u/p/b.pdf" }),
+    ]);
+
+    // Only the first (unique) document is ever sent to the AI.
+    const call = vi.mocked(invokeEdgeFunction).mock.calls[0][1] as { documents: unknown[] };
+    expect(call.documents).toHaveLength(1);
+
+    expect(result.documentFindings).toEqual([
+      { fileName: "a.pdf", status: "Accepted", assessment: "Shows real occupancy data." },
+      {
+        fileName: "b.pdf",
+        status: "Duplicate",
+        assessment: 'Identical to "a.pdf", already uploaded — excluded from the evidence packet.',
+      },
+    ]);
+  });
+
+  it("does not flag two different documents as duplicates", async () => {
+    mockFetchByPath({
+      "u/p/a.pdf": { bytes: new Uint8Array([1, 2, 3]) },
+      "u/p/b.pdf": { bytes: new Uint8Array([4, 5, 6]) },
+    });
+    await analyzeEvidence(property, null, [
+      doc({ id: "a", fileName: "a.pdf", storagePath: "u/p/a.pdf" }),
+      doc({ id: "b", fileName: "b.pdf", storagePath: "u/p/b.pdf" }),
+    ]);
+
+    const call = vi.mocked(invokeEdgeFunction).mock.calls[0][1] as { documents: unknown[] };
+    expect(call.documents).toHaveLength(2);
   });
 });

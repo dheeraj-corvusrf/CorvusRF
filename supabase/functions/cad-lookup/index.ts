@@ -266,6 +266,34 @@ function cityMatches(extractedCity: string, cityGuess: string): boolean {
   return a.includes(b) || b.includes(a);
 }
 
+// Extracts a leading directional word (N/S/E/W or spelled out) immediately
+// after the house number — from either the user's OWN parsed street text
+// ("W University Ave" -> "W") or a candidate's returned propertyAddress
+// ("2601 W UNIVERSITY AVE, GEORGETOWN..." -> "W"). Every single-field
+// county's exact-match query deliberately DROPS the directional entirely
+// (see coreStreetName's own comment — needed so a county address embedding
+// a directional the user didn't type still matches) — which means two real,
+// separately-owned parcels that share a house number and only differ by
+// directional (2601 E University Ave vs. 2601 W University Ave, confirmed
+// live 2026-09-04, Williamson County) both come back as "candidates" for
+// the SAME query. This is the disambiguator: when the user typed one, it's
+// a genuine, deliberate signal — not something to discard the way the
+// street-matching query itself must.
+function directionalOf(text: string): string {
+  const m = text
+    .replace(/^\d+\s+/, "") // for a full propertyAddress, skip the house number first
+    .match(/^(n|s|e|w|ne|nw|se|sw|north|south|east|west)\b/i);
+  if (!m) return "";
+  const dir = m[1].toUpperCase();
+  const long: Record<string, string> = {
+    NORTH: "N",
+    SOUTH: "S",
+    EAST: "E",
+    WEST: "W",
+  };
+  return long[dir] ?? dir;
+}
+
 // A real US address always ends with its zip — end-anchored specifically so
 // this never matches a 5-digit HOUSE NUMBER earlier in the string instead.
 // Confirmed live chasing a real "FM 1957" no-house-number Bexar property: a
@@ -1925,7 +1953,7 @@ async function enrichBIS(
 // county currently returns via the ArcGIS primary match) — same value tier as the
 // BIS-tier counties (Fort Bend/Grayson), no deed history.
 async function enrichWilliamson(
-  propertyAddress: string,
+  record: CadRecord,
   expectedHouseNumber: string,
 ): Promise<Partial<CadRecord> | null> {
   try {
@@ -1936,7 +1964,7 @@ async function enrichWilliamson(
     const taxYear = new Date().getFullYear();
     const url =
       "https://search.wcad.org/ProxyT/Search/Properties/" +
-      `?f=${encodeURIComponent(propertyAddress)}&ty=${taxYear}&pvty=${taxYear}&pn=1&st=9&so=1&pt=RP%3BPP%3BMH%3BNR&take=20&skip=0&page=1&pageSize=20`;
+      `?f=${encodeURIComponent(record.propertyAddress)}&ty=${taxYear}&pvty=${taxYear}&pn=1&st=9&so=1&pt=RP%3BPP%3BMH%3BNR&take=20&skip=0&page=1&pageSize=20`;
     const res = await fetch(url);
     if (!res.ok) return null;
     const json = (await res.json()) as { ResultList?: Array<Record<string, unknown>> };
@@ -1949,11 +1977,38 @@ async function enrichWilliamson(
     });
     if (!match) return null;
 
-    return {
+    const enrichment: Partial<CadRecord> = {
       legalDescription: (match.LegalDescription as string) || null,
       subdivision: (match.Subdivision as string) || null,
       mailingAddress: (match.OwnerFullAddress as string)?.trim() || null,
     };
+
+    // WCAD's own ArcGIS parcel layer (queryWilliamson's primary source, above)
+    // confirmed live 2026-09-04 to lag the current tax year: a real, actively
+    // assessed commercial parcel (account R039247) read CNTASSDVAL 0 there,
+    // while this same county's own live search portal already had the real,
+    // current $2,474,086 value for tax year 2026 — same property, same day.
+    // Only used as a fallback (never overwrites a real ArcGIS value) since
+    // this is filling a genuine gap, not second-guessing a good number.
+    if (!record.totalValue) {
+      const assessedValue = parseMoneyField(
+        (match.AssessedValue ?? match.MarketValue ?? match.PropertyValue) as number | string | null,
+      );
+      if (assessedValue) {
+        enrichment.totalValue = assessedValue;
+        const searchTaxYear = Number(match.TaxYear);
+        if (Number.isFinite(searchTaxYear)) enrichment.taxYear = searchTaxYear;
+        // The primary source's land value came from the exact same stale
+        // current-year block as its wrong $0 total — pairing a real total
+        // with that stale $0 land split would just look like a second bug,
+        // not a fix, so this clears it rather than leaving numbers that no
+        // longer add up. Left untouched if the primary source actually had
+        // a real land value on file.
+        if (!record.landValue) enrichment.landValue = null;
+      }
+    }
+
+    return enrichment;
   } catch {
     return null;
   }
@@ -2080,7 +2135,7 @@ async function enrichRecord(record: CadRecord): Promise<CadRecord> {
       : record.cad in BIS_CONFIG_BY_CAD
         ? await enrichBIS(record.cad, record.accountNumber, expectedHouseNumber)
         : record.cad === "Williamson Central Appraisal District"
-          ? await enrichWilliamson(record.propertyAddress, expectedHouseNumber)
+          ? await enrichWilliamson(record, expectedHouseNumber)
           : record.cad === "Dallas Central Appraisal District"
             ? await enrichDallas(record.accountNumber)
             : null;
@@ -2432,6 +2487,38 @@ Deno.serve(async (req: Request) => {
       for (const c of sameSourceCandidates) {
         const key = c.accountNumber ?? c.propertyAddress;
         if (!distinctAccounts.has(key)) distinctAccounts.set(key, c);
+      }
+      // The user's own typed directional, when there is one, disambiguates a
+      // same-house-number "multiple" result that's actually just the
+      // directional-blind query matching two DIFFERENT real streets (2601 E
+      // University Ave vs. 2601 W University Ave — see directionalOf's own
+      // comment). Only resolves directly when it narrows to EXACTLY one
+      // account; any other outcome (no directional typed, or more than one
+      // candidate somehow shares it) falls through to the real "multiple"
+      // response below unchanged, same as before this fix.
+      if (distinctAccounts.size > 1 && parsedForCity) {
+        const userDirectional = directionalOf(parsedForCity.street);
+        if (userDirectional) {
+          const matchingDirectional = [...distinctAccounts.values()].filter(
+            (c) => directionalOf(c.propertyAddress) === userDirectional,
+          );
+          if (matchingDirectional.length === 1) {
+            record = matchingDirectional[0];
+            // Same city-append this function already does for the ORIGINAL
+            // tiebreak-selected record above, and for each "multiple" option
+            // below — needed here too since this replaces `record` with a raw
+            // candidate from `candidates`, not the one that already went
+            // through that step.
+            if (parsedForCity && !record.propertyAddress.includes(",")) {
+              record = {
+                ...record,
+                propertyAddress: `${record.propertyAddress}, ${parsedForCity.cityStateZip}`,
+              };
+            }
+            distinctAccounts.clear();
+            distinctAccounts.set(record.accountNumber ?? record.propertyAddress, record);
+          }
+        }
       }
       if (distinctAccounts.size > 1) {
         const options = await Promise.all(

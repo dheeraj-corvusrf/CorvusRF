@@ -842,7 +842,19 @@ function Intake() {
       {step === "savings" && state.address && savings && (
         <section className="mt-8 card-elev overflow-hidden">
           <div className="bg-accent/10 px-6 pt-10 pb-8 text-center">
-            {savings.amount > 0 ? (
+            {/* >= 1, not > 0 — currency() rounds to whole dollars, so a
+                positive-but-sub-$1 amount would otherwise slip past this
+                check and still render as a bare "$0" under "Potential
+                Protest Savings," the exact confusing state this branch
+                exists to avoid. In practice that only happens when
+                totalValue itself is far too small to be a real commercial
+                assessed value (a live example: a county's own ArcGIS feed
+                briefly reading $0 for a genuinely ~$2.4M property before
+                its current-year values synced — see queryWilliamson's
+                enrichWilliamson fallback in cad-lookup for the real fix on
+                that source), so this is a display-side safety net, not the
+                actual fix for a broken source. */}
+            {savings.amount >= 1 ? (
               <>
                 <p className="text-sm font-medium text-muted-foreground">
                   Potential Protest Savings*
