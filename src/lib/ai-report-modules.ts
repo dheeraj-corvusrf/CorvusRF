@@ -82,6 +82,16 @@ export type ModuleAnalysisInput = {
   // yet) so the AI's effective-age estimate is grounded in an honest
   // industry-general figure rather than an unmoored guess.
   economicLifeYears?: { min: number; max: number; typical: number } | null;
+  // Real, user-confirmed exclusions — see module-overrides.ts and
+  // "Not Applicable"/notApplicable handling in ai-report.tsx. notApplicableFactors
+  // (site) and notApplicableComponents (improvement) hard-clamp that specific
+  // factor/component server-side, same discipline as enforceSiteFactorRealData/
+  // enforceBuildingComponentRealData; notApplicableContext (strategy/evidence/
+  // executive) is prose context only — it steers the AI's reasoning but isn't
+  // hard-enforced, since those modules' missing-evidence lists are free text.
+  notApplicableFactors?: string[];
+  notApplicableComponents?: string[];
+  notApplicableContext?: string[];
 };
 
 export type BatchModuleId =
@@ -117,7 +127,9 @@ export type ModuleResultMap = {
   // enforceSiteFactorRealData in the edge function. Only "Floodplain" and
   // "Grade" can ever read "Confirmed"/"Partial Data"; every other factor is
   // server-enforced to "Additional Data Needed" until a real source exists
-  // for it — never trust status alone without that context.
+  // for it, or "Not Applicable" once the user has explicitly confirmed no
+  // such document exists (see module-overrides.ts) — never trust status
+  // alone without that context.
   site: {
     guidance: string;
     factors: {
@@ -136,7 +148,7 @@ export type ModuleResultMap = {
         | "Grade"
         | "Topography"
         | "Access Limitations";
-      status: "Confirmed" | "Partial Data" | "Additional Data Needed";
+      status: "Confirmed" | "Partial Data" | "Additional Data Needed" | "Not Applicable";
       finding: string;
       severity: "High" | "Moderate" | "Low" | "Unknown";
       confidence: "High" | "Moderate" | "Low";
@@ -150,15 +162,20 @@ export type ModuleResultMap = {
   // enforceBuildingComponentRealData in the edge function. hasPhoto/
   // condition are server-enforced: when zero evidence images were sent at
   // all, every component reads hasPhoto:false/condition:"Unknown" no
-  // matter what the AI returned. effectiveAgeYears/functionalObsolescencePct/
-  // externalObsolescencePct are null whenever the AI had no real basis for
-  // them — see src/lib/improvement-condition.ts's computeDepreciation() for
-  // the real, deterministic math built from these.
+  // matter what the AI returned. notApplicable is also server-enforced —
+  // true only when the user explicitly confirmed no photo exists for that
+  // component (see module-overrides.ts) AND no real photo evidence for it
+  // came back from the AI (real data always wins over a stale override).
+  // effectiveAgeYears/functionalObsolescencePct/externalObsolescencePct are
+  // null whenever the AI had no real basis for them — see
+  // src/lib/improvement-condition.ts's computeDepreciation() for the real,
+  // deterministic math built from these.
   improvement: {
     guidance: string;
     buildingComponents: {
       component: "Roof" | "HVAC" | "Exterior" | "Interior";
       hasPhoto: boolean;
+      notApplicable: boolean;
       condition: "Good" | "Fair" | "Poor" | "Unknown";
       actionNeeded: string | null;
       notes: string;

@@ -18,7 +18,9 @@ const SEVERITY_RANK: Record<SiteFactor["severity"], number> = {
 // avoid. Returns null when nothing real has been found yet, so the card can
 // show an honest "Additional Data Needed" state instead of an empty gap.
 export function pickHeadlineFactor(factors: SiteFactor[]): SiteFactor | null {
-  const withData = factors.filter((f) => f.status !== "Additional Data Needed");
+  const withData = factors.filter(
+    (f) => f.status !== "Additional Data Needed" && f.status !== "Not Applicable",
+  );
   if (withData.length === 0) return null;
   return [...withData].sort((a, b) => SEVERITY_RANK[b.severity] - SEVERITY_RANK[a.severity])[0];
 }

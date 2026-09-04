@@ -1002,6 +1002,44 @@ create policy "Admins can delete beta leads"
   on public.beta_leads for delete
   using (public.is_admin());
 
+-- Lets a user mark a specific AI-report data requirement "not applicable"
+-- instead of being stuck forever on "Needs Data"/"Additional Data Needed" —
+-- e.g. no P&L exists to upload for Module 7 (income), or a specific Module 4
+-- site factor / Module 5 building component genuinely has no document/photo
+-- available. item_key is '' for a whole-module override (income); the exact
+-- site-factor or building-component name for a per-item override within
+-- Module 4/5. See enforceSiteFactorRealData / enforceBuildingComponentRealData
+-- in ai-report-modules/index.ts and module-overrides.ts for how these are
+-- read back and applied — real data (a real FEMA point, an actual uploaded
+-- photo) always wins over a stale override, this never suppresses genuine
+-- data that later shows up.
+create table if not exists public.module_data_overrides (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users (id) on delete cascade,
+  property_id uuid not null references public.properties (id) on delete cascade,
+  module_id text not null,
+  item_key text not null default '',
+  created_at timestamptz not null default now(),
+  unique (property_id, module_id, item_key)
+);
+
+alter table public.module_data_overrides enable row level security;
+
+drop policy if exists "Users can view their own module overrides" on public.module_data_overrides;
+create policy "Users can view their own module overrides"
+  on public.module_data_overrides for select
+  using (auth.uid() = user_id);
+
+drop policy if exists "Users can insert their own module overrides" on public.module_data_overrides;
+create policy "Users can insert their own module overrides"
+  on public.module_data_overrides for insert
+  with check (auth.uid() = user_id);
+
+drop policy if exists "Users can delete their own module overrides" on public.module_data_overrides;
+create policy "Users can delete their own module overrides"
+  on public.module_data_overrides for delete
+  using (auth.uid() = user_id);
+
 -- ── ONE-TIME MANUAL STEP — do NOT run this as part of the routine schema paste ──
 -- After you have an account (sign up normally through the app first), run this once,
 -- by itself, substituting your real email, to make that account an admin:

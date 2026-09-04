@@ -3,7 +3,8 @@
 //
 // Covers modules 2, 3, 4, 5, 6, 8, 9, 10 (module 1 — health score — is its own
 // function, ai-health-score; module 7 — income approach — genuinely needs a
-// user-uploaded P&L/rent roll and stays a static gate in the client, not an AI call).
+// user-uploaded P&L/rent roll and stays a static gate in the client, not an AI
+// call, unless the user marks it Not Applicable — see module-overrides.ts).
 //
 // One Gemini call per invocation covers exactly ONE module (selected via the
 // `moduleId` field) rather than all eight at once — the client only calls this when
@@ -117,6 +118,18 @@ type ModulesInput = {
   // request is a Q&A follow-up, not a module-analysis request.
   question?: string;
   priorModuleData?: unknown;
+  // Real, user-confirmed exclusions (see module-overrides.ts and
+  // src/lib/module-overrides.ts). notApplicableFactors/notApplicableComponents
+  // hard-clamp that exact site factor / building component's status server-side
+  // (enforceSiteFactorRealData / enforceBuildingComponentRealData below) —
+  // never AI-decided. notApplicableContext is prose context appended to the
+  // prompt for strategy/evidence/executive so their free-text reasoning and
+  // missing-evidence lists stay consistent with what the user has already
+  // confirmed isn't available — steering only, not hard-enforced, since those
+  // fields are AI-authored text, not a fixed schema this handler can reclamp.
+  notApplicableFactors?: string[];
+  notApplicableComponents?: string[];
+  notApplicableContext?: string[];
 };
 
 const PREAMBLE = `You are CorvusPT's AI property tax analyst for Texas commercial properties.
@@ -344,7 +357,7 @@ const SITE_FACTORS = [
   "Access Limitations",
 ] as const;
 type SiteFactorName = (typeof SITE_FACTORS)[number];
-type SiteFactorStatus = "Confirmed" | "Partial Data" | "Additional Data Needed";
+type SiteFactorStatus = "Confirmed" | "Partial Data" | "Additional Data Needed" | "Not Applicable";
 type SiteFactorSeverity = "High" | "Moderate" | "Low" | "Unknown";
 type SiteFactorConfidence = "High" | "Moderate" | "Low";
 type SiteFactor = {
@@ -414,20 +427,28 @@ function siteFactors(v: unknown): SiteFactor[] {
 // elevation was fetched; every other factor is hard-clamped to "Additional
 // Data Needed" with "Low" confidence no matter what the AI returned — this
 // app has no real source for any of them yet, and the AI's own discipline
-// alone isn't trusted to guarantee that.
+// alone isn't trusted to guarantee that. notApplicable is a real, user-
+// confirmed exclusion (see module-overrides.ts) — checked LAST so it can
+// never suppress an actual real finding: a factor with a genuine FEMA/USGS
+// source above still wins even if it's also (stale-)listed here.
 function enforceSiteFactorRealData(
   factors: SiteFactor[],
   siteGis: ModulesInput["siteGis"],
+  notApplicable: string[],
 ): SiteFactor[] {
   return factors.map((f) => {
     if (f.factor === "Floodplain") {
-      if (!siteGis?.floodZone) return { ...f, status: "Additional Data Needed", confidence: "Low" };
-      return { ...f, status: "Confirmed" };
+      if (siteGis?.floodZone) return { ...f, status: "Confirmed" };
+    } else if (f.factor === "Grade") {
+      if (siteGis?.elevationFt != null) return { ...f, status: "Partial Data" };
     }
-    if (f.factor === "Grade") {
-      if (siteGis?.elevationFt == null)
-        return { ...f, status: "Additional Data Needed", confidence: "Low" };
-      return { ...f, status: "Partial Data" };
+    if (notApplicable.includes(f.factor)) {
+      return {
+        ...f,
+        status: "Not Applicable",
+        finding: "Marked not applicable — user confirmed no document is available for this factor.",
+        evidenceNeeded: null,
+      };
     }
     return { ...f, status: "Additional Data Needed", confidence: "Low" };
   });
@@ -442,6 +463,7 @@ type BuildingComponentCondition = "Good" | "Fair" | "Poor" | "Unknown";
 type BuildingComponent = {
   component: BuildingComponentName;
   hasPhoto: boolean;
+  notApplicable: boolean;
   condition: BuildingComponentCondition;
   actionNeeded: string | null;
   notes: string;
@@ -486,6 +508,7 @@ function buildingComponents(v: unknown): BuildingComponent[] {
     return {
       component,
       hasPhoto,
+      notApplicable: false,
       condition,
       actionNeeded: hasPhoto ? str(x.actionNeeded, 60) || null : null,
       notes: hasPhoto ? str(x.notes, 70) : "",
@@ -498,19 +521,27 @@ function buildingComponents(v: unknown): BuildingComponent[] {
 // JSON, matching every other module). When literally zero photos were
 // sent, every component is hard-clamped to "no photo" regardless of what
 // the AI returned — this app has nothing real to show it, and the model's
-// own discipline alone isn't trusted to guarantee that.
+// own discipline alone isn't trusted to guarantee that. notApplicable is a
+// real, user-confirmed exclusion (see module-overrides.ts) — only applied
+// when that component still has no real photo, so an actual uploaded photo
+// always wins over a stale override.
 function enforceBuildingComponentRealData(
   components: BuildingComponent[],
   hadAnyPhotos: boolean,
+  notApplicable: string[],
 ): BuildingComponent[] {
-  if (hadAnyPhotos) return components;
-  return components.map((c) => ({
-    ...c,
-    hasPhoto: false,
-    condition: "Unknown",
-    actionNeeded: null,
-    notes: "",
-  }));
+  const clamped = hadAnyPhotos
+    ? components
+    : components.map((c) => ({
+        ...c,
+        hasPhoto: false,
+        condition: "Unknown" as const,
+        actionNeeded: null,
+        notes: "",
+      }));
+  return clamped.map((c) =>
+    !c.hasPhoto && notApplicable.includes(c.component) ? { ...c, notApplicable: true } : c,
+  );
 }
 
 const MODULE_SPECS: Record<string, ModuleSpec> = {
@@ -1104,6 +1135,24 @@ Deno.serve(async (req: Request) => {
         : [];
 
     let instruction = spec.instruction;
+    // Prose-only steering — see notApplicableContext's own comment above.
+    // Only meaningful for the modules that write free-text findings/missing-
+    // evidence lists about the whole case (site/improvement instead get the
+    // hard, schema-level enforcement in enforceSiteFactorRealData /
+    // enforceBuildingComponentRealData above).
+    if (
+      Array.isArray(input.notApplicableContext) &&
+      input.notApplicableContext.length > 0 &&
+      (input.moduleId === "strategy" ||
+        input.moduleId === "evidence" ||
+        input.moduleId === "executive")
+    ) {
+      instruction +=
+        " The user has explicitly confirmed the following are not applicable to this property " +
+        "or protest, because no such document/data exists to provide — treat them as excluded, " +
+        "not as a missing item to chase, and do not recommend gathering them: " +
+        input.notApplicableContext.join("; ");
+    }
     if (evidenceParts.length > 0) {
       instruction +=
         " Photos and/or documents of the property's actual condition are attached below as " +
@@ -1129,6 +1178,7 @@ Deno.serve(async (req: Request) => {
       (result as { factors: SiteFactor[] }).factors = enforceSiteFactorRealData(
         (result as { factors: SiteFactor[] }).factors,
         input.siteGis,
+        Array.isArray(input.notApplicableFactors) ? input.notApplicableFactors : [],
       );
     }
     // Real-data enforcement for Module 5 — see
@@ -1140,6 +1190,7 @@ Deno.serve(async (req: Request) => {
         enforceBuildingComponentRealData(
           (result as { buildingComponents: BuildingComponent[] }).buildingComponents,
           evidenceParts.length > 0,
+          Array.isArray(input.notApplicableComponents) ? input.notApplicableComponents : [],
         );
     }
     return new Response(JSON.stringify(result), { status: 200, headers: corsHeaders });
