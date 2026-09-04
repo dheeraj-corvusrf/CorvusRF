@@ -24,6 +24,7 @@ import {
   Wrench,
   RefreshCw,
   ArrowDown,
+  ChevronDown,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -102,6 +103,7 @@ import {
 } from "@/lib/documents";
 import { analyzeEvidence, type EvidenceAnalysis, type DocumentStatus } from "@/lib/protest-reason";
 import { buildEvidencePacket } from "@/lib/evidence-packet";
+import { categorizeEvidenceUploads } from "@/lib/evidence-categorize";
 import { downloadPdf } from "@/lib/protest-documents";
 import {
   listModuleOverrides,
@@ -3569,6 +3571,20 @@ function strategySlug(name: string): string {
     .replace(/^-+|-+$/g, "");
 }
 
+// Same stable-slug convention as strategySlug above, for Module 8's own
+// evidence-checklist items — used to tag an upload with the exact checklist
+// category it belongs to (documentType `Evidence Category: ${slug}`, see
+// EvidenceCategoryRow below), so a document uploaded under one category
+// keeps showing there even if the AI's own item wording shifts slightly on
+// a later regenerate (the same real real-world category, matched by slug,
+// not by exact string).
+function evidenceItemSlug(item: string): string {
+  return item
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
 // Compact ranked row for the card preview — used by both ModuleVisual's
 // "strategy" case and StrategyDetail's header below. Row order itself
 // already conveys rank (top = strongest), so no separate number badge.
@@ -4328,6 +4344,13 @@ function ModulePreviewContent({
   // unconditional-top-of-component placement as the analysis state above.
   const [downloadingPacket, setDownloadingPacket] = useState(false);
   const [packetError, setPacketError] = useState<string | null>(null);
+  // Which evidence-checklist category (Module 8) is currently expanded —
+  // single-open accordion, same unconditional-top placement as the state
+  // above. Also tracks the bulk "Upload Evidence" button's own real AI
+  // categorization pass (see handleBulkUploadEvidence below), distinct from
+  // uploadingEvidence (the actual upload itself).
+  const [expandedEvidenceItem, setExpandedEvidenceItem] = useState<string | null>(null);
+  const [categorizingEvidence, setCategorizingEvidence] = useState(false);
 
   if (m.requiresUserData) {
     const isNotApplicable = isModuleNotApplicable(overrides, "income");
@@ -5218,12 +5241,51 @@ function ModulePreviewContent({
     case "evidence": {
       const d = moduleState.data as ModuleResultMap["evidence"];
       const focus = d.items.filter((i) => i.importance === "High" && i.availability === "Low");
-      // Real protest-case evidence — same PROTEST_EVIDENCE_DOCUMENT_TYPE tag
-      // CaseDetailModal's own evidence-checklist upload uses, so a file
-      // uploaded from either path shows up here together.
+      // Real protest-case evidence — the generic PROTEST_EVIDENCE_DOCUMENT_TYPE
+      // tag CaseDetailModal's own evidence-checklist upload uses (so a file
+      // uploaded from either path shows up here together), PLUS anything
+      // uploaded straight into one of this module's own checklist categories
+      // below (`Evidence Category: <slug>`) — both are real protest evidence
+      // for this case, just tagged by how the user chose to upload them.
+      // "Analyze My Evidence"/the evidence packet should see all of it.
       const protestEvidenceDocs = evidenceDocs.filter(
-        (doc) => doc.documentType === PROTEST_EVIDENCE_DOCUMENT_TYPE,
+        (doc) =>
+          doc.documentType === PROTEST_EVIDENCE_DOCUMENT_TYPE ||
+          doc.documentType?.startsWith("Evidence Category: "),
       );
+
+      // Runs before the actual upload — reads each picked file's real
+      // content and matches it against this property's OWN current
+      // checklist (never a fixed taxonomy), so the generic bulk upload
+      // button below can tag files with the right category automatically
+      // instead of leaving them uncategorized. Never blocks the upload
+      // itself: if categorization fails, every file just uploads
+      // uncategorized, same as before this feature existed.
+      async function handleBulkUploadEvidence(files: File[]) {
+        setCategorizingEvidence(true);
+        try {
+          const categorized = await categorizeEvidenceUploads(
+            d.items.map((it) => it.item),
+            files,
+          );
+          const groups = new Map<string, File[]>();
+          for (const file of files) {
+            const matched = categorized.find((c) => c.fileName === file.name)?.matchedItem ?? null;
+            const key = matched ?? "";
+            const group = groups.get(key);
+            if (group) group.push(file);
+            else groups.set(key, [file]);
+          }
+          for (const [matchedItem, groupFiles] of groups) {
+            const documentType = matchedItem
+              ? `Evidence Category: ${evidenceItemSlug(matchedItem)}`
+              : PROTEST_EVIDENCE_DOCUMENT_TYPE;
+            await onUploadEvidence(groupFiles, undefined, documentType);
+          }
+        } finally {
+          setCategorizingEvidence(false);
+        }
+      }
 
       // Real AI read of the customer's own uploaded evidence — never
       // automatic, only from the explicit "Analyze My Evidence" click
@@ -5294,44 +5356,72 @@ function ModulePreviewContent({
             </div>
           )}
           <div className="grid gap-2">
-            {d.items.map((it, i) => (
-              <PriorityRow
-                key={i}
-                item={it.item}
-                importance={it.importance}
-                availability={it.availability}
-              />
-            ))}
+            {d.items.map((it) => {
+              const slug = evidenceItemSlug(it.item);
+              const uploadedForItem = protestEvidenceDocs.filter(
+                (doc) => doc.documentType === `Evidence Category: ${slug}`,
+              );
+              return (
+                <EvidenceCategoryRow
+                  key={it.item}
+                  it={it}
+                  uploadedDocs={uploadedForItem}
+                  expanded={expandedEvidenceItem === it.item}
+                  onToggleExpand={() =>
+                    setExpandedEvidenceItem((prev) => (prev === it.item ? null : it.item))
+                  }
+                  uploadingEvidence={uploadingEvidence}
+                  onUploadEvidence={(files) =>
+                    onUploadEvidence(files, undefined, `Evidence Category: ${slug}`)
+                  }
+                />
+              );
+            })}
           </div>
           {allowEvidenceUpload && (
             <div className="border-t border-border/60 pt-4 print:hidden">
               <div className="text-sm font-medium">Upload Evidence</div>
               <p className="text-xs text-muted-foreground">
-                Add documents to this property's protest evidence — the same files show up in your
-                case's evidence workspace.
+                Add documents in bulk — AI reads each one and sorts it into the matching category
+                above automatically. Anything that doesn't clearly match stays here, uncategorized.
               </p>
               {protestEvidenceDocs.length > 0 && (
                 <ul className="mt-2 grid gap-1 text-xs text-muted-foreground">
-                  {protestEvidenceDocs.map((doc) => (
-                    <li key={doc.id}>{doc.fileName}</li>
-                  ))}
+                  {protestEvidenceDocs.map((doc) => {
+                    const categorySlug = doc.documentType?.startsWith("Evidence Category: ")
+                      ? doc.documentType.slice("Evidence Category: ".length)
+                      : null;
+                    const category = categorySlug
+                      ? (d.items.find((it) => evidenceItemSlug(it.item) === categorySlug)?.item ??
+                        null)
+                      : null;
+                    return (
+                      <li key={doc.id}>
+                        {doc.fileName}
+                        {category && <span className="text-foreground/70"> — {category}</span>}
+                      </li>
+                    );
+                  })}
                 </ul>
               )}
               <label
-                className={`mt-3 inline-flex btn-outline text-sm cursor-pointer ${uploadingEvidence ? "pointer-events-none opacity-60" : ""}`}
+                className={`mt-3 inline-flex btn-outline text-sm cursor-pointer ${uploadingEvidence || categorizingEvidence ? "pointer-events-none opacity-60" : ""}`}
               >
-                {uploadingEvidence ? "Uploading…" : "Upload Evidence"}
+                {categorizingEvidence
+                  ? "Sorting your documents…"
+                  : uploadingEvidence
+                    ? "Uploading…"
+                    : "Upload Evidence"}
                 <input
                   type="file"
                   accept="image/*,.pdf"
                   multiple
                   className="hidden"
-                  disabled={uploadingEvidence}
+                  disabled={uploadingEvidence || categorizingEvidence}
                   onChange={(e) => {
                     const selected = e.target.files ? Array.from(e.target.files) : [];
                     e.target.value = "";
-                    if (selected.length > 0)
-                      onUploadEvidence(selected, undefined, PROTEST_EVIDENCE_DOCUMENT_TYPE);
+                    if (selected.length > 0) handleBulkUploadEvidence(selected);
                   }}
                 />
               </label>
@@ -5950,29 +6040,113 @@ function ChecklistSteps({ items, color }: { items: string[]; color: IconColor })
   );
 }
 
-function PriorityRow({
-  item,
-  importance,
-  availability,
+// One row of Module 8's evidence checklist — expandable to show real,
+// AI-suggested document types that would satisfy this specific category
+// (see MODULE_SPECS.evidence's documentSuggestions), each with its own
+// scoped Upload button (tags the file with THIS category directly via
+// evidenceItemSlug, no separate categorization pass needed — that's only
+// for the generic bulk upload button, which doesn't know the category up
+// front). Already-uploaded documents tagged to this category are listed
+// too, so the user can see at a glance what's covered vs. still needed.
+function EvidenceCategoryRow({
+  it,
+  uploadedDocs,
+  expanded,
+  onToggleExpand,
+  uploadingEvidence,
+  onUploadEvidence,
 }: {
-  item: string;
-  importance: "High" | "Low";
-  availability: "High" | "Low";
+  it: ModuleResultMap["evidence"]["items"][number];
+  uploadedDocs: DocumentRecord[];
+  expanded: boolean;
+  onToggleExpand: () => void;
+  uploadingEvidence: boolean;
+  onUploadEvidence: (files: File[]) => void;
 }) {
   const tone =
-    importance === "High" && availability === "Low"
+    it.importance === "High" && it.availability === "Low"
       ? { bg: "bg-destructive/10", text: "text-destructive", label: "Top Priority" }
-      : importance === "High"
+      : it.importance === "High"
         ? { bg: "bg-warning/15", text: "text-warning-foreground", label: "High Priority" }
         : { bg: "bg-secondary/60", text: "text-muted-foreground", label: null };
+
   return (
-    <div className={`min-w-0 flex items-center gap-3 rounded-lg p-3 ${tone.bg}`}>
-      {tone.label && (
-        <span className={`shrink-0 text-[10px] font-bold uppercase ${tone.text}`}>
-          {tone.label}
-        </span>
+    <div className={`min-w-0 rounded-lg ${tone.bg}`}>
+      <button
+        type="button"
+        onClick={onToggleExpand}
+        className="flex w-full min-w-0 items-center gap-2 p-3 text-left"
+      >
+        {tone.label && (
+          <span className={`shrink-0 text-[10px] font-bold uppercase ${tone.text}`}>
+            {tone.label}
+          </span>
+        )}
+        <span className="min-w-0 flex-1 text-sm">{it.item}</span>
+        {uploadedDocs.length > 0 && (
+          <span className="shrink-0 whitespace-nowrap rounded-full bg-success/15 px-1.5 py-0.5 text-[9px] font-semibold text-success">
+            {uploadedDocs.length} uploaded
+          </span>
+        )}
+        <ChevronDown
+          className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${expanded ? "rotate-180" : ""}`}
+        />
+      </button>
+
+      {expanded && (
+        <div className="grid gap-2 border-t border-black/5 px-3 pb-3 pt-2.5">
+          {uploadedDocs.length > 0 && (
+            <ul className="grid gap-1 text-xs text-muted-foreground">
+              {uploadedDocs.map((doc) => (
+                <li key={doc.id} className="flex items-center gap-1.5">
+                  <CheckCircle2 className="h-3 w-3 shrink-0 text-success" />
+                  <span className="min-w-0 truncate">{doc.fileName}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+          {it.documentSuggestions.length === 0 ? (
+            <p className="text-xs text-muted-foreground">
+              No specific document suggestions for this item — use the Upload Evidence section
+              below.
+            </p>
+          ) : (
+            it.documentSuggestions.map((s, i) => (
+              <div
+                key={i}
+                className="rounded-md border border-border bg-background/70 p-2.5 text-xs"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <span className="min-w-0 font-semibold">{s.documentName}</span>
+                  <label
+                    className={`shrink-0 whitespace-nowrap text-accent hover:underline ${uploadingEvidence ? "pointer-events-none opacity-60" : "cursor-pointer"}`}
+                  >
+                    {uploadingEvidence ? "Uploading…" : "Upload →"}
+                    <input
+                      type="file"
+                      accept="image/*,.pdf"
+                      multiple
+                      className="hidden"
+                      disabled={uploadingEvidence}
+                      onChange={(e) => {
+                        const selected = e.target.files ? Array.from(e.target.files) : [];
+                        e.target.value = "";
+                        if (selected.length > 0) onUploadEvidence(selected);
+                      }}
+                    />
+                  </label>
+                </div>
+                {s.whatToInclude && <p className="mt-1 text-muted-foreground">{s.whatToInclude}</p>}
+                {s.whereToObtain && (
+                  <p className="mt-1 text-[10px] font-medium text-muted-foreground">
+                    Where to get it: {s.whereToObtain}
+                  </p>
+                )}
+              </div>
+            ))
+          )}
+        </div>
       )}
-      <span className="min-w-0 flex-1 text-sm">{item}</span>
     </div>
   );
 }

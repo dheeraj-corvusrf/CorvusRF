@@ -195,7 +195,17 @@ export type ModuleResultMap = {
     typicalClassification: string;
   };
   evidence: {
-    items: { item: string; importance: "High" | "Low"; availability: "High" | "Low" }[];
+    items: {
+      item: string;
+      importance: "High" | "Low";
+      availability: "High" | "Low";
+      // Real, concrete suggestions for what to upload to satisfy this
+      // checklist item — see MODULE_SPECS.evidence in the edge function.
+      // whereToObtain is always a general source TYPE (the CAD, a
+      // surveyor, a licensed appraiser, etc.), never a specific vendor/
+      // URL the AI can't actually verify.
+      documentSuggestions: { documentName: string; whatToInclude: string; whereToObtain: string }[];
+    }[];
   };
   // Recommendation/basis/nextStep kept for backward compatibility with any
   // stale cached shape — the real UI (ai-report.tsx's "executive" cases)

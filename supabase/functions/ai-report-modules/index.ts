@@ -244,9 +244,29 @@ const strategies = (v: unknown) =>
         .slice(0, 6)
     : [];
 
+const evidenceDocumentSuggestions = (
+  v: unknown,
+): { documentName: string; whatToInclude: string; whereToObtain: string }[] =>
+  Array.isArray(v)
+    ? v
+        .filter((x): x is Record<string, unknown> => typeof x === "object" && x !== null)
+        .map((x) => ({
+          documentName: str(x.documentName, 70),
+          whatToInclude: str(x.whatToInclude, 160),
+          whereToObtain: str(x.whereToObtain, 160),
+        }))
+        .filter((x) => x.documentName.length > 0)
+        .slice(0, 4)
+    : [];
+
 const evidenceItems = (
   v: unknown,
-): { item: string; importance: "High" | "Low"; availability: "High" | "Low" }[] =>
+): {
+  item: string;
+  importance: "High" | "Low";
+  availability: "High" | "Low";
+  documentSuggestions: { documentName: string; whatToInclude: string; whereToObtain: string }[];
+}[] =>
   Array.isArray(v)
     ? v
         .filter((x): x is Record<string, unknown> => typeof x === "object" && x !== null)
@@ -254,6 +274,7 @@ const evidenceItems = (
           item: String(x.item ?? "").slice(0, 120),
           importance: x.importance === "High" ? ("High" as const) : ("Low" as const),
           availability: x.availability === "High" ? ("High" as const) : ("Low" as const),
+          documentSuggestions: evidenceDocumentSuggestions(x.documentSuggestions),
         }))
         .filter((x) => x.item.length > 0)
         .slice(0, 6)
@@ -724,8 +745,20 @@ const MODULE_SPECS: Record<string, ModuleSpec> = {
       "effort (a photo, a bill), Low for something that takes real work to get (a certified " +
       "appraisal, a rent roll). This checklist feeds a real completeness score shown to the user — " +
       "given the same property record, always select the same real evidence types and classify them " +
-      "the same way, not a different list each time.",
-    schema: `{"items": [{"item": "<short item>", "importance": "<High | Low>", "availability": "<High | Low>"}, ...]}`,
+      "the same way, not a different list each time. For EACH item, also give 1-3 concrete " +
+      "documentSuggestions the owner could actually upload to satisfy it: documentName is a short " +
+      'real document type (e.g. "Independent Fee Appraisal Report", "Site Photos — Utility ' +
+      'Meter Locations"), whatToInclude is one plain sentence on what the document should actually ' +
+      "show or state, and whereToObtain names a REAL, GENERAL source type for this kind of document " +
+      "— never a specific company/URL/portal you can't verify — using only these kinds of sources: " +
+      "the county appraisal district (CAD) website or office, a licensed land surveyor, a licensed " +
+      "property appraiser (MAI), the property owner's own records, the city or county " +
+      "planning/zoning department, a general contractor or licensed inspector, or the owner's own " +
+      "camera/phone (for photos). Never invent a specific named vendor, website, or phone number.",
+    schema:
+      `{"items": [{"item": "<short item>", "importance": "<High | Low>", "availability": "<High | Low>", ` +
+      `"documentSuggestions": [{"documentName": "<short document type>", "whatToInclude": ` +
+      `"<one sentence>", "whereToObtain": "<a general real source type>"}, ...]}, ...]}`,
     parse: (p) => ({ items: evidenceItems(p.items) }),
   },
   executive: {
