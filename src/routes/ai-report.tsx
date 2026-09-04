@@ -1141,7 +1141,7 @@ function Report() {
               <p className="mt-1 font-serif text-lg sm:text-xl">
                 Preparing your property valuation review...
               </p>
-            ) : (
+            ) : estimated.savings >= 1 ? (
               <>
                 <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-primary-foreground/70">
                   Estimated tax savings this year
@@ -1164,6 +1164,22 @@ function Report() {
                 >
                   <TrendingUp className="h-8 w-8 shrink-0 sm:h-10 sm:w-10 lg:h-14 lg:w-14" />
                   <AnimatedNumber value={estimated.savings} format={currency} duration={900} />
+                </p>
+              </>
+            ) : (
+              // Same reasoning as intake.tsx's Savings step — a real analysis
+              // that lands on (near-)$0 isn't a failure, it means this
+              // property's own assessed value already looks in line with real
+              // comps/protest-outcome data. >= 1, not > 0: currency() rounds
+              // to whole dollars, so a positive-but-sub-$1 amount would
+              // otherwise still render as a bare, confusing "$0" hero.
+              <>
+                <p className="mt-2 font-serif text-2xl font-bold text-accent sm:text-3xl">
+                  Good news!
+                </p>
+                <p className="mt-2 max-w-md text-sm text-primary-foreground/80">
+                  Your property appears to be fairly assessed. We found little or no opportunity for
+                  additional tax savings this year.
                 </p>
               </>
             )}
@@ -4362,6 +4378,26 @@ function ModulePreviewContent({
   if (m.id === "savings") {
     const current = state.totalValue ?? 0;
     const reduced = Math.max(0, current - estimated.reduction);
+    // Same >= 1 threshold and reasoning as the page's own top banner and
+    // intake.tsx's Savings step — a real analysis landing on (near-)$0 isn't
+    // a failure, and currency() rounding a sub-$1 amount down to "$0" would
+    // otherwise still read as one.
+    if (estimated.savings < 1) {
+      return (
+        <div className="mt-4 grid gap-3">
+          <div className="text-center">
+            <p className="font-serif text-xl font-bold text-success">Good news!</p>
+            <p className="mx-auto mt-2 max-w-sm text-sm text-muted-foreground">
+              Your property appears to be fairly assessed. We found little or no opportunity for
+              additional tax savings this year.
+            </p>
+          </div>
+          <p className="text-center text-xs text-muted-foreground">
+            {estimated.rationale ?? "Based on your county's real effective tax rate."}
+          </p>
+        </div>
+      );
+    }
     return (
       <div className="mt-4 grid gap-3">
         <div className="text-center">
@@ -4373,11 +4409,9 @@ function ModulePreviewContent({
           </div>
         </div>
         <ValueComparisonChart current={current} reduced={reduced} />
-        {estimated.savings > 0 && (
-          <div className="flex justify-center">
-            <CostBenefitRow savings={estimated.savings} />
-          </div>
-        )}
+        <div className="flex justify-center">
+          <CostBenefitRow savings={estimated.savings} />
+        </div>
         <p className="text-center text-xs text-muted-foreground">
           {estimated.rationale ?? "Based on your county's real effective tax rate."}
         </p>
