@@ -6,7 +6,6 @@ import { listProperties, type PropertyRecord } from "@/lib/properties";
 import { listProtests, type ProtestRecord } from "@/lib/protests";
 import { getPropertyProtestStatus, type ActionStatus } from "@/lib/portfolio-status";
 import { currency } from "@/lib/intake-store";
-import { CaseDetailModal } from "@/components/CaseDetailModal";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export const Route = createFileRoute("/property-protest")({
@@ -30,7 +29,6 @@ function Page() {
   const [properties, setProperties] = useState<PropertyRecord[]>([]);
   const [protests, setProtests] = useState<ProtestRecord[]>([]);
   const [dataLoading, setDataLoading] = useState(true);
-  const [caseProperty, setCaseProperty] = useState<PropertyRecord | null>(null);
 
   useEffect(() => {
     if (!user) {
@@ -86,19 +84,9 @@ function Page() {
               property={p}
               protest={protests.find((pr) => pr.propertyId === p.id)!}
               delay={Math.min(i, 8) * 60}
-              onViewCase={() => setCaseProperty(p)}
             />
           ))}
         </div>
-
-        {caseProperty && user && (
-          <CaseDetailModal
-            userId={user.id}
-            property={caseProperty}
-            protest={protests.find((pr) => pr.propertyId === caseProperty.id)!}
-            onClose={() => setCaseProperty(null)}
-          />
-        )}
       </div>
     );
   }
@@ -173,12 +161,10 @@ function ProtestedPropertyCard({
   property,
   protest,
   delay,
-  onViewCase,
 }: {
   property: PropertyRecord;
   protest: ProtestRecord;
   delay: number;
-  onViewCase: () => void;
 }) {
   const { status, label } = getPropertyProtestStatus(property, [protest]);
   return (
@@ -200,9 +186,15 @@ function ProtestedPropertyCard({
         </div>
       </div>
       <div className="mt-4 flex flex-wrap gap-2">
-        <button onClick={onViewCase} className="btn-outline">
+        <Link
+          to="/dashboard/case"
+          search={{ propertyId: property.id }}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="btn-outline"
+        >
           View Case
-        </button>
+        </Link>
         <Link to="/dashboard/properties" className="btn-outline">
           Manage
         </Link>

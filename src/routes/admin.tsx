@@ -21,6 +21,8 @@ import {
   listBetaLeads,
   markBetaLeadInvited,
   deleteBetaLead,
+  listInvitedUsers,
+  resendInvite,
   PLAN_OPTIONS,
   PROTEST_STATUS_OPTIONS,
   type AdminUserRecord,
@@ -30,6 +32,7 @@ import {
   type CaseSummaryResult,
   type AdminAuditEntry,
   type BetaLead,
+  type InvitedUserRecord,
 } from "@/lib/admin";
 import type { ProtestRecord, ProtestStatus } from "@/lib/protests";
 import { listProperties, addProperty, deleteProperty, type PropertyRecord } from "@/lib/properties";
@@ -46,7 +49,7 @@ export const Route = createFileRoute("/admin")({
   component: AdminPanel,
 });
 
-type AdminTab = "users" | "beta" | "activity";
+type AdminTab = "users" | "invited" | "beta" | "activity";
 
 function AdminPanel() {
   const nav = useNavigate();
@@ -57,6 +60,8 @@ function AdminPanel() {
   const [usersLoading, setUsersLoading] = useState(true);
   const [usersError, setUsersError] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(new Set());
+  const [bulkDeleting, setBulkDeleting] = useState(false);
 
   const [protests, setProtests] = useState<AdminProtestRecord[]>([]);
   const [protestsLoading, setProtestsLoading] = useState(true);
@@ -68,6 +73,9 @@ function AdminPanel() {
 
   const [betaLeads, setBetaLeads] = useState<BetaLead[]>([]);
   const [betaLeadsLoading, setBetaLeadsLoading] = useState(true);
+
+  const [invitedUsers, setInvitedUsers] = useState<InvitedUserRecord[]>([]);
+  const [invitedUsersLoading, setInvitedUsersLoading] = useState(true);
 
   useEffect(() => {
     if (loading) return;
@@ -104,6 +112,11 @@ function AdminPanel() {
       .then(setBetaLeads)
       .catch((err) => console.error(err))
       .finally(() => setBetaLeadsLoading(false));
+    setInvitedUsersLoading(true);
+    listInvitedUsers()
+      .then(setInvitedUsers)
+      .catch((err) => console.error(err))
+      .finally(() => setInvitedUsersLoading(false));
     refreshAuditLog();
   }
 
@@ -202,6 +215,47 @@ function AdminPanel() {
     }
   }
 
+  // Sequential (not Promise.all), same reasoning as BulkInviteForm's send
+  // loop — one failure's error stays attributable to its own user instead of
+  // racing every delete at once, and a partial failure still deletes
+  // everyone it got through rather than rolling back on the first error.
+  async function handleBulkDeleteUsers() {
+    const ids = [...selectedUserIds];
+    if (ids.length === 0) return;
+    if (
+      !window.confirm(
+        `Delete ${ids.length} user${ids.length === 1 ? "" : "s"}? This removes their accounts, properties, and profiles permanently.`,
+      )
+    ) {
+      return;
+    }
+    setBulkDeleting(true);
+    const succeededIds = new Set<string>();
+    const failures: string[] = [];
+    for (const id of ids) {
+      try {
+        await deleteUserAccount(id);
+        succeededIds.add(id);
+      } catch (err) {
+        const email = users.find((u) => u.id === id)?.email ?? id;
+        failures.push(`${email} — ${err instanceof Error ? err.message : "failed"}`);
+      }
+    }
+    setUsers((prev) => prev.filter((u) => !succeededIds.has(u.id)));
+    setSelectedUserIds(new Set());
+    setBulkDeleting(false);
+    refreshAuditLog();
+    if (failures.length === 0) {
+      toast.success(`${succeededIds.size} user${succeededIds.size === 1 ? "" : "s"} deleted.`);
+    } else if (succeededIds.size > 0) {
+      toast.error(
+        `${succeededIds.size} deleted, ${failures.length} failed: ${failures.join("; ")}`,
+      );
+    } else {
+      toast.error(`Could not delete: ${failures.join("; ")}`);
+    }
+  }
+
   // Opens a new tab signed in as the target user via a real one-time Supabase
   // login link — this tab's own admin session is untouched. window.open() is
   // called synchronously in the click handler (before the await resolves) to
@@ -233,8 +287,18 @@ function AdminPanel() {
 
   if (loading || !user || !isAdmin) return null;
 
+  // Excludes yourself — same self-protection as the single-row Delete User
+  // button (isSelf), just applied to "select all" and bulk delete too, so
+  // there's no way to bulk-delete your own account from this list.
+  const selectableUserIds = users.filter((u) => u.id !== user.id).map((u) => u.id);
+
   const TABS: { key: AdminTab; label: string; count: number | null }[] = [
     { key: "users", label: "Users", count: usersLoading ? null : users.length },
+    {
+      key: "invited",
+      label: "Invited Users",
+      count: invitedUsersLoading ? null : invitedUsers.length,
+    },
     { key: "beta", label: "Beta Signups", count: betaLeadsLoading ? null : betaLeads.length },
     { key: "activity", label: "Activity Log", count: auditLogLoading ? null : auditLog.length },
   ];
@@ -277,21 +341,66 @@ function AdminPanel() {
 
       {activeTab === "users" && (
         <div className="mt-8">
-          <h2 className="font-serif text-xl font-semibold">Users</h2>
+          <div className="flex flex-wrap items-baseline gap-2">
+            <h2 className="font-serif text-xl font-semibold">Users</h2>
+            {!usersLoading && (
+              <span className="badge-soft">
+                {users.length} total user{users.length === 1 ? "" : "s"}
+              </span>
+            )}
+          </div>
           <p className="text-sm text-muted-foreground">
             Manage every user, their properties, and their plan.
           </p>
 
-          <AddUserForm
-            onCreated={(u) => {
-              setUsers((prev) => [u, ...prev]);
-              refreshAuditLog();
-            }}
-          />
+          <div className="mt-6 grid gap-3">
+            <AddUserForm onSent={refreshAll} />
+            <BulkInviteForm onSent={refreshAll} />
+          </div>
 
           {usersError && <p className="mt-4 text-sm text-destructive">{usersError}</p>}
 
-          <div className="mt-6 grid gap-4">
+          {!usersLoading && users.length > 0 && (
+            <div className="mt-6 flex flex-wrap items-center gap-3 text-sm">
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={
+                    selectableUserIds.length > 0 &&
+                    selectableUserIds.every((id) => selectedUserIds.has(id))
+                  }
+                  onChange={(e) =>
+                    setSelectedUserIds(e.target.checked ? new Set(selectableUserIds) : new Set())
+                  }
+                />
+                Select all
+              </label>
+              {selectedUserIds.size > 0 && (
+                <>
+                  <span className="text-muted-foreground">{selectedUserIds.size} selected</span>
+                  <button
+                    type="button"
+                    onClick={handleBulkDeleteUsers}
+                    disabled={bulkDeleting}
+                    className="btn-outline text-xs text-destructive disabled:opacity-60"
+                  >
+                    {bulkDeleting
+                      ? "Deleting…"
+                      : `Delete ${selectedUserIds.size} User${selectedUserIds.size === 1 ? "" : "s"}`}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedUserIds(new Set())}
+                    className="text-xs text-muted-foreground hover:text-foreground"
+                  >
+                    Clear selection
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+
+          <div className="mt-4 grid gap-4">
             {usersLoading ? (
               <>
                 <UserRowSkeleton />
@@ -304,6 +413,15 @@ function AdminPanel() {
                   key={u.id}
                   record={u}
                   isSelf={u.id === user.id}
+                  selected={selectedUserIds.has(u.id)}
+                  onToggleSelect={() =>
+                    setSelectedUserIds((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(u.id)) next.delete(u.id);
+                      else next.add(u.id);
+                      return next;
+                    })
+                  }
                   expanded={expandedId === u.id}
                   onToggleExpand={() => setExpandedId(expandedId === u.id ? null : u.id)}
                   onPlanChange={(plan) => handlePlanChange(u.id, plan)}
@@ -325,6 +443,27 @@ function AdminPanel() {
             )}
           </div>
         </div>
+      )}
+
+      {activeTab === "invited" && (
+        <section className="mt-8">
+          <h2 className="font-serif text-xl font-semibold">Invited Users</h2>
+          <p className="text-sm text-muted-foreground">
+            Sent a sign-up link, haven't finished creating their account yet — no account exists for
+            anyone here. Drops off this list automatically the moment they actually sign up.
+          </p>
+          <div className="mt-4 grid gap-2">
+            {invitedUsersLoading ? (
+              <PropertyRowSkeleton />
+            ) : invitedUsers.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No pending invites.</p>
+            ) : (
+              invitedUsers.map((invite) => (
+                <InvitedUserRow key={invite.id} invite={invite} onResent={refreshAll} />
+              ))
+            )}
+          </div>
+        </section>
       )}
 
       {activeTab === "beta" && (
@@ -387,12 +526,12 @@ function AdminPanel() {
   );
 }
 
-function AddUserForm({ onCreated }: { onCreated: (u: AdminUserRecord) => void }) {
+function AddUserForm({ onSent }: { onSent: () => void }) {
   const [open, setOpen] = useState(false);
   const [email, setEmail] = useState("");
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
-  const [phone, setPhone] = useState("");
+  const [wantsBeta, setWantsBeta] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -401,16 +540,14 @@ function AddUserForm({ onCreated }: { onCreated: (u: AdminUserRecord) => void })
     setError(null);
     setSubmitting(true);
     try {
-      await createUserAccount({ email, firstName, lastName, phone });
-      const updated = await listAllUsers();
-      const created = updated.find((u) => u.email === email);
-      if (created) onCreated(created);
-      toast.success("Invite sent.");
+      await createUserAccount({ email, firstName, lastName, wantsBeta });
+      onSent();
+      toast.success("Invite sent — no account created until they sign up.");
       setOpen(false);
       setEmail("");
       setFirstName("");
       setLastName("");
-      setPhone("");
+      setWantsBeta(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not send the invite.");
     } finally {
@@ -420,14 +557,14 @@ function AddUserForm({ onCreated }: { onCreated: (u: AdminUserRecord) => void })
 
   if (!open) {
     return (
-      <button onClick={() => setOpen(true)} className="btn-primary btn-primary-hover mt-6">
+      <button onClick={() => setOpen(true)} className="btn-primary btn-primary-hover w-fit">
         Invite User
       </button>
     );
   }
 
   return (
-    <form onSubmit={onSubmit} className="mt-6 card-elev p-6 grid gap-4 sm:grid-cols-2 max-w-2xl">
+    <form onSubmit={onSubmit} className="card-elev p-6 grid gap-4 sm:grid-cols-2 max-w-2xl">
       <label className="grid gap-1 text-sm">
         <span className="font-medium">
           First Name<span className="text-destructive"> *</span>
@@ -462,20 +599,17 @@ function AddUserForm({ onCreated }: { onCreated: (u: AdminUserRecord) => void })
           className="rounded-md border border-input bg-background px-3 py-2"
         />
       </label>
-      <label className="grid gap-1 text-sm">
-        <span className="font-medium">
-          Phone<span className="text-destructive"> *</span>
-        </span>
+      <label className="sm:col-span-2 flex items-center gap-2 text-sm">
         <input
-          required
-          value={phone}
-          onChange={(e) => setPhone(e.target.value)}
-          className="rounded-md border border-input bg-background px-3 py-2"
+          type="checkbox"
+          checked={wantsBeta}
+          onChange={(e) => setWantsBeta(e.target.checked)}
         />
+        Grant beta access (free, full access)
       </label>
       <p className="sm:col-span-2 text-xs text-muted-foreground">
-        We'll email them a link to confirm their address and set their own password — you never
-        choose or see it.
+        We'll email them a real sign-up link — no account is created until they actually finish
+        signing up themselves, with their own password or Google.
       </p>
       {error && <p className="sm:col-span-2 text-sm text-destructive">{error}</p>}
       <div className="sm:col-span-2 flex gap-2">
@@ -487,6 +621,152 @@ function AddUserForm({ onCreated }: { onCreated: (u: AdminUserRecord) => void })
         </button>
       </div>
     </form>
+  );
+}
+
+// Loose enough to pull a real address out of whatever separator the admin's
+// paste used — newline, space, comma, semicolon, tab, or just run together —
+// without requiring any particular one. Anything before/after that doesn't
+// match isn't a real address and is silently dropped rather than guessed at.
+const EMAIL_TOKEN = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
+
+function parseEmails(raw: string): string[] {
+  const found = raw.match(EMAIL_TOKEN) ?? [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const e of found) {
+    const lower = e.toLowerCase();
+    if (!seen.has(lower)) {
+      seen.add(lower);
+      out.push(lower);
+    }
+  }
+  return out;
+}
+
+type BulkResult = { email: string; ok: boolean; detail: string };
+
+// Paste-a-blob-of-addresses alternative to AddUserForm above, for inviting
+// many people at once (e.g. a batch of beta-access approvals) without one
+// form submission per person. Same real createUserAccount/admin-create-user
+// path as a single invite — just looped, sequentially (not Promise.all) so
+// one failure's error message stays attributable to its own address instead
+// of racing every send at once against Supabase.
+function BulkInviteForm({ onSent }: { onSent: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [raw, setRaw] = useState("");
+  const [wantsBeta, setWantsBeta] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [results, setResults] = useState<BulkResult[] | null>(null);
+
+  const parsed = parseEmails(raw);
+
+  async function onSend() {
+    if (parsed.length === 0) return;
+    setSending(true);
+    setResults(null);
+    const outcomes: BulkResult[] = [];
+    for (const email of parsed) {
+      try {
+        await createUserAccount({ email, firstName: "", lastName: "", wantsBeta });
+        outcomes.push({ email, ok: true, detail: "Invite sent" });
+      } catch (err) {
+        outcomes.push({
+          email,
+          ok: false,
+          detail: err instanceof Error ? err.message : "Failed",
+        });
+      }
+    }
+    setResults(outcomes);
+    setSending(false);
+    const successEmails = new Set(outcomes.filter((o) => o.ok).map((o) => o.email));
+    if (successEmails.size > 0) onSent();
+    const failCount = outcomes.length - successEmails.size;
+    if (successEmails.size > 0 && failCount === 0) {
+      toast.success(`${successEmails.size} invite${successEmails.size === 1 ? "" : "s"} sent.`);
+    } else if (successEmails.size > 0) {
+      toast.success(`${successEmails.size} sent, ${failCount} failed — see details below.`);
+    } else {
+      toast.error("No invites sent — see details below.");
+    }
+  }
+
+  function reset() {
+    setOpen(false);
+    setRaw("");
+    setResults(null);
+  }
+
+  if (!open) {
+    return (
+      <button onClick={() => setOpen(true)} className="btn-outline w-fit">
+        Bulk Invite
+      </button>
+    );
+  }
+
+  return (
+    <div className="card-elev p-6 grid gap-4 max-w-2xl">
+      <div>
+        <span className="font-medium text-sm">Paste email addresses</span>
+        <p className="text-xs text-muted-foreground">
+          One per line, or separated by spaces, commas, or semicolons — any mix is fine. Anything
+          that isn't a real address is ignored.
+        </p>
+        <textarea
+          value={raw}
+          onChange={(e) => {
+            setRaw(e.target.value);
+            setResults(null);
+          }}
+          rows={6}
+          placeholder={"jane@example.com\njohn@example.com, sam@example.com"}
+          className="mt-2 w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono"
+        />
+      </div>
+
+      <label className="flex items-center gap-2 text-sm">
+        <input
+          type="checkbox"
+          checked={wantsBeta}
+          onChange={(e) => setWantsBeta(e.target.checked)}
+        />
+        Grant beta access (free, full access) to everyone invited here
+      </label>
+
+      <p className="text-xs text-muted-foreground">
+        {parsed.length === 0
+          ? "No valid addresses found yet."
+          : `${parsed.length} address${parsed.length === 1 ? "" : "es"} recognized.`}
+      </p>
+
+      {results && (
+        <div className="grid gap-1 text-xs max-h-48 overflow-y-auto rounded-md border border-border p-3">
+          {results.map((r) => (
+            <div key={r.email} className={r.ok ? "text-success" : "text-destructive"}>
+              {r.ok ? "✓" : "✕"} {r.email} — {r.detail}
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={onSend}
+          disabled={sending || parsed.length === 0}
+          className="btn-primary btn-primary-hover disabled:opacity-60"
+        >
+          {sending
+            ? "Sending…"
+            : `Send ${parsed.length || ""} Invite${parsed.length === 1 ? "" : "s"}`}
+        </button>
+        <button type="button" onClick={reset} className="btn-outline">
+          {results ? "Done" : "Cancel"}
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -743,6 +1023,8 @@ function ProtestRow({
 function UserRow({
   record,
   isSelf,
+  selected,
+  onToggleSelect,
   expanded,
   onToggleExpand,
   onPlanChange,
@@ -760,6 +1042,8 @@ function UserRow({
 }: {
   record: AdminUserRecord;
   isSelf: boolean;
+  selected: boolean;
+  onToggleSelect: () => void;
   expanded: boolean;
   onToggleExpand: () => void;
   onPlanChange: (plan: PlanValue) => void;
@@ -783,20 +1067,34 @@ function UserRow({
   return (
     <div className="card-elev row-hover p-6" style={{ animationDelay: `${delayMs}ms` }}>
       <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div>
-          <h3 className="font-serif text-lg font-semibold">
-            {record.firstName} {record.lastName}
-            {isSelf && <span className="ml-2 text-xs text-muted-foreground">(you)</span>}
-            {record.isAdmin && (
-              <span className="ml-2 badge-soft text-[10px] align-middle">Admin</span>
-            )}
-          </h3>
-          <p className="text-sm text-muted-foreground">
-            {record.email} • {record.phone}
-          </p>
-          <p className="text-xs text-muted-foreground mt-1">
-            Joined {new Date(record.createdAt).toLocaleDateString()}
-          </p>
+        <div className="flex items-start gap-3">
+          {/* Hidden for yourself — same self-protection as the single-row
+              Delete User button below; you can't select your own account
+              for bulk delete either. */}
+          {!isSelf && (
+            <input
+              type="checkbox"
+              checked={selected}
+              onChange={onToggleSelect}
+              className="mt-1.5"
+              aria-label={`Select ${record.email}`}
+            />
+          )}
+          <div>
+            <h3 className="font-serif text-lg font-semibold">
+              {record.firstName} {record.lastName}
+              {isSelf && <span className="ml-2 text-xs text-muted-foreground">(you)</span>}
+              {record.isAdmin && (
+                <span className="ml-2 badge-soft text-[10px] align-middle">Admin</span>
+              )}
+            </h3>
+            <p className="text-sm text-muted-foreground">
+              {record.email} • {record.phone}
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">
+              Joined {new Date(record.createdAt).toLocaleDateString()}
+            </p>
+          </div>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <select
@@ -1056,12 +1354,11 @@ function BetaLeadRow({
   const [inviting, setInviting] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
-  // Real account invite via the same admin-create-user edge function/
-  // inviteUserByEmail flow AddUserForm above uses — Supabase's own invite
-  // email carries the actual link into the app, not a second bespoke email
-  // system. Splits the lead's one free-text name into first/last since
-  // createUserAccount (like the rest of the app) expects them separately;
-  // a single-word name becomes both.
+  // Same real sign-up-link invite AddUserForm above uses — no account is
+  // created here, just a real branded email with a prefilled sign-up link
+  // (see createUserAccount in src/lib/admin.ts). Splits the lead's one
+  // free-text name into first/last since createUserAccount expects them
+  // separately; a single-word name becomes both.
   async function handleInvite() {
     setInviting(true);
     try {
@@ -1073,7 +1370,6 @@ function BetaLeadRow({
         email: lead.workEmail,
         firstName,
         lastName,
-        phone: "",
         wantsBeta: true,
       });
       const invitedAt = await markBetaLeadInvited(lead.id);
@@ -1151,6 +1447,58 @@ function BetaLeadRow({
         {lead.areaOfInterest}
       </div>
       {lead.useCase && <div className="mt-1 text-xs text-muted-foreground">"{lead.useCase}"</div>}
+    </div>
+  );
+}
+
+function InvitedUserRow({ invite, onResent }: { invite: InvitedUserRecord; onResent: () => void }) {
+  const [resending, setResending] = useState(false);
+  const name = [invite.firstName, invite.lastName].filter(Boolean).join(" ");
+
+  async function handleResend() {
+    setResending(true);
+    try {
+      await resendInvite(invite);
+      onResent();
+      toast.success(`Invite resent to ${invite.email}.`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not resend the invite.");
+    } finally {
+      setResending(false);
+    }
+  }
+
+  return (
+    <div className="rounded-md bg-secondary/40 px-3 py-2 text-sm">
+      <div className="flex items-start justify-between gap-2 flex-wrap">
+        <div className="min-w-0 flex-1">
+          {name && <span className="font-medium">{name}</span>}
+          <div className="flex items-center gap-1 text-xs text-muted-foreground">
+            {invite.email}
+            <CopyButton value={invite.email} label="Email copied" />
+            {invite.wantsBeta && <span className="badge-soft ml-1">Beta</span>}
+          </div>
+        </div>
+        <div className="flex shrink-0 items-start gap-3">
+          <div className="text-right text-xs text-muted-foreground">
+            <div>Invited {new Date(invite.invitedAt).toLocaleDateString()}</div>
+            {invite.resendCount > 0 && (
+              <div>
+                Resent {invite.resendCount}× — last{" "}
+                {new Date(invite.lastSentAt).toLocaleDateString()}
+              </div>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={handleResend}
+            disabled={resending}
+            className="btn-outline text-xs disabled:opacity-60"
+          >
+            {resending ? "Sending…" : "Resend Invite"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

@@ -18,7 +18,49 @@ alter table public.profiles drop column if exists full_name;
 -- sources for properties already owned under that name (see cad-owner-search).
 alter table public.profiles add column if not exists company_name text;
 
+-- Opaque, unguessable token identifying this user's calendar in the public
+-- calendar-feed edge function (see supabase/functions/calendar-feed) — the
+-- webcal:// subscribe URL Google/Outlook/Apple Calendar re-fetch on their own
+-- schedule has no session to authenticate with, so this token in the URL
+-- itself IS the auth. Generated client-side (getOrCreateFeedToken in
+-- src/lib/calendar-feed.ts) the first time the user opens "Sync with Google
+-- Calendar" — not a privilege-escalation risk like plan/is_admin, so it's
+-- fine to leave in the normal client-writable column grant below rather than
+-- gating it through an edge function.
+alter table public.profiles add column if not exists calendar_feed_token text;
+create unique index if not exists profiles_calendar_feed_token_key
+  on public.profiles (calendar_feed_token)
+  where calendar_feed_token is not null;
+
 alter table public.profiles enable row level security;
+
+-- Real, continuous, per-user Google Calendar sync (OAuth, not the read-only
+-- webcal subscribe link above) — see supabase/functions/google-calendar-*.
+-- Server-side only — the refresh token here is as sensitive as a password
+-- to the user's Google Calendar; no RLS policy grants any access to
+-- anon/authenticated at all, so only the service-role client (every
+-- google-calendar-* edge function) can ever read or write this table.
+create table if not exists public.google_calendar_connections (
+  user_id uuid primary key references auth.users (id) on delete cascade,
+  refresh_token text not null,
+  calendar_id text not null,
+  connected_at timestamptz not null default now(),
+  last_synced_at timestamptz
+);
+alter table public.google_calendar_connections enable row level security;
+
+-- Short-lived, single-use CSRF state for the OAuth redirect round-trip —
+-- google-calendar-start (authenticated) creates a row right before sending
+-- the user to Google; google-calendar-oauth-callback (public, Google
+-- redirects here with no session) looks it up to recover which CorvusPT
+-- user this is, then deletes it. Same no-policy/service-role-only posture.
+create table if not exists public.google_oauth_states (
+  state text primary key,
+  user_id uuid not null references auth.users (id) on delete cascade,
+  redirect_path text not null,
+  created_at timestamptz not null default now()
+);
+alter table public.google_oauth_states enable row level security;
 
 -- Each user may only read/update their own profile row. There is intentionally no
 -- policy allowing select/update of other users' rows, and no delete/insert policy for
@@ -43,7 +85,7 @@ create policy "Users can update their own profile"
 -- only by the service-role client, which is exactly what the Stripe webhook and the
 -- admin-update-plan/admin-update-admin-status edge functions already use.
 revoke update on public.profiles from authenticated;
-grant update (first_name, last_name, phone, company_name) on public.profiles to authenticated;
+grant update (first_name, last_name, phone, company_name, calendar_feed_token) on public.profiles to authenticated;
 
 -- Auto-create a profile row whenever someone signs up via Supabase Auth. first_name,
 -- last_name and phone are passed in from the sign-up form via supabase.auth.signUp's
@@ -68,6 +110,12 @@ begin
     new.raw_user_meta_data ->> 'company_name',
     case when new.raw_user_meta_data ->> 'wants_beta' = 'true' then 'beta' else 'free_ai_review' end
   );
+  -- Clears this address off the admin panel's "Invited Users" tab the moment
+  -- a real account actually exists for it — security definer, so this runs
+  -- regardless of the new user's own RLS grants (they have none on
+  -- invited_users). Matches on email, not user id, since invited_users rows
+  -- are created before any auth.users row exists.
+  delete from public.invited_users where email = new.email;
   return new;
 end;
 $$;
@@ -214,6 +262,37 @@ drop policy if exists "Admins can log their own actions" on public.admin_audit_l
 create policy "Admins can log their own actions"
   on public.admin_audit_log for insert
   with check (public.is_admin() and actor_id = auth.uid());
+
+-- One row per address someone's been sent a sign-up link for (see
+-- send-signup-invite/index.ts) — this is the ONLY record of an invite until
+-- the person actually signs up, since no account exists yet at invite time.
+-- handle_new_user() (above) deletes the matching row the moment a real
+-- signup happens, so this table only ever holds genuinely still-pending
+-- invites, not a permanent history. email is the natural key: re-inviting
+-- the same address updates last_sent_at/resend_count on the existing row
+-- instead of creating a duplicate.
+create table if not exists public.invited_users (
+  id uuid primary key default gen_random_uuid(),
+  email text not null unique,
+  first_name text,
+  last_name text,
+  wants_beta boolean not null default false,
+  invited_by uuid references auth.users (id) on delete set null,
+  invited_at timestamptz not null default now(),
+  last_sent_at timestamptz not null default now(),
+  resend_count integer not null default 0
+);
+
+alter table public.invited_users enable row level security;
+
+-- Written only by send-signup-invite (service-role, bypasses RLS) — this
+-- policy is read-only, for the admin panel's "Invited Users" tab to list
+-- them directly from the client, same pattern as admin_audit_log's
+-- select-only policy above.
+drop policy if exists "Admins can view invited users" on public.invited_users;
+create policy "Admins can view invited users"
+  on public.invited_users for select
+  using (public.is_admin());
 
 -- Stripe billing: the webhook (supabase/functions/stripe-webhook) writes plan and
 -- these two ids; the admin panel's manual plan dropdown still works unchanged since
