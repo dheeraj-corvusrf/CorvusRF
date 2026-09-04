@@ -11,12 +11,12 @@ const PHONE_TEL = "+14695019362";
 export const Route = createFileRoute("/contact")({
   head: () => ({
     meta: [
-      { title: "Contact Us — CorvusPT.ai" },
+      { title: "Contact Us — CorvusPT" },
       {
         name: "description",
-        content: "Talk to CorvusPT.ai about your Texas property tax questions.",
+        content: "Talk to CorvusPT about your Texas property tax questions.",
       },
-      { property: "og:title", content: "Contact CorvusPT.ai" },
+      { property: "og:title", content: "Contact CorvusPT" },
       { property: "og:description", content: "Reach the CorvusPT property tax team." },
     ],
   }),

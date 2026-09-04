@@ -15,6 +15,48 @@ export type ProtestStatus =
 export type ArbDecision = "approved" | "partial" | "denied";
 export type EscalationPath = "accept" | "appeal" | "arbitration";
 
+// Finer-grained than ProtestStatus — see the schema.sql comment on
+// protests.informal_status for why this is a separate column rather than
+// new ProtestStatus values.
+export type InformalStatus =
+  | "not_requested"
+  | "requested"
+  | "pending_response"
+  | "scheduled"
+  | "proposed_value_received"
+  | "accepted"
+  | "rejected"
+  | "no_informal_available";
+
+// The real, shorter label set the user actually sees — several internal
+// InformalStatus values collapse to the same honest user-facing phrase
+// rather than exposing all 8 as their own confusing badge text.
+export const INFORMAL_STATUS_LABEL: Record<InformalStatus, string> = {
+  not_requested: "Not Requested",
+  requested: "Informal Review Pending",
+  pending_response: "Informal Review Pending",
+  scheduled: "Informal Review Scheduled",
+  proposed_value_received: "Offer Received",
+  accepted: "Offer Accepted",
+  rejected: "Formal Hearing Needed",
+  no_informal_available: "Formal Hearing Needed",
+};
+
+export type AppraiserCategory =
+  | "Land Appraiser"
+  | "Improvement Appraiser"
+  | "Commercial Appraiser"
+  | "Retail Appraiser"
+  | "Office Appraiser"
+  | "Daycare/School Appraiser"
+  | "Other";
+
+// Who will actually attend the hearing — see HearingPrepSection in
+// CaseDetailModal.tsx. User-selected, not inferred: an Appointment of
+// Agent (Form 50-162) on file means an agent CAN attend, not that they
+// will.
+export type AttendanceType = "Property Owner" | "Authorized Agent" | "Both";
+
 export type ProtestRecord = {
   id: string;
   propertyId: string;
@@ -26,6 +68,13 @@ export type ProtestRecord = {
   settlementOfferValue: number | null;
   settlementOfferReceivedAt: string | null;
   hearingDate: string | null;
+  // Real detail from an actual uploaded hearing notice (see
+  // extract-hearing-notice / hearing-notice.ts) — null whenever the hearing
+  // date was set manually instead (CaseProgress's own date input), same as
+  // hearingDate was before this existed.
+  hearingTime: string | null;
+  hearingLocation: string | null;
+  hearingMode: "In Person" | "Phone" | "Videoconference" | "Affidavit" | "Unknown" | null;
   arbDecision: ArbDecision | null;
   arbDecisionDate: string | null;
   finalValue: number | null;
@@ -36,6 +85,10 @@ export type ProtestRecord = {
   // null until then, never reset once set. See CorvusGuidanceGate in
   // CaseDetailModal.tsx, which gates entry into a not-yet-filed case on this.
   corvusGuidanceAckAt: string | null;
+  informalStatus: InformalStatus;
+  informalReviewDate: string | null;
+  informalAppraiserCategory: AppraiserCategory | null;
+  attendanceType: AttendanceType | null;
 };
 
 type ProtestRow = {
@@ -49,6 +102,9 @@ type ProtestRow = {
   settlement_offer_value: number | null;
   settlement_offer_received_at: string | null;
   hearing_date: string | null;
+  hearing_time: string | null;
+  hearing_location: string | null;
+  hearing_mode: "In Person" | "Phone" | "Videoconference" | "Affidavit" | "Unknown" | null;
   arb_decision: ArbDecision | null;
   arb_decision_date: string | null;
   final_value: number | null;
@@ -56,10 +112,14 @@ type ProtestRow = {
   closed_at: string | null;
   tax_year: number | null;
   corvus_guidance_ack_at: string | null;
+  informal_status: InformalStatus;
+  informal_review_date: string | null;
+  informal_appraiser_category: AppraiserCategory | null;
+  attendance_type: AttendanceType | null;
 };
 
 const SELECT_COLUMNS =
-  "id, property_id, status, notes, requested_at, updated_at, original_value, settlement_offer_value, settlement_offer_received_at, hearing_date, arb_decision, arb_decision_date, final_value, escalation_path, closed_at, tax_year, corvus_guidance_ack_at";
+  "id, property_id, status, notes, requested_at, updated_at, original_value, settlement_offer_value, settlement_offer_received_at, hearing_date, hearing_time, hearing_location, hearing_mode, arb_decision, arb_decision_date, final_value, escalation_path, closed_at, tax_year, corvus_guidance_ack_at, informal_status, informal_review_date, informal_appraiser_category, attendance_type";
 
 function fromRow(row: ProtestRow): ProtestRecord {
   return {
@@ -73,6 +133,9 @@ function fromRow(row: ProtestRow): ProtestRecord {
     settlementOfferValue: row.settlement_offer_value,
     settlementOfferReceivedAt: row.settlement_offer_received_at,
     hearingDate: row.hearing_date,
+    hearingTime: row.hearing_time,
+    hearingLocation: row.hearing_location,
+    hearingMode: row.hearing_mode,
     arbDecision: row.arb_decision,
     arbDecisionDate: row.arb_decision_date,
     finalValue: row.final_value,
@@ -80,6 +143,10 @@ function fromRow(row: ProtestRow): ProtestRecord {
     closedAt: row.closed_at,
     taxYear: row.tax_year,
     corvusGuidanceAckAt: row.corvus_guidance_ack_at,
+    informalStatus: row.informal_status,
+    informalReviewDate: row.informal_review_date,
+    informalAppraiserCategory: row.informal_appraiser_category,
+    attendanceType: row.attendance_type,
   };
 }
 

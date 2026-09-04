@@ -16,6 +16,18 @@ export const PROTEST_EVIDENCE_DOCUMENT_TYPE = "Protest Evidence";
 // best-effort proof, never required to mark a case Filed.
 export const FILING_PROOF_DOCUMENT_TYPE = "Filing Proof";
 
+// A real settlement offer document the county sent for signature — see
+// settlement-agreement.ts. The original upload keeps this type; once
+// signed, the certified copy is re-uploaded under
+// SETTLEMENT_SIGNED_DOCUMENT_TYPE so both the original and the signed
+// version stay on file.
+export const SETTLEMENT_DOCUMENT_TYPE = "Settlement Agreement";
+export const SETTLEMENT_SIGNED_DOCUMENT_TYPE = "Settlement Agreement — Signed";
+
+// A real post-hearing decision document (ARB Order, hearing decision,
+// revised value notice, etc.) — see decision-notice.ts.
+export const DECISION_DOCUMENT_TYPE = "Hearing Decision Document";
+
 export type DocumentRecord = {
   id: string;
   propertyId: string;
@@ -114,6 +126,20 @@ export async function getFilingProofDocuments(
   return docs.filter(
     (d) => d.propertyId === propertyId && d.documentType === FILING_PROOF_DOCUMENT_TYPE,
   );
+}
+
+// One real document by id — used where a caller only has a stored
+// document_id (e.g. settlement_agreements.document_id/signed_document_id)
+// and needs the real fileName/storagePath back, not just the id.
+export async function getDocumentById(userId: string, id: string): Promise<DocumentRecord | null> {
+  const { data, error } = await supabase
+    .from("documents")
+    .select("id, property_id, file_name, storage_path, document_type, uploaded_at")
+    .eq("user_id", userId)
+    .eq("id", id)
+    .maybeSingle();
+  if (error) throw error;
+  return data ? fromRow(data as DocumentRow) : null;
 }
 
 export async function getDocumentUrl(storagePath: string): Promise<string> {

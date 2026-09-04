@@ -182,11 +182,23 @@ export function getCaseGuidance(
         protest.status === "under_review"
           ? `${property.cad ?? "Your county"} is reviewing your filed protest. You may receive a settlement offer or a hearing date next.`
           : "Your Notice of Protest has been filed. The county will review it next — you may receive a settlement offer or a hearing date.";
+      // Real notices only get read once the case has actually been filed —
+      // before that there's nothing from the county to upload yet. Once a
+      // real hearing date is confirmed from one (see HearingNoticeSection
+      // in CaseDetailModal.tsx), the case advances past this stage and this
+      // step stops showing on its own.
+      nextSteps.push({
+        label: "Upload the hearing notice or other notice received from the county",
+        detail:
+          "AI reads it, checks it against your case, and gets a real hearing date onto your calendar.",
+        action: { label: "Go to Hearing Notice", anchor: "case-hearing-notice" },
+      });
       nextSteps.push(...evidenceSteps(evidenceDocumentCount));
-      if (countyInfo?.informalReview) {
+      if (countyInfo?.informalReview && protest.informalStatus === "not_requested") {
         nextSteps.push({
           label: "Request an informal review",
           detail: countyInfo.informalReview.howToRequest,
+          action: { label: "Go to Informal Review", anchor: "case-informal-review" },
         });
       }
       break;
@@ -209,6 +221,11 @@ export function getCaseGuidance(
       summary = date
         ? `Your formal ARB hearing is scheduled for ${formatDate(date)}. Prepare your evidence and know what to expect.`
         : "Your case is moving toward a formal ARB hearing. Prepare your evidence and know what to expect.";
+      nextSteps.push({
+        label: "Prepare for your hearing",
+        detail: "A real, step-by-step guide grounded in your case's own data and evidence.",
+        action: { label: "Go to Hearing Preparation", anchor: "case-hearing-prep" },
+      });
       nextSteps.push(...evidenceSteps(evidenceDocumentCount));
       if (countyInfo?.arbContact) {
         const { phone, email } = countyInfo.arbContact;

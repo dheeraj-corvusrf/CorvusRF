@@ -11,7 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 export const Route = createFileRoute("/property-protest")({
   head: () => ({
     meta: [
-      { title: "Property Protest — CorvusPT.ai" },
+      { title: "Property Protest — CorvusPT" },
       {
         name: "description",
         content:

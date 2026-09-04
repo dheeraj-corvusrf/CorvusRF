@@ -453,11 +453,62 @@ alter table public.protests add column if not exists original_value numeric;
 alter table public.protests add column if not exists settlement_offer_value numeric;
 alter table public.protests add column if not exists settlement_offer_received_at date;
 alter table public.protests add column if not exists hearing_date date;
+-- Real detail extracted from the actual hearing notice the county mailed
+-- (see hearing_notices below and extract-hearing-notice edge function) —
+-- kept as their own columns on protests, not just in hearing_notices, since
+-- they're what the calendar-event builders (tax-calendar.ts and its two
+-- server-side mirrors) read to put the real time/location/mode in the
+-- event itself, the same way they already read hearing_date. Nullable:
+-- a manually-typed hearing date (no notice uploaded) never has these.
+alter table public.protests add column if not exists hearing_time text;
+alter table public.protests add column if not exists hearing_location text;
+alter table public.protests add column if not exists hearing_mode text;
+alter table public.protests drop constraint if exists protests_hearing_mode_check;
+alter table public.protests add constraint protests_hearing_mode_check
+  check (hearing_mode is null or hearing_mode in ('In Person', 'Phone', 'Videoconference', 'Affidavit', 'Unknown'));
 alter table public.protests add column if not exists arb_decision text;
 alter table public.protests add column if not exists arb_decision_date date;
 alter table public.protests add column if not exists final_value numeric;
 alter table public.protests add column if not exists escalation_path text;
 alter table public.protests add column if not exists closed_at timestamptz;
+
+-- Informal review sub-tracker — a finer-grained state than the main
+-- `status` column above, which has no room for "requested but no county
+-- response yet" / "scheduled" as distinct pre-offer states. Deliberately a
+-- SEPARATE column, not a new `status` value: informal review is optional
+-- and county-specific (see county_protest_info.ts's own informalReview
+-- field), and once a real settlement offer actually arrives, THAT already
+-- has its own real tracking (settlement_offer_value/status='offer_received'/
+-- acceptSettlement()) — this column exists for the states BEFORE that,
+-- plus a couple of terminal ones ('rejected'/'no_informal_available') that
+-- have no other real signal on this table. Not exposed to the user as its
+-- own confusing 8-value picker verbatim — see INFORMAL_STATUS_LABEL in
+-- src/lib/protests.ts for the real, shorter user-facing label set.
+alter table public.protests add column if not exists informal_status text not null default 'not_requested';
+alter table public.protests drop constraint if exists protests_informal_status_check;
+alter table public.protests add constraint protests_informal_status_check
+  check (informal_status in ('not_requested', 'requested', 'pending_response', 'scheduled',
+    'proposed_value_received', 'accepted', 'rejected', 'no_informal_available'));
+
+-- The real, self-reported date once the county and owner have agreed on
+-- one (this app has no live scheduling API for any county) — feeds the
+-- calendar builders the same way hearing_date already does, once
+-- informal_status = 'scheduled'.
+alter table public.protests add column if not exists informal_review_date date;
+
+-- AI's own read of which appraiser specialty this property's informal
+-- review would route to (see informal-review-guidance edge function) —
+-- internal/supporting detail only, used to address a drafted email
+-- correctly; deliberately NOT surfaced as its own prominent UI field
+-- (per product direction: "do not expose complicated appraiser routing to
+-- the user unless it is useful to completing the process").
+alter table public.protests add column if not exists informal_appraiser_category text;
+alter table public.protests drop constraint if exists protests_informal_appraiser_category_check;
+alter table public.protests add constraint protests_informal_appraiser_category_check
+  check (informal_appraiser_category is null or informal_appraiser_category in (
+    'Land Appraiser', 'Improvement Appraiser', 'Commercial Appraiser', 'Retail Appraiser',
+    'Office Appraiser', 'Daycare/School Appraiser', 'Other'
+  ));
 
 -- Which tax year this filing covers — lets a property have one protest row per
 -- year instead of one ever, so a resolved prior-year case doesn't block filing
@@ -551,6 +602,61 @@ drop trigger if exists prevent_duplicate_active_protest_trigger on public.protes
 create trigger prevent_duplicate_active_protest_trigger
   before insert on public.protests
   for each row execute function public.prevent_duplicate_active_protest();
+
+-- Real, AI-extracted content from an actual hearing notice (or other county
+-- notice) the user uploads once their case is filed — see
+-- extract-hearing-notice edge function and src/lib/hearing-notice.ts. One
+-- row per uploaded notice (a case can receive more than one real notice
+-- over its life — an initial one, then a rescheduled one); the most recent
+-- row for a protest is what the UI shows. required_documents/discrepancies
+-- are JSON-stringified arrays, same text-column-not-jsonb convention as
+-- field_values on protest_form_submissions above (this schema has no jsonb
+-- columns at all). informal_review_available is the AI's own read of
+-- whether an informal review is available, grounded in both the notice's
+-- own text and county_protest_info.ts's real per-county data (passed into
+-- the prompt as context, not looked up again server-side) — 'unclear' is
+-- the honest answer when neither source actually says.
+create table if not exists public.hearing_notices (
+  id uuid primary key default gen_random_uuid(),
+  protest_id uuid not null references public.protests (id) on delete cascade,
+  user_id uuid not null references auth.users (id) on delete cascade,
+  document_id uuid references public.documents (id) on delete set null,
+  hearing_date text,
+  hearing_time text,
+  hearing_location text,
+  hearing_mode text,
+  evidence_submission_deadline text,
+  hearing_type text,
+  extracted_account_number text,
+  extracted_tax_year text,
+  extracted_property_address text,
+  county_contact text,
+  appraiser_contact text,
+  submission_instructions text,
+  required_documents text,
+  appeal_deadline text,
+  discrepancies text,
+  informal_review_available text,
+  informal_review_notes text,
+  created_at timestamptz not null default now()
+);
+
+alter table public.hearing_notices enable row level security;
+
+drop policy if exists "Users can view their own hearing notices" on public.hearing_notices;
+create policy "Users can view their own hearing notices"
+  on public.hearing_notices for select
+  using (auth.uid() = user_id);
+
+drop policy if exists "Users can insert their own hearing notices" on public.hearing_notices;
+create policy "Users can insert their own hearing notices"
+  on public.hearing_notices for insert
+  with check (auth.uid() = user_id);
+
+drop policy if exists "Admins can view all hearing notices" on public.hearing_notices;
+create policy "Admins can view all hearing notices"
+  on public.hearing_notices for select
+  using (public.is_admin());
 
 -- Trackable evidence checklist for a protest case — one row per AI-suggested
 -- evidence item, optionally linked to an uploaded document once the user provides
@@ -1042,6 +1148,117 @@ drop policy if exists "Users can delete their own module overrides" on public.mo
 create policy "Users can delete their own module overrides"
   on public.module_data_overrides for delete
   using (auth.uid() = user_id);
+
+-- Who will actually attend the hearing — grounded in the same real
+-- Owner/Agent distinction the app already models via Form 50-162
+-- (Appointment of Agent; see ProtestAuthorizationFlow.tsx). Nullable/
+-- user-selected, not inferred automatically: an authorization on file
+-- means an agent CAN attend, not that they necessarily will.
+alter table public.protests add column if not exists attendance_type text;
+alter table public.protests drop constraint if exists protests_attendance_type_check;
+alter table public.protests add constraint protests_attendance_type_check
+  check (attendance_type is null or attendance_type in ('Property Owner', 'Authorized Agent', 'Both'));
+
+-- Real, AI-extracted content from an actual ARB Order / hearing decision /
+-- settlement / revised value notice / other final determination the user
+-- (or staff) uploads after a hearing — see extract-decision-document/
+-- index.ts for the prompt/discipline. Mirrors hearing_notices' own
+-- pattern: one row per real uploaded document, most recent wins. value_
+-- reduction is deliberately NOT a column — it's always original_value
+-- minus final_value, computed in application code so it can never drift
+-- from the two real numbers it's derived from. discrepancies is JSON-
+-- stringified, computed server-side by deterministic comparison against
+-- the case's own known facts, never the model's own say-so.
+create table if not exists public.decision_notices (
+  id uuid primary key default gen_random_uuid(),
+  protest_id uuid not null references public.protests (id) on delete cascade,
+  user_id uuid not null references auth.users (id) on delete cascade,
+  document_id uuid references public.documents (id) on delete set null,
+  document_category text,
+  original_value numeric,
+  final_value numeric,
+  decision_date text,
+  extracted_tax_year text,
+  extracted_account_number text,
+  extracted_property_address text,
+  settlement_terms text,
+  appeal_deadline text,
+  refund_indicator text,
+  other_conditions text,
+  discrepancies text,
+  created_at timestamptz not null default now()
+);
+
+alter table public.decision_notices enable row level security;
+
+drop policy if exists "Users can view their own decision notices" on public.decision_notices;
+create policy "Users can view their own decision notices"
+  on public.decision_notices for select
+  using (auth.uid() = user_id);
+
+drop policy if exists "Users can insert their own decision notices" on public.decision_notices;
+create policy "Users can insert their own decision notices"
+  on public.decision_notices for insert
+  with check (auth.uid() = user_id);
+
+drop policy if exists "Admins can view all decision notices" on public.decision_notices;
+create policy "Admins can view all decision notices"
+  on public.decision_notices for select
+  using (public.is_admin());
+
+-- A real settlement offer document the county sent for signature (distinct
+-- from decision_notices above, which records an ALREADY-final outcome) —
+-- upload, AI-verified read of the settled value/terms against the case's
+-- own real facts, explicit user confirmation, then a real signature. The
+-- original upload is document_id; once signed, signed_document_id points
+-- at the certified copy (see settlement-agreement.ts's appendSignaturePage)
+-- the user actually downloads and submits — this app has no e-filing
+-- integration with any county, so submission itself always stays on the
+-- user. Same signature_type/signature_data shape as
+-- protest_form_submissions, but a separate table: that one is scoped to
+-- this app's OWN generated forms (field_values matches a known schema),
+-- while this is an arbitrary document the county produced.
+create table if not exists public.settlement_agreements (
+  id uuid primary key default gen_random_uuid(),
+  protest_id uuid not null references public.protests (id) on delete cascade,
+  user_id uuid not null references auth.users (id) on delete cascade,
+  document_id uuid references public.documents (id) on delete set null,
+  settled_value numeric,
+  extracted_tax_year text,
+  extracted_account_number text,
+  extracted_property_address text,
+  terms_summary text,
+  discrepancies text,
+  user_confirmed_at timestamptz,
+  signature_type text,
+  signature_data text,
+  signed_at timestamptz,
+  signed_document_id uuid references public.documents (id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+alter table public.settlement_agreements enable row level security;
+
+drop policy if exists "Users can view their own settlement agreements" on public.settlement_agreements;
+create policy "Users can view their own settlement agreements"
+  on public.settlement_agreements for select
+  using (auth.uid() = user_id);
+
+drop policy if exists "Users can insert their own settlement agreements" on public.settlement_agreements;
+create policy "Users can insert their own settlement agreements"
+  on public.settlement_agreements for insert
+  with check (auth.uid() = user_id);
+
+drop policy if exists "Users can update their own settlement agreements" on public.settlement_agreements;
+create policy "Users can update their own settlement agreements"
+  on public.settlement_agreements for update
+  using (auth.uid() = user_id);
+
+drop policy if exists "Admins can view all settlement agreements" on public.settlement_agreements;
+create policy "Admins can view all settlement agreements"
+  on public.settlement_agreements for select
+  using (public.is_admin());
 
 -- ── ONE-TIME MANUAL STEP — do NOT run this as part of the routine schema paste ──
 -- After you have an account (sign up normally through the app first), run this once,

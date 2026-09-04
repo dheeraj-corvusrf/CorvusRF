@@ -1,7 +1,13 @@
 import { supabase } from "./supabase";
 import { getModuleAnalysis, type ModuleAnalysisInput } from "./ai-report-modules";
 import type { PropertyRecord } from "./properties";
-import type { ProtestRecord, ArbDecision } from "./protests";
+import type {
+  ProtestRecord,
+  ArbDecision,
+  InformalStatus,
+  AppraiserCategory,
+  AttendanceType,
+} from "./protests";
 import { getEffectiveTaxRate } from "./texas-tax-rates";
 
 // AI case prep for a real protest — persists the same strategy recommendation and
@@ -262,10 +268,88 @@ export async function acceptSettlement(protestId: string, offerValue: number): P
   if (error) throw error;
 }
 
-export async function scheduleHearing(protestId: string, date: string): Promise<void> {
+export async function scheduleHearing(
+  protestId: string,
+  date: string,
+  // Real detail from an actual uploaded hearing notice, when there is one
+  // (see extract-hearing-notice / hearing-notice.ts) — omitted entirely for
+  // CaseProgress's own manual date-only entry, same as before this existed.
+  detail?: {
+    time?: string | null;
+    location?: string | null;
+    mode?: "In Person" | "Phone" | "Videoconference" | "Affidavit" | "Unknown" | null;
+  },
+): Promise<void> {
   const { error } = await supabase
     .from("protests")
-    .update({ hearing_date: date, status: "hearing_scheduled" })
+    .update({
+      hearing_date: date,
+      status: "hearing_scheduled",
+      ...(detail
+        ? {
+            hearing_time: detail.time ?? null,
+            hearing_location: detail.location ?? null,
+            hearing_mode: detail.mode ?? null,
+          }
+        : {}),
+    })
+    .eq("id", protestId);
+  if (error) throw error;
+}
+
+// Real, user-driven update to the informal-review sub-tracker (see the
+// schema.sql comment on protests.informal_status) — the user picks their
+// real, actual status directly (a dropdown in InformalReviewSection), not
+// an AI guess. Every value already exists in the DB check constraint.
+export async function updateInformalStatus(
+  protestId: string,
+  status: InformalStatus,
+): Promise<void> {
+  const { error } = await supabase
+    .from("protests")
+    .update({ informal_status: status })
+    .eq("id", protestId);
+  if (error) throw error;
+}
+
+// The real, self-reported date once the county and owner have actually
+// agreed on one — this app has no live scheduling API for any county, so
+// there's no "available dates" to offer beyond what the user tells us they
+// were given. Feeds the calendar the same way scheduleHearing() does for
+// the formal hearing.
+export async function scheduleInformalReview(protestId: string, date: string): Promise<void> {
+  const { error } = await supabase
+    .from("protests")
+    .update({ informal_status: "scheduled", informal_review_date: date })
+    .eq("id", protestId);
+  if (error) throw error;
+}
+
+// AI's own read of which appraiser specialty this property would route to
+// (see informal-review-guidance edge function) — saved so it's available
+// the next time this case's guidance loads, without a fresh AI call every
+// time. Internal/supporting detail only, per product direction — never
+// surfaced as its own prominent field.
+export async function saveInformalAppraiserCategory(
+  protestId: string,
+  category: AppraiserCategory,
+): Promise<void> {
+  const { error } = await supabase
+    .from("protests")
+    .update({ informal_appraiser_category: category })
+    .eq("id", protestId);
+  if (error) throw error;
+}
+
+// Who the user says will actually attend — see HearingPrepSection in
+// CaseDetailModal.tsx. Purely a user selection; never inferred.
+export async function saveAttendanceType(
+  protestId: string,
+  attendanceType: AttendanceType,
+): Promise<void> {
+  const { error } = await supabase
+    .from("protests")
+    .update({ attendance_type: attendanceType })
     .eq("id", protestId);
   if (error) throw error;
 }
