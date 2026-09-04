@@ -28,12 +28,12 @@ import { classifyPropertyCategory } from "@/lib/texas-tax-rates";
 export const Route = createFileRoute("/document-review")({
   head: () => ({
     meta: [
-      { title: "Document Review — CorvusPT.ai" },
+      { title: "Document Review — CorvusPT" },
       {
         name: "description",
         content: "AI read your Texas property tax document. Review and confirm.",
       },
-      { property: "og:title", content: "Document Review — CorvusPT.ai" },
+      { property: "og:title", content: "Document Review — CorvusPT" },
       {
         property: "og:description",
         content: "Confirm classification, extraction, and next-best workflow.",

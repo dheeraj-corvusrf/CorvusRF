@@ -5,8 +5,8 @@ import { supabase, isSupabaseConfigured } from "@/lib/supabase";
 export const Route = createFileRoute("/forgot-password")({
   head: () => ({
     meta: [
-      { title: "Forgot Password — CorvusPT.ai" },
-      { name: "description", content: "Reset your CorvusPT.ai account password." },
+      { title: "Forgot Password — CorvusPT" },
+      { name: "description", content: "Reset your CorvusPT account password." },
     ],
   }),
   component: ForgotPassword,

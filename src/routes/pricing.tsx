@@ -24,13 +24,13 @@ import {
 export const Route = createFileRoute("/pricing")({
   head: () => ({
     meta: [
-      { title: "Pricing — CorvusPT.ai" },
+      { title: "Pricing — CorvusPT" },
       {
         name: "description",
         content:
-          "Property-value-tiered pricing for CorvusPT.ai: free AI review, Owner-Managed, or CorvusPT-Managed protest service.",
+          "Property-value-tiered pricing for CorvusPT: free AI review, Owner-Managed, or CorvusPT-Managed protest service.",
       },
-      { property: "og:title", content: "CorvusPT.ai Pricing" },
+      { property: "og:title", content: "CorvusPT Pricing" },
       {
         property: "og:description",
         content: "Free AI review. Then $99–$799/mo per property, priced by property value.",
@@ -334,8 +334,8 @@ function Page() {
             <div className="text-3xl font-semibold">$0</div>
             <h2 className="mt-1 font-serif text-xl font-semibold">You have full Beta access 🎉</h2>
             <p className="mt-2 text-sm text-muted-foreground">
-              Thanks for testing CorvusPT.ai with us — every AI module is unlocked on every
-              property, free, for as long as you're in the beta. No card, no subscription to manage.
+              Thanks for testing CorvusPT with us — every AI module is unlocked on every property,
+              free, for as long as you're in the beta. No card, no subscription to manage.
             </p>
           </div>
         ) : (

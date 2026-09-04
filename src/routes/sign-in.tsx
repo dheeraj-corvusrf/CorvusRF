@@ -8,9 +8,9 @@ import { AddOwnershipsModal } from "@/components/AddOwnershipsModal";
 export const Route = createFileRoute("/sign-in")({
   head: () => ({
     meta: [
-      { title: "Sign In — CorvusPT.ai" },
-      { name: "description", content: "Sign in to your CorvusPT.ai property tax dashboard." },
-      { property: "og:title", content: "Sign In — CorvusPT.ai" },
+      { title: "Sign In — CorvusPT" },
+      { name: "description", content: "Sign in to your CorvusPT property tax dashboard." },
+      { property: "og:title", content: "Sign In — CorvusPT" },
       { property: "og:description", content: "Access your property tax dashboard." },
     ],
   }),

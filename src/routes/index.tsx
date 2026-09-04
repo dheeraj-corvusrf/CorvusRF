@@ -35,13 +35,13 @@ import { ICON_COLORS } from "@/lib/icon-colors";
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "CorvusPT.ai — Texas Property Tax Management, Powered by AI" },
+      { title: "CorvusPT — Texas Property Tax Management, Powered by AI" },
       {
         name: "description",
         content:
           "Upload your Texas appraisal notice or enter your commercial or residential property. AI checks your county value, protest deadline, evidence gaps, and savings opportunity.",
       },
-      { property: "og:title", content: "CorvusPT.ai — Texas Property Tax, Powered by AI" },
+      { property: "og:title", content: "CorvusPT — Texas Property Tax, Powered by AI" },
       {
         property: "og:description",
         content:

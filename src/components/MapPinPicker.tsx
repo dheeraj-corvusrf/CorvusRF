@@ -272,7 +272,7 @@ export function MapPinPicker({
           )}
           {!resolving && outsideTexas && (
             <p className="text-destructive">
-              That's outside Texas — CorvusPT.ai only covers Texas properties. Try pinning somewhere
+              That's outside Texas — CorvusPT only covers Texas properties. Try pinning somewhere
               within the state.
             </p>
           )}

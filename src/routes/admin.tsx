@@ -45,7 +45,7 @@ import { CopyButton } from "@/components/CopyButton";
 
 export const Route = createFileRoute("/admin")({
   head: () => ({
-    meta: [{ title: "Admin — CorvusPT.ai" }],
+    meta: [{ title: "Admin — CorvusPT" }],
   }),
   component: AdminPanel,
 });

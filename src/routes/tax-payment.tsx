@@ -3,7 +3,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 export const Route = createFileRoute("/tax-payment")({
   head: () => ({
     meta: [
-      { title: "Tax Payment Tracking — CorvusPT.ai" },
+      { title: "Tax Payment Tracking — CorvusPT" },
       {
         name: "description",
         content:
@@ -25,11 +25,13 @@ function Page() {
           Never miss a tax bill, payment, or refund.
         </h1>
         <p className="mt-4 text-lg text-muted-foreground">
-          Every county bill, every account, every payment, and every refund — all tracked
-          in one place with deadline reminders and status intelligence.
+          Every county bill, every account, every payment, and every refund — all tracked in one
+          place with deadline reminders and status intelligence.
         </p>
         <div className="mt-8">
-          <Link to="/" className="btn-primary btn-primary-hover">Start Free Review</Link>
+          <Link to="/" className="btn-primary btn-primary-hover">
+            Start Free Review
+          </Link>
         </div>
       </div>
     </div>

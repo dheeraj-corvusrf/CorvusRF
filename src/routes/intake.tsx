@@ -35,7 +35,7 @@ import { useFileDrop } from "@/hooks/use-file-drop";
 export const Route = createFileRoute("/intake")({
   head: () => ({
     meta: [
-      { title: "Property Intake — CorvusPT.ai" },
+      { title: "Property Intake — CorvusPT" },
       {
         name: "description",
         content:
@@ -483,7 +483,7 @@ function Intake() {
             We don't cover {unsupportedCounty} County yet
           </h2>
           <p className="mt-2 text-sm text-muted-foreground">
-            CorvusPT.ai currently supports properties in{" "}
+            CorvusPT currently supports properties in{" "}
             {[...SUPPORTED_COUNTY_NAMES].slice(0, -1).join(", ")}, and{" "}
             {[...SUPPORTED_COUNTY_NAMES].slice(-1)} counties. We're adding more counties over time —
             try a different address, or check back soon.

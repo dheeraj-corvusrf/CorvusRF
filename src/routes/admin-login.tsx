@@ -8,7 +8,7 @@ import { checkIsAdmin } from "@/lib/admin";
 // one-time SQL step in supabase/schema.sql), not through public self-serve signup.
 export const Route = createFileRoute("/admin-login")({
   head: () => ({
-    meta: [{ title: "Admin Sign In — CorvusPT.ai" }],
+    meta: [{ title: "Admin Sign In — CorvusPT" }],
   }),
   component: AdminLogin,
 });
