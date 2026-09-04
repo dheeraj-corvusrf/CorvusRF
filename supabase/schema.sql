@@ -1149,6 +1149,117 @@ create policy "Users can delete their own module overrides"
   on public.module_data_overrides for delete
   using (auth.uid() = user_id);
 
+-- Who will actually attend the hearing — grounded in the same real
+-- Owner/Agent distinction the app already models via Form 50-162
+-- (Appointment of Agent; see ProtestAuthorizationFlow.tsx). Nullable/
+-- user-selected, not inferred automatically: an authorization on file
+-- means an agent CAN attend, not that they necessarily will.
+alter table public.protests add column if not exists attendance_type text;
+alter table public.protests drop constraint if exists protests_attendance_type_check;
+alter table public.protests add constraint protests_attendance_type_check
+  check (attendance_type is null or attendance_type in ('Property Owner', 'Authorized Agent', 'Both'));
+
+-- Real, AI-extracted content from an actual ARB Order / hearing decision /
+-- settlement / revised value notice / other final determination the user
+-- (or staff) uploads after a hearing — see extract-decision-document/
+-- index.ts for the prompt/discipline. Mirrors hearing_notices' own
+-- pattern: one row per real uploaded document, most recent wins. value_
+-- reduction is deliberately NOT a column — it's always original_value
+-- minus final_value, computed in application code so it can never drift
+-- from the two real numbers it's derived from. discrepancies is JSON-
+-- stringified, computed server-side by deterministic comparison against
+-- the case's own known facts, never the model's own say-so.
+create table if not exists public.decision_notices (
+  id uuid primary key default gen_random_uuid(),
+  protest_id uuid not null references public.protests (id) on delete cascade,
+  user_id uuid not null references auth.users (id) on delete cascade,
+  document_id uuid references public.documents (id) on delete set null,
+  document_category text,
+  original_value numeric,
+  final_value numeric,
+  decision_date text,
+  extracted_tax_year text,
+  extracted_account_number text,
+  extracted_property_address text,
+  settlement_terms text,
+  appeal_deadline text,
+  refund_indicator text,
+  other_conditions text,
+  discrepancies text,
+  created_at timestamptz not null default now()
+);
+
+alter table public.decision_notices enable row level security;
+
+drop policy if exists "Users can view their own decision notices" on public.decision_notices;
+create policy "Users can view their own decision notices"
+  on public.decision_notices for select
+  using (auth.uid() = user_id);
+
+drop policy if exists "Users can insert their own decision notices" on public.decision_notices;
+create policy "Users can insert their own decision notices"
+  on public.decision_notices for insert
+  with check (auth.uid() = user_id);
+
+drop policy if exists "Admins can view all decision notices" on public.decision_notices;
+create policy "Admins can view all decision notices"
+  on public.decision_notices for select
+  using (public.is_admin());
+
+-- A real settlement offer document the county sent for signature (distinct
+-- from decision_notices above, which records an ALREADY-final outcome) —
+-- upload, AI-verified read of the settled value/terms against the case's
+-- own real facts, explicit user confirmation, then a real signature. The
+-- original upload is document_id; once signed, signed_document_id points
+-- at the certified copy (see settlement-agreement.ts's appendSignaturePage)
+-- the user actually downloads and submits — this app has no e-filing
+-- integration with any county, so submission itself always stays on the
+-- user. Same signature_type/signature_data shape as
+-- protest_form_submissions, but a separate table: that one is scoped to
+-- this app's OWN generated forms (field_values matches a known schema),
+-- while this is an arbitrary document the county produced.
+create table if not exists public.settlement_agreements (
+  id uuid primary key default gen_random_uuid(),
+  protest_id uuid not null references public.protests (id) on delete cascade,
+  user_id uuid not null references auth.users (id) on delete cascade,
+  document_id uuid references public.documents (id) on delete set null,
+  settled_value numeric,
+  extracted_tax_year text,
+  extracted_account_number text,
+  extracted_property_address text,
+  terms_summary text,
+  discrepancies text,
+  user_confirmed_at timestamptz,
+  signature_type text,
+  signature_data text,
+  signed_at timestamptz,
+  signed_document_id uuid references public.documents (id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+alter table public.settlement_agreements enable row level security;
+
+drop policy if exists "Users can view their own settlement agreements" on public.settlement_agreements;
+create policy "Users can view their own settlement agreements"
+  on public.settlement_agreements for select
+  using (auth.uid() = user_id);
+
+drop policy if exists "Users can insert their own settlement agreements" on public.settlement_agreements;
+create policy "Users can insert their own settlement agreements"
+  on public.settlement_agreements for insert
+  with check (auth.uid() = user_id);
+
+drop policy if exists "Users can update their own settlement agreements" on public.settlement_agreements;
+create policy "Users can update their own settlement agreements"
+  on public.settlement_agreements for update
+  using (auth.uid() = user_id);
+
+drop policy if exists "Admins can view all settlement agreements" on public.settlement_agreements;
+create policy "Admins can view all settlement agreements"
+  on public.settlement_agreements for select
+  using (public.is_admin());
+
 -- ── ONE-TIME MANUAL STEP — do NOT run this as part of the routine schema paste ──
 -- After you have an account (sign up normally through the app first), run this once,
 -- by itself, substituting your real email, to make that account an admin:

@@ -221,6 +221,11 @@ export function getCaseGuidance(
       summary = date
         ? `Your formal ARB hearing is scheduled for ${formatDate(date)}. Prepare your evidence and know what to expect.`
         : "Your case is moving toward a formal ARB hearing. Prepare your evidence and know what to expect.";
+      nextSteps.push({
+        label: "Prepare for your hearing",
+        detail: "A real, step-by-step guide grounded in your case's own data and evidence.",
+        action: { label: "Go to Hearing Preparation", anchor: "case-hearing-prep" },
+      });
       nextSteps.push(...evidenceSteps(evidenceDocumentCount));
       if (countyInfo?.arbContact) {
         const { phone, email } = countyInfo.arbContact;

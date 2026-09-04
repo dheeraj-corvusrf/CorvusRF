@@ -41,6 +41,7 @@ const protest: ProtestRecord = {
   informalStatus: "not_requested",
   informalReviewDate: null,
   informalAppraiserCategory: null,
+  attendanceType: null,
   arbDecision: null,
   arbDecisionDate: null,
   finalValue: null,

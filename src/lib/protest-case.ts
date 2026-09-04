@@ -1,7 +1,13 @@
 import { supabase } from "./supabase";
 import { getModuleAnalysis, type ModuleAnalysisInput } from "./ai-report-modules";
 import type { PropertyRecord } from "./properties";
-import type { ProtestRecord, ArbDecision, InformalStatus, AppraiserCategory } from "./protests";
+import type {
+  ProtestRecord,
+  ArbDecision,
+  InformalStatus,
+  AppraiserCategory,
+  AttendanceType,
+} from "./protests";
 import { getEffectiveTaxRate } from "./texas-tax-rates";
 
 // AI case prep for a real protest — persists the same strategy recommendation and
@@ -331,6 +337,19 @@ export async function saveInformalAppraiserCategory(
   const { error } = await supabase
     .from("protests")
     .update({ informal_appraiser_category: category })
+    .eq("id", protestId);
+  if (error) throw error;
+}
+
+// Who the user says will actually attend — see HearingPrepSection in
+// CaseDetailModal.tsx. Purely a user selection; never inferred.
+export async function saveAttendanceType(
+  protestId: string,
+  attendanceType: AttendanceType,
+): Promise<void> {
+  const { error } = await supabase
+    .from("protests")
+    .update({ attendance_type: attendanceType })
     .eq("id", protestId);
   if (error) throw error;
 }

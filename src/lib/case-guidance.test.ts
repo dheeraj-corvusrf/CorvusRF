@@ -43,6 +43,7 @@ function protestWith(overrides: Partial<ProtestRecord>): ProtestRecord {
     informalStatus: "not_requested",
     informalReviewDate: null,
     informalAppraiserCategory: null,
+    attendanceType: null,
     arbDecision: null,
     arbDecisionDate: null,
     finalValue: null,
@@ -193,6 +194,7 @@ describe("getCaseGuidance", () => {
       "case-progress",
       "case-hearing-notice",
       "case-informal-review",
+      "case-hearing-prep",
     ]);
     for (const status of ALL_STATUSES) {
       const guidance = getCaseGuidance(property, protestWith({ status }), undefined, countyInfo);

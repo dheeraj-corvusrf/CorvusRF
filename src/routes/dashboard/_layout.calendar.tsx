@@ -15,7 +15,8 @@ import {
 } from "date-fns";
 import { ChevronLeft, ChevronRight, Download, ExternalLink, RefreshCw, Copy } from "lucide-react";
 import { useAuth } from "@/lib/auth";
-import { markPropertyPaid } from "@/lib/properties";
+import { markPropertyPaid, listProperties } from "@/lib/properties";
+import { listProtests } from "@/lib/protests";
 import {
   getCalendarEvents,
   googleCalendarAddUrl,
@@ -24,6 +25,7 @@ import {
   type CalendarEvent,
   type CalendarEventType,
 } from "@/lib/tax-calendar";
+import { findHearingConflicts, type HearingConflictGroup } from "@/lib/hearing-conflicts";
 import { downloadIcs } from "@/lib/ics";
 import {
   getOrCreateFeedToken,
@@ -57,6 +59,7 @@ export const Route = createFileRoute("/dashboard/_layout/calendar")({
 
 const GROUP_ORDER: CalendarEventType[] = [
   "protest_deadline",
+  "informal_review",
   "hearing",
   "arb_decision",
   "tax_due",
@@ -126,6 +129,45 @@ function EventRow({
           View
         </Link>
       </div>
+    </div>
+  );
+}
+
+// Real, same-day hearing conflicts across the user's whole portfolio — see
+// findHearingConflicts() in hearing-conflicts.ts for what's actually
+// deterministic vs. honestly absent here (no fabricated travel time).
+function HearingConflictBanner({ group }: { group: HearingConflictGroup }) {
+  return (
+    <div className="card-elev border-amber-500/30 bg-amber-500/5 p-4">
+      <h2 className="font-semibold text-amber-800">
+        {group.hearings.length} hearings on{" "}
+        {format(new Date(`${group.date}T00:00:00`), "MMMM d, yyyy")}
+      </h2>
+      <ul className="mt-2 grid gap-1 text-sm">
+        {group.hearings.map((h) => (
+          <li key={h.protestId} className="text-muted-foreground">
+            <span className="font-medium text-foreground">{h.address}</span>
+            {h.time ? ` — ${h.time}` : ""}
+            {h.location ? ` (${h.location})` : ""}
+            {h.mode ? ` — ${h.mode}` : ""}
+          </li>
+        ))}
+      </ul>
+      <ul className="mt-2 grid gap-1 text-xs text-muted-foreground">
+        {group.guidance.map((g, i) => (
+          <li key={i}>• {g}</li>
+        ))}
+      </ul>
+      {group.directionsUrl && (
+        <a
+          href={group.directionsUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="btn-outline mt-3 inline-flex items-center gap-1.5 text-sm"
+        >
+          <ExternalLink className="h-3.5 w-3.5" /> Check real driving time between them
+        </a>
+      )}
     </div>
   );
 }
@@ -331,6 +373,7 @@ function CalendarPage() {
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [markingPaidId, setMarkingPaidId] = useState<string | null>(null);
   const [syncOpen, setSyncOpen] = useState(!!(search.google_connected || search.google_error));
+  const [hearingConflicts, setHearingConflicts] = useState<HearingConflictGroup[]>([]);
 
   useEffect(() => {
     if (!user) return;
@@ -338,6 +381,19 @@ function CalendarPage() {
       .then(setEvents)
       .catch((err) => console.error(err))
       .finally(() => setLoading(false));
+  }, [user]);
+
+  // Real cross-property hearing-conflict check — only meaningful once a
+  // user has more than one hearing on file, so this loads independently of
+  // the calendar-event list above (which doesn't carry per-hearing
+  // location/mode, just a folded title string).
+  useEffect(() => {
+    if (!user) return;
+    Promise.all([listProtests(user.id), listProperties(user.id)])
+      .then(([protests, properties]) =>
+        setHearingConflicts(findHearingConflicts(protests, properties)),
+      )
+      .catch((err) => console.error("Could not check for hearing conflicts:", err));
   }, [user]);
 
   // One-time: show the result of a just-completed (or abandoned) Google
@@ -450,6 +506,14 @@ function CalendarPage() {
           )}
         </div>
       </div>
+
+      {hearingConflicts.length > 0 && (
+        <div className="grid gap-3">
+          {hearingConflicts.map((group) => (
+            <HearingConflictBanner key={group.date} group={group} />
+          ))}
+        </div>
+      )}
 
       {syncOpen && user && (
         <div className="grid gap-4 sm:grid-cols-2">

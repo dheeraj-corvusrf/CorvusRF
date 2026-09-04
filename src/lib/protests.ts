@@ -51,6 +51,12 @@ export type AppraiserCategory =
   | "Daycare/School Appraiser"
   | "Other";
 
+// Who will actually attend the hearing — see HearingPrepSection in
+// CaseDetailModal.tsx. User-selected, not inferred: an Appointment of
+// Agent (Form 50-162) on file means an agent CAN attend, not that they
+// will.
+export type AttendanceType = "Property Owner" | "Authorized Agent" | "Both";
+
 export type ProtestRecord = {
   id: string;
   propertyId: string;
@@ -82,6 +88,7 @@ export type ProtestRecord = {
   informalStatus: InformalStatus;
   informalReviewDate: string | null;
   informalAppraiserCategory: AppraiserCategory | null;
+  attendanceType: AttendanceType | null;
 };
 
 type ProtestRow = {
@@ -108,10 +115,11 @@ type ProtestRow = {
   informal_status: InformalStatus;
   informal_review_date: string | null;
   informal_appraiser_category: AppraiserCategory | null;
+  attendance_type: AttendanceType | null;
 };
 
 const SELECT_COLUMNS =
-  "id, property_id, status, notes, requested_at, updated_at, original_value, settlement_offer_value, settlement_offer_received_at, hearing_date, hearing_time, hearing_location, hearing_mode, arb_decision, arb_decision_date, final_value, escalation_path, closed_at, tax_year, corvus_guidance_ack_at, informal_status, informal_review_date, informal_appraiser_category";
+  "id, property_id, status, notes, requested_at, updated_at, original_value, settlement_offer_value, settlement_offer_received_at, hearing_date, hearing_time, hearing_location, hearing_mode, arb_decision, arb_decision_date, final_value, escalation_path, closed_at, tax_year, corvus_guidance_ack_at, informal_status, informal_review_date, informal_appraiser_category, attendance_type";
 
 function fromRow(row: ProtestRow): ProtestRecord {
   return {
@@ -138,6 +146,7 @@ function fromRow(row: ProtestRow): ProtestRecord {
     informalStatus: row.informal_status,
     informalReviewDate: row.informal_review_date,
     informalAppraiserCategory: row.informal_appraiser_category,
+    attendanceType: row.attendance_type,
   };
 }
 
