@@ -1,6 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { getErrorMessage } from "@/lib/error-message";
 import {
   CheckCircle2,
   AlertTriangle,
@@ -325,7 +326,7 @@ function Report() {
         toast.success("Protest started — let's get your form filed.");
         nav({ to: "/dashboard/case", search: { propertyId: property.id } });
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : "Could not start your protest.");
+        toast.error(getErrorMessage(err, "Could not start your protest."));
       }
       return;
     }

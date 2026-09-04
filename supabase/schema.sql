@@ -497,6 +497,61 @@ alter table public.protests add constraint protests_status_check
   check (status in ('requested', 'filed', 'under_review', 'offer_received',
     'hearing_scheduled', 'decision_received', 'appealing', 'arbitrating', 'resolved'));
 
+-- No two DIFFERENT users may have an active protest on file for the same
+-- real property (same CAD + account number) in the same tax year — real
+-- appraisal districts don't accept a second, unrelated party's protest on
+-- top of one already filed, and RLS alone can't catch this (each user's
+-- own properties/protests are invisible to every other user's queries by
+-- design). Runs as security definer specifically so it CAN see across
+-- every user's rows for this one check, unlike a normal RLS-scoped query.
+-- Never blocks on unverifiable data: a property with no real cad/account
+-- number on file yet, or a protest with no tax_year set, is skipped
+-- entirely rather than guessed at — same "never fabricate/never
+-- overreach" discipline the CAD-matching code follows. A resolved protest
+-- (status = 'resolved') never blocks a new one — that property is no
+-- longer under active protest by anyone. The SAME user re-requesting for
+-- their own already-active protest is a different, separate concern (not
+-- this check's job — user_id <> new.user_id excludes it here).
+create or replace function public.prevent_duplicate_active_protest()
+returns trigger
+language plpgsql
+security definer set search_path = public
+as $$
+declare
+  new_cad text;
+  new_account text;
+  conflict_id uuid;
+begin
+  select cad, account_number into new_cad, new_account
+  from public.properties where id = new.property_id;
+
+  if new_cad is null or new_account is null or new.tax_year is null then
+    return new;
+  end if;
+
+  select p.id into conflict_id
+  from public.protests p
+  join public.properties pr on pr.id = p.property_id
+  where pr.cad = new_cad
+    and pr.account_number = new_account
+    and p.tax_year = new.tax_year
+    and p.status <> 'resolved'
+    and p.user_id <> new.user_id
+  limit 1;
+
+  if conflict_id is not null then
+    raise exception 'A protest for this property and tax year is already on file from another account.';
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists prevent_duplicate_active_protest_trigger on public.protests;
+create trigger prevent_duplicate_active_protest_trigger
+  before insert on public.protests
+  for each row execute function public.prevent_duplicate_active_protest();
+
 -- Trackable evidence checklist for a protest case — one row per AI-suggested
 -- evidence item, optionally linked to an uploaded document once the user provides
 -- it. Generated from the same "evidence" AI module the paywalled AI Report page
