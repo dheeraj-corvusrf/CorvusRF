@@ -118,6 +118,18 @@ function splitGluedCity(rawStreet: string): { street: string; gluedCity: string 
   if (!m) return null;
   const extra = m[2].trim();
   if (/^(n|s|e|w|ne|nw|se|sw|north|south|east|west)\.?$/i.test(extra)) return null;
+  // A real glued-on city is never a bare number — found live 2026-09-04
+  // chasing a real report ("705 Hwy 352, Mesquite, TX 75149"): STREET_SUFFIX_ALT
+  // includes "hwy"/"highway"/"fwy"/"freeway" for real NAMED streets that end in
+  // that word ("Old Spanish Trail Hwy"), but the same word is also how Texas
+  // numbered highways are typed ("Hwy 352") — there the route number right
+  // after it isn't a glued city at all, it's the rest of the road's own name.
+  // Without this guard, "Hwy 352" got split into street="Hwy" (the actual
+  // route number silently discarded) and gluedCity="352" (a fake city that
+  // then leaked into the display address and matched almost nothing real),
+  // exactly the same class of corruption the directional guard above already
+  // prevents for "107 Oak Dr E".
+  if (/^\d+$/.test(extra)) return null;
   return { street: m[1].trim(), gluedCity: extra };
 }
 
@@ -2176,9 +2188,21 @@ async function findNearby(
   );
   const candidates = results.flatMap((r) => (r.status === "fulfilled" ? r.value : []));
 
+  // City is now a sort PREFERENCE, not a hard exclude — found live 2026-09-04
+  // chasing a real report ("2514 Parker Rd, Parker, TX 75002"): Collin's own
+  // data has real "W PARKER RD" parcels in PLANO (2224, 2313, 2801...) that
+  // bracket house 2514 closely, but the ONLY nearby suggestions shown were a
+  // completely different, far-away segment ("E PARKER RD", house 4800+) in
+  // the literal town of Parker — because the real, close, correct candidates
+  // are in Plano's city label, not "Parker", and the old hard filter dropped
+  // them outright. A small town's road frequently continues into a
+  // neighboring city under the exact same CAD-county and street name; only
+  // hard-filtering by county (via nearbyDedupeKey/cad, unchanged below) still
+  // prevents the original cross-COUNTY collision this filter was meant to
+  // stop ("Ridgecrest Rd" in Kaufman vs. elsewhere) — filtering by city on
+  // top of that was over-broad.
   const seen = new Set<string>();
-  const inCity = candidates.filter((c) => {
-    if (cityGuess && !cityMatches(cityOf(c.propertyAddress), cityGuess)) return false;
+  const deduped = candidates.filter((c) => {
     const key = nearbyDedupeKey(c);
     if (seen.has(key)) return false;
     seen.add(key);
@@ -2189,11 +2213,15 @@ async function findNearby(
   // parcels with no house number to sort by at all, so without this every
   // candidate ties and the list is really just "whichever order the county
   // API happened to return them in" — a real match with the wrong zip could
-  // silently fall past the slice below), THEN house-number distance.
-  inCity.sort((a, b) => {
+  // silently fall past the slice below), then city match, THEN house-number
+  // distance.
+  deduped.sort((a, b) => {
     const az = targetZip && extractZip(a.propertyAddress) === targetZip ? 0 : 1;
     const bz = targetZip && extractZip(b.propertyAddress) === targetZip ? 0 : 1;
     if (az !== bz) return az - bz;
+    const ac = cityGuess && cityMatches(cityOf(a.propertyAddress), cityGuess) ? 0 : 1;
+    const bc = cityGuess && cityMatches(cityOf(b.propertyAddress), cityGuess) ? 0 : 1;
+    if (ac !== bc) return ac - bc;
     const ha = parseInt(houseNumberOf(a.propertyAddress), 10);
     const hb = parseInt(houseNumberOf(b.propertyAddress), 10);
     const da = Number.isFinite(ha) ? Math.abs(ha - targetHouse) : Infinity;
@@ -2209,7 +2237,7 @@ async function findNearby(
   // in the county's arbitrary first 8 rows. Raised to 20 — still a bounded
   // list the UI's plain scrollable rows handle fine, but 8 was clearly too
   // aggressive for a common road with dozens of real parcels on it.
-  return inCity.slice(0, 20);
+  return deduped.slice(0, 20);
 }
 
 // Texas road names are commonly typed/pasted without a space before the
