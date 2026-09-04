@@ -4,6 +4,11 @@ import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
 import { listProperties, type PropertyRecord } from "@/lib/properties";
 import { listDocuments, getDocumentUrl, type DocumentRecord } from "@/lib/documents";
+import {
+  classifyAndUpload,
+  assignAndUpload,
+  type CategorizedUpload,
+} from "@/lib/document-categorize";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export const Route = createFileRoute("/dashboard/_layout/documents")({
@@ -15,6 +20,7 @@ function Documents() {
   const [properties, setProperties] = useState<PropertyRecord[]>([]);
   const [documents, setDocuments] = useState<DocumentRecord[]>([]);
   const [loading, setLoading] = useState(true);
+  const [uploads, setUploads] = useState<CategorizedUpload[]>([]);
 
   useEffect(() => {
     if (!user) return;
@@ -34,6 +40,49 @@ function Documents() {
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not open this document.");
     }
+  }
+
+  // One classify-then-upload call per file, sequentially — not Promise.all,
+  // same reasoning as every other bulk action this session (Bulk Invite,
+  // bulk delete): a slow or failing file shouldn't race every other file's
+  // AI call at once, and each row's status updates as its own turn finishes
+  // instead of the whole batch going from "processing" to "done" together.
+  async function handleFilesSelected(files: File[]) {
+    if (!user || files.length === 0) return;
+    const pending: CategorizedUpload[] = files.map((file) => ({
+      id: `${file.name}-${file.size}-${file.lastModified}`,
+      file,
+      status: "classifying",
+      extraction: null,
+      matchedProperty: null,
+      document: null,
+      error: null,
+    }));
+    setUploads((prev) => [...pending, ...prev]);
+
+    for (const file of files) {
+      const result = await classifyAndUpload(user.id, properties, file);
+      setUploads((prev) => prev.map((u) => (u.id === result.id ? result : u)));
+      if (result.status === "done" && result.document) {
+        setDocuments((prev) => [result.document!, ...prev]);
+      }
+    }
+  }
+
+  async function handleAssignProperty(upload: CategorizedUpload, propertyId: string) {
+    if (!user) return;
+    const property = properties.find((p) => p.id === propertyId);
+    if (!property) return;
+    setUploads((prev) => prev.map((u) => (u.id === upload.id ? { ...u, status: "uploading" } : u)));
+    const result = await assignAndUpload(user.id, property, upload);
+    setUploads((prev) => prev.map((u) => (u.id === result.id ? result : u)));
+    if (result.status === "done" && result.document) {
+      setDocuments((prev) => [result.document!, ...prev]);
+    }
+  }
+
+  function dismissUpload(id: string) {
+    setUploads((prev) => prev.filter((u) => u.id !== id));
   }
 
   // Grouped by property — a flat list with the address buried in each
@@ -58,9 +107,51 @@ function Documents() {
     <div>
       <h1 className="font-serif text-2xl font-semibold">Documents</h1>
       <p className="text-muted-foreground text-sm">
-        Documents you upload during property intake are stored here automatically, grouped by
-        property.
+        Documents you upload during property intake land here automatically — or upload several at
+        once below and AI will read each one and sort it to the right property for you.
       </p>
+
+      <div className="mt-6 card-elev p-6">
+        <h2 className="font-semibold">Upload Documents</h2>
+        <p className="text-sm text-muted-foreground">
+          Select any number of appraisal notices, tax bills, or other property tax documents — no
+          need to sort them first. AI reads each one and matches it to the right property by its
+          account number or address.
+        </p>
+        <label
+          className={`btn-primary btn-primary-hover mt-3 inline-flex w-fit cursor-pointer text-sm ${
+            !user ? "pointer-events-none opacity-60" : ""
+          }`}
+        >
+          Choose Files
+          <input
+            type="file"
+            accept="application/pdf,image/*"
+            multiple
+            disabled={!user}
+            className="hidden"
+            onChange={(e) => {
+              const selected = e.target.files ? Array.from(e.target.files) : [];
+              e.target.value = "";
+              if (selected.length > 0) handleFilesSelected(selected);
+            }}
+          />
+        </label>
+
+        {uploads.length > 0 && (
+          <div className="mt-4 grid gap-2">
+            {uploads.map((upload) => (
+              <UploadRow
+                key={upload.id}
+                upload={upload}
+                properties={properties}
+                onAssign={(propertyId) => handleAssignProperty(upload, propertyId)}
+                onDismiss={() => dismissUpload(upload.id)}
+              />
+            ))}
+          </div>
+        )}
+      </div>
 
       <div className="mt-6">
         {loading ? (
@@ -90,6 +181,86 @@ function Documents() {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function UploadRow({
+  upload,
+  properties,
+  onAssign,
+  onDismiss,
+}: {
+  upload: CategorizedUpload;
+  properties: PropertyRecord[];
+  onAssign: (propertyId: string) => void;
+  onDismiss: () => void;
+}) {
+  return (
+    <div className="rounded-md bg-secondary/40 px-3 py-2 text-sm">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div className="min-w-0 flex-1">
+          <div className="truncate font-medium">{upload.file.name}</div>
+          {upload.status === "done" && upload.matchedProperty && (
+            <div className="text-xs text-success">
+              Matched to {upload.matchedProperty.address}
+              {upload.extraction?.documentType ? ` — ${upload.extraction.documentType}` : ""}
+            </div>
+          )}
+          {upload.status === "error" && (
+            <div className="text-xs text-destructive">{upload.error}</div>
+          )}
+          {upload.status === "needs-property" && (
+            <div className="text-xs text-muted-foreground">
+              AI couldn't tell which property this belongs to — pick one below.
+            </div>
+          )}
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          {(upload.status === "classifying" || upload.status === "uploading") && (
+            <span className="text-xs text-muted-foreground">
+              {upload.status === "classifying" ? "Reading…" : "Uploading…"}
+            </span>
+          )}
+          {upload.status === "done" && <span className="text-xs text-success">✓ Uploaded</span>}
+          {(upload.status === "done" || upload.status === "error") && (
+            <button
+              type="button"
+              onClick={onDismiss}
+              className="text-xs text-muted-foreground hover:text-foreground"
+            >
+              Dismiss
+            </button>
+          )}
+        </div>
+      </div>
+      {upload.status === "needs-property" && (
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <select
+            defaultValue=""
+            onChange={(e) => {
+              if (e.target.value) onAssign(e.target.value);
+            }}
+            className="rounded-md border border-input bg-background px-2 py-1.5 text-xs"
+          >
+            <option value="" disabled>
+              Choose a property…
+            </option>
+            {properties.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.address}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            onClick={onDismiss}
+            className="text-xs text-muted-foreground hover:text-foreground"
+          >
+            Skip
+          </button>
+        </div>
+      )}
     </div>
   );
 }
