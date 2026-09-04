@@ -1067,7 +1067,15 @@ function BetaLeadRow({
     try {
       const [firstName, ...rest] = lead.fullName.trim().split(/\s+/);
       const lastName = rest.join(" ") || firstName;
-      await createUserAccount({ email: lead.workEmail, firstName, lastName, phone: "" });
+      // wantsBeta: true — approving a beta-access request should grant the
+      // free, full-access beta plan by default, not the paid-tier default.
+      await createUserAccount({
+        email: lead.workEmail,
+        firstName,
+        lastName,
+        phone: "",
+        wantsBeta: true,
+      });
       const invitedAt = await markBetaLeadInvited(lead.id);
       onInvited(lead.id, invitedAt);
       toast.success(`Invite sent to ${lead.workEmail}.`);

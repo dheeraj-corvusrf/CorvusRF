@@ -250,6 +250,12 @@ export async function createUserAccount(input: {
   firstName: string;
   lastName: string;
   phone: string;
+  // Grants plan='beta' (free, full access) at signup instead of the default
+  // free_ai_review — same wants_beta metadata flag handle_new_user() already
+  // reads for self-signup (see sign-in.tsx), just set by the admin here
+  // instead of the invitee. Used when approving a beta-access request via
+  // Invite so the account doesn't land on the paid-tier default.
+  wantsBeta?: boolean;
 }): Promise<void> {
   await invokeEdgeFunction("admin-create-user", {
     ...input,
