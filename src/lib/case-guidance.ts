@@ -194,10 +194,11 @@ export function getCaseGuidance(
         action: { label: "Go to Hearing Notice", anchor: "case-hearing-notice" },
       });
       nextSteps.push(...evidenceSteps(evidenceDocumentCount));
-      if (countyInfo?.informalReview) {
+      if (countyInfo?.informalReview && protest.informalStatus === "not_requested") {
         nextSteps.push({
           label: "Request an informal review",
           detail: countyInfo.informalReview.howToRequest,
+          action: { label: "Go to Informal Review", anchor: "case-informal-review" },
         });
       }
       break;

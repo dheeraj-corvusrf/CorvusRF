@@ -19,6 +19,7 @@ export type SyncEvent = {
 
 const EVENT_TYPE_LABEL: Record<string, string> = {
   protest_deadline: "Protest Deadline",
+  informal_review: "Informal Review",
   hearing: "ARB Hearing",
   arb_decision: "ARB Decision",
   tax_due: "Tax Bill Due",
@@ -56,7 +57,7 @@ export async function buildUserEvents(
       adminClient
         .from("protests")
         .select(
-          "id, property_id, status, hearing_date, hearing_time, hearing_location, arb_decision_date",
+          "id, property_id, status, hearing_date, hearing_time, hearing_location, arb_decision_date, informal_status, informal_review_date",
         )
         .eq("user_id", userId),
       adminClient
@@ -100,6 +101,14 @@ export async function buildUserEvents(
     const id = pr.id as string;
     const address =
       (propertyById.get(pr.property_id as string)?.address as string) ?? "your property";
+    if (pr.informal_status === "scheduled" && pr.informal_review_date) {
+      events.push({
+        iCalUID: uid(`informal-review:${id}`),
+        date: toIsoDate(pr.informal_review_date as string),
+        title: `${EVENT_TYPE_LABEL.informal_review} — ${address}`,
+        amount: null,
+      });
+    }
     if (pr.status === "hearing_scheduled" && pr.hearing_date) {
       // Real time/location from an actual uploaded hearing notice, when
       // there is one (see extract-hearing-notice) — mirrors

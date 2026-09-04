@@ -5,6 +5,7 @@ import { listBppAccounts, type BppAccountRecord } from "./bpp-accounts";
 
 export type CalendarEventType =
   | "protest_deadline"
+  | "informal_review"
   | "hearing"
   | "arb_decision"
   | "tax_due"
@@ -31,6 +32,7 @@ export type CalendarEvent = {
 
 export const EVENT_TYPE_LABEL: Record<CalendarEventType, string> = {
   protest_deadline: "Protest Deadline",
+  informal_review: "Informal Review",
   hearing: "ARB Hearing",
   arb_decision: "ARB Decision",
   tax_due: "Tax Bill Due",
@@ -42,6 +44,7 @@ export const EVENT_TYPE_LABEL: Record<CalendarEventType, string> = {
 // Tailwind color tokens keyed by event type, used for the month-grid dots.
 export const EVENT_TYPE_COLOR: Record<CalendarEventType, string> = {
   protest_deadline: "bg-destructive",
+  informal_review: "bg-sky-500",
   hearing: "bg-accent",
   arb_decision: "bg-primary",
   tax_due: "bg-amber-500",
@@ -121,6 +124,23 @@ function fromProtest(pr: ProtestRecord, properties: PropertyRecord[]): CalendarE
   const property = properties.find((p) => p.id === pr.propertyId);
   const address = property?.address ?? "your property";
   const events: CalendarEvent[] = [];
+  // Real, self-reported date once the county and owner have actually
+  // agreed on one — see InformalReviewSection in CaseDetailModal.tsx and
+  // scheduleInformalReview() in protest-case.ts. Independent of the formal
+  // hearing event below — a case can have both scheduled at once.
+  if (pr.informalStatus === "scheduled" && pr.informalReviewDate) {
+    events.push({
+      id: `informal-review:${pr.id}`,
+      date: toIsoDate(pr.informalReviewDate),
+      type: "informal_review",
+      title: `Informal review — ${address}`,
+      amount: null,
+      propertyId: pr.propertyId,
+      linkTo: "/dashboard/properties",
+      resolved: new Date(pr.informalReviewDate) < new Date(),
+      propertyLabel: address,
+    });
+  }
   if (pr.status === "hearing_scheduled" && pr.hearingDate) {
     events.push({
       id: `hearing:${pr.id}`,

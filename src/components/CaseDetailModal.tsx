@@ -7,7 +7,12 @@ import {
   buildAiReportIntakePatch,
   type PropertyRecord,
 } from "@/lib/properties";
-import { acknowledgeGuidance, type ProtestRecord } from "@/lib/protests";
+import {
+  acknowledgeGuidance,
+  INFORMAL_STATUS_LABEL,
+  type ProtestRecord,
+  type InformalStatus,
+} from "@/lib/protests";
 import { currency, updateIntake } from "@/lib/intake-store";
 import {
   getCase,
@@ -21,6 +26,9 @@ import {
   recordEscalation,
   closeCase,
   getCaseResults,
+  updateInformalStatus,
+  scheduleInformalReview,
+  saveInformalAppraiserCategory,
   type ProtestCase,
 } from "@/lib/protest-case";
 import { getCaseGuidance } from "@/lib/case-guidance";
@@ -49,6 +57,11 @@ import {
   type HearingNoticeRecord,
   type HearingNoticeExtraction,
 } from "@/lib/hearing-notice";
+import {
+  getInformalReviewGuidance,
+  buildInformalReviewMailto,
+  type InformalReviewGuidance,
+} from "@/lib/informal-review";
 import { getErrorMessage } from "@/lib/error-message";
 import { getAuthorization, type AuthorizationRecord } from "@/lib/protest-authorizations";
 import {
@@ -217,6 +230,15 @@ export function CaseDetailView({
               evidenceDocuments={evidenceDocuments}
               onUpdate={(patch) => setCurrent((prev) => ({ ...prev, ...patch }))}
               onNoticeSigned={setNoticeSignedAt}
+            />
+          )}
+
+          {current.status !== "requested" && (
+            <InformalReviewSection
+              protest={current}
+              property={property}
+              strategyRecommendation={caseData?.strategyRecommendation ?? null}
+              onUpdate={(patch) => setCurrent((prev) => ({ ...prev, ...patch }))}
             />
           )}
 
@@ -1570,6 +1592,236 @@ export function DocumentsSection({
           generatingReason={generatingReason}
           onGenerateReason={handleGenerateReason}
         />
+      )}
+    </div>
+  );
+}
+
+// Every real, trackable informal-review sub-state, in the same order the
+// product spec listed them — the raw options for the status dropdown below.
+// Distinct from INFORMAL_STATUS_LABEL (protests.ts), which collapses these
+// to the shorter user-facing badge text; this dropdown shows the real,
+// specific state the user is actually setting.
+const INFORMAL_STATUS_OPTIONS: { value: InformalStatus; label: string }[] = [
+  { value: "not_requested", label: "Not Requested" },
+  { value: "requested", label: "Requested" },
+  { value: "pending_response", label: "Pending County Response" },
+  { value: "scheduled", label: "Scheduled" },
+  { value: "proposed_value_received", label: "Proposed Value Received" },
+  { value: "accepted", label: "Accepted" },
+  { value: "rejected", label: "Rejected" },
+  { value: "no_informal_available", label: "No Informal Available" },
+];
+
+function InformalReviewSection({
+  protest,
+  property,
+  strategyRecommendation,
+  onUpdate,
+}: {
+  protest: ProtestRecord;
+  property: PropertyRecord;
+  strategyRecommendation: string | null;
+  onUpdate: (patch: Partial<ProtestRecord>) => void;
+}) {
+  const [updatingStatus, setUpdatingStatus] = useState(false);
+  const [dateInput, setDateInput] = useState(protest.informalReviewDate ?? "");
+  const [savingDate, setSavingDate] = useState(false);
+  const [guidance, setGuidance] = useState<InformalReviewGuidance | null>(null);
+  const [loadingGuidance, setLoadingGuidance] = useState(false);
+  const [guidanceError, setGuidanceError] = useState<string | null>(null);
+
+  const countyInfo = getCountyProtestInfo(property.cad);
+
+  async function handleStatusChange(status: InformalStatus) {
+    setUpdatingStatus(true);
+    try {
+      await updateInformalStatus(protest.id, status);
+      onUpdate({ informalStatus: status });
+    } catch (err) {
+      toast.error(getErrorMessage(err, "Could not update this status."));
+    } finally {
+      setUpdatingStatus(false);
+    }
+  }
+
+  async function handleSaveDate(e: FormEvent) {
+    e.preventDefault();
+    if (!dateInput) return;
+    setSavingDate(true);
+    try {
+      await scheduleInformalReview(protest.id, dateInput);
+      onUpdate({ informalStatus: "scheduled", informalReviewDate: dateInput });
+      toast.success("Informal review date saved.");
+    } catch (err) {
+      toast.error(getErrorMessage(err, "Could not save this date."));
+    } finally {
+      setSavingDate(false);
+    }
+  }
+
+  async function handleGetGuidance() {
+    setLoadingGuidance(true);
+    setGuidanceError(null);
+    try {
+      const result = await getInformalReviewGuidance(
+        property,
+        countyInfo,
+        strategyRecommendation,
+        property.estimatedSavings,
+        [],
+      );
+      setGuidance(result);
+      // Saved quietly — never its own prominent field, see the schema
+      // comment on informal_appraiser_category — just so it's on file the
+      // next time this case's guidance is looked at (by staff, say).
+      saveInformalAppraiserCategory(protest.id, result.appraiserCategory).catch((err) =>
+        console.error("Could not save appraiser category:", err),
+      );
+    } catch (err) {
+      setGuidanceError(getErrorMessage(err, "Could not get guidance. Please try again."));
+    } finally {
+      setLoadingGuidance(false);
+    }
+  }
+
+  const mailto = guidance ? buildInformalReviewMailto(guidance) : null;
+
+  return (
+    <div id="case-informal-review" className="mt-5 border-t border-border pt-5">
+      <h4 className="text-sm font-semibold">Informal Review</h4>
+
+      <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
+        <span className="badge-soft">{INFORMAL_STATUS_LABEL[protest.informalStatus]}</span>
+        <select
+          value={protest.informalStatus}
+          disabled={updatingStatus}
+          onChange={(e) => handleStatusChange(e.target.value as InformalStatus)}
+          className="rounded-md border border-input bg-background px-2 py-1 text-xs disabled:opacity-60"
+        >
+          {INFORMAL_STATUS_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {protest.informalStatus === "scheduled" && (
+        <form onSubmit={handleSaveDate} className="mt-2 flex flex-wrap items-end gap-2">
+          <label className="grid gap-1 text-xs">
+            Agreed date
+            <input
+              type="date"
+              value={dateInput}
+              onChange={(e) => setDateInput(e.target.value)}
+              className="rounded-md border border-input bg-background px-2 py-1.5 text-sm"
+            />
+          </label>
+          <button
+            type="submit"
+            disabled={savingDate || !dateInput}
+            className="btn-outline text-xs py-1.5 disabled:opacity-60"
+          >
+            {savingDate ? "Saving…" : "Save & Add to Calendar"}
+          </button>
+          {protest.informalReviewDate && (
+            <span className="text-xs text-muted-foreground">
+              On file: {protest.informalReviewDate}
+            </span>
+          )}
+        </form>
+      )}
+
+      <div className="mt-3">
+        <button
+          type="button"
+          onClick={handleGetGuidance}
+          disabled={loadingGuidance}
+          className="btn-outline text-xs py-1.5 disabled:opacity-60"
+        >
+          {loadingGuidance
+            ? "Reading your case…"
+            : guidance
+              ? "Refresh Guidance"
+              : "Get Informal Review Guidance"}
+        </button>
+        {guidanceError && <p className="mt-1 text-xs text-destructive">{guidanceError}</p>}
+      </div>
+
+      {guidance && (
+        <div className="mt-3 grid gap-3 rounded-md border border-border p-3 text-sm">
+          <div>
+            <span className="font-semibold">Available: </span>
+            <span className="text-muted-foreground">{guidance.available}</span>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2 text-xs">
+            <div>
+              <div className="font-semibold text-foreground">Who to Contact</div>
+              <p className="text-muted-foreground">{guidance.whoToContact || "Not confirmed."}</p>
+            </div>
+            <div>
+              <div className="font-semibold text-foreground">How to Request It</div>
+              <p className="text-muted-foreground">{guidance.howToRequest || "Not confirmed."}</p>
+            </div>
+            <div>
+              <div className="font-semibold text-foreground">What Value to Request</div>
+              <p className="text-muted-foreground">{guidance.requestedValueGuidance}</p>
+            </div>
+            <div>
+              <div className="font-semibold text-foreground">Responding to a Proposed Value</div>
+              <p className="text-muted-foreground">{guidance.respondingToProposedValue}</p>
+            </div>
+            <div>
+              <div className="font-semibold text-foreground">What to Say</div>
+              <p className="text-muted-foreground">{guidance.whatToSay}</p>
+            </div>
+            <div>
+              <div className="font-semibold text-foreground">What Not to Say</div>
+              <p className="text-muted-foreground">{guidance.whatNotToSay}</p>
+            </div>
+            <div className="sm:col-span-2">
+              <div className="font-semibold text-foreground">Does Accepting End the Case?</div>
+              <p className="text-muted-foreground">{guidance.acceptingEndsCase}</p>
+            </div>
+          </div>
+          {guidance.documentsToProvide.length > 0 && (
+            <div className="text-xs">
+              <div className="font-semibold text-foreground">Documents to Provide</div>
+              <ul className="mt-0.5 grid gap-0.5 text-muted-foreground">
+                {guidance.documentsToProvide.map((d, i) => (
+                  <li key={i}>• {d}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {guidance.evidenceToUse.length > 0 && (
+            <div className="text-xs">
+              <div className="font-semibold text-foreground">Evidence to Use</div>
+              <ul className="mt-0.5 grid gap-0.5 text-muted-foreground">
+                {guidance.evidenceToUse.map((d, i) => (
+                  <li key={i}>• {d}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {mailto ? (
+            <div>
+              <a href={mailto} className="btn-accent text-xs py-1.5 inline-flex">
+                Draft Email to {guidance.contactEmail}
+              </a>
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                Opens your email app with a suggested request pre-filled — review and edit before
+                sending.
+              </p>
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              No confirmed email contact on file for this county — use the phone/contact info above,
+              or check {property.cad ?? "your appraisal district"}'s website directly.
+            </p>
+          )}
+        </div>
       )}
     </div>
   );

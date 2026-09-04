@@ -472,6 +472,44 @@ alter table public.protests add column if not exists final_value numeric;
 alter table public.protests add column if not exists escalation_path text;
 alter table public.protests add column if not exists closed_at timestamptz;
 
+-- Informal review sub-tracker — a finer-grained state than the main
+-- `status` column above, which has no room for "requested but no county
+-- response yet" / "scheduled" as distinct pre-offer states. Deliberately a
+-- SEPARATE column, not a new `status` value: informal review is optional
+-- and county-specific (see county_protest_info.ts's own informalReview
+-- field), and once a real settlement offer actually arrives, THAT already
+-- has its own real tracking (settlement_offer_value/status='offer_received'/
+-- acceptSettlement()) — this column exists for the states BEFORE that,
+-- plus a couple of terminal ones ('rejected'/'no_informal_available') that
+-- have no other real signal on this table. Not exposed to the user as its
+-- own confusing 8-value picker verbatim — see INFORMAL_STATUS_LABEL in
+-- src/lib/protests.ts for the real, shorter user-facing label set.
+alter table public.protests add column if not exists informal_status text not null default 'not_requested';
+alter table public.protests drop constraint if exists protests_informal_status_check;
+alter table public.protests add constraint protests_informal_status_check
+  check (informal_status in ('not_requested', 'requested', 'pending_response', 'scheduled',
+    'proposed_value_received', 'accepted', 'rejected', 'no_informal_available'));
+
+-- The real, self-reported date once the county and owner have agreed on
+-- one (this app has no live scheduling API for any county) — feeds the
+-- calendar builders the same way hearing_date already does, once
+-- informal_status = 'scheduled'.
+alter table public.protests add column if not exists informal_review_date date;
+
+-- AI's own read of which appraiser specialty this property's informal
+-- review would route to (see informal-review-guidance edge function) —
+-- internal/supporting detail only, used to address a drafted email
+-- correctly; deliberately NOT surfaced as its own prominent UI field
+-- (per product direction: "do not expose complicated appraiser routing to
+-- the user unless it is useful to completing the process").
+alter table public.protests add column if not exists informal_appraiser_category text;
+alter table public.protests drop constraint if exists protests_informal_appraiser_category_check;
+alter table public.protests add constraint protests_informal_appraiser_category_check
+  check (informal_appraiser_category is null or informal_appraiser_category in (
+    'Land Appraiser', 'Improvement Appraiser', 'Commercial Appraiser', 'Retail Appraiser',
+    'Office Appraiser', 'Daycare/School Appraiser', 'Other'
+  ));
+
 -- Which tax year this filing covers — lets a property have one protest row per
 -- year instead of one ever, so a resolved prior-year case doesn't block filing
 -- again for a new year (see src/routes/dashboard/_layout.properties.tsx's

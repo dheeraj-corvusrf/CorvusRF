@@ -119,7 +119,7 @@ Deno.serve(async (req: Request) => {
       adminClient
         .from("protests")
         .select(
-          "id, property_id, status, hearing_date, hearing_time, hearing_location, arb_decision_date",
+          "id, property_id, status, hearing_date, hearing_time, hearing_location, arb_decision_date, informal_status, informal_review_date",
         )
         .eq("user_id", userId),
       adminClient

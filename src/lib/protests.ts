@@ -15,6 +15,42 @@ export type ProtestStatus =
 export type ArbDecision = "approved" | "partial" | "denied";
 export type EscalationPath = "accept" | "appeal" | "arbitration";
 
+// Finer-grained than ProtestStatus — see the schema.sql comment on
+// protests.informal_status for why this is a separate column rather than
+// new ProtestStatus values.
+export type InformalStatus =
+  | "not_requested"
+  | "requested"
+  | "pending_response"
+  | "scheduled"
+  | "proposed_value_received"
+  | "accepted"
+  | "rejected"
+  | "no_informal_available";
+
+// The real, shorter label set the user actually sees — several internal
+// InformalStatus values collapse to the same honest user-facing phrase
+// rather than exposing all 8 as their own confusing badge text.
+export const INFORMAL_STATUS_LABEL: Record<InformalStatus, string> = {
+  not_requested: "Not Requested",
+  requested: "Informal Review Pending",
+  pending_response: "Informal Review Pending",
+  scheduled: "Informal Review Scheduled",
+  proposed_value_received: "Offer Received",
+  accepted: "Offer Accepted",
+  rejected: "Formal Hearing Needed",
+  no_informal_available: "Formal Hearing Needed",
+};
+
+export type AppraiserCategory =
+  | "Land Appraiser"
+  | "Improvement Appraiser"
+  | "Commercial Appraiser"
+  | "Retail Appraiser"
+  | "Office Appraiser"
+  | "Daycare/School Appraiser"
+  | "Other";
+
 export type ProtestRecord = {
   id: string;
   propertyId: string;
@@ -43,6 +79,9 @@ export type ProtestRecord = {
   // null until then, never reset once set. See CorvusGuidanceGate in
   // CaseDetailModal.tsx, which gates entry into a not-yet-filed case on this.
   corvusGuidanceAckAt: string | null;
+  informalStatus: InformalStatus;
+  informalReviewDate: string | null;
+  informalAppraiserCategory: AppraiserCategory | null;
 };
 
 type ProtestRow = {
@@ -66,10 +105,13 @@ type ProtestRow = {
   closed_at: string | null;
   tax_year: number | null;
   corvus_guidance_ack_at: string | null;
+  informal_status: InformalStatus;
+  informal_review_date: string | null;
+  informal_appraiser_category: AppraiserCategory | null;
 };
 
 const SELECT_COLUMNS =
-  "id, property_id, status, notes, requested_at, updated_at, original_value, settlement_offer_value, settlement_offer_received_at, hearing_date, hearing_time, hearing_location, hearing_mode, arb_decision, arb_decision_date, final_value, escalation_path, closed_at, tax_year, corvus_guidance_ack_at";
+  "id, property_id, status, notes, requested_at, updated_at, original_value, settlement_offer_value, settlement_offer_received_at, hearing_date, hearing_time, hearing_location, hearing_mode, arb_decision, arb_decision_date, final_value, escalation_path, closed_at, tax_year, corvus_guidance_ack_at, informal_status, informal_review_date, informal_appraiser_category";
 
 function fromRow(row: ProtestRow): ProtestRecord {
   return {
@@ -93,6 +135,9 @@ function fromRow(row: ProtestRow): ProtestRecord {
     closedAt: row.closed_at,
     taxYear: row.tax_year,
     corvusGuidanceAckAt: row.corvus_guidance_ack_at,
+    informalStatus: row.informal_status,
+    informalReviewDate: row.informal_review_date,
+    informalAppraiserCategory: row.informal_appraiser_category,
   };
 }
 
