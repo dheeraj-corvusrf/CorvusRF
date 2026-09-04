@@ -186,7 +186,13 @@ function ProtestedPropertyCard({
         </div>
       </div>
       <div className="mt-4 flex flex-wrap gap-2">
-        <Link to="/dashboard/case" search={{ propertyId: property.id }} className="btn-outline">
+        <Link
+          to="/dashboard/case"
+          search={{ propertyId: property.id }}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="btn-outline"
+        >
           View Case
         </Link>
         <Link to="/dashboard/properties" className="btn-outline">

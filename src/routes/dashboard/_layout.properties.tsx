@@ -213,6 +213,8 @@ function Properties() {
                         <Link
                           to="/dashboard/case"
                           search={{ propertyId: p.id }}
+                          target="_blank"
+                          rel="noopener noreferrer"
                           className="btn-outline"
                         >
                           View Case

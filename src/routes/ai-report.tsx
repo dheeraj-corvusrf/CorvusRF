@@ -1055,6 +1055,8 @@ function Report() {
                   <Link
                     to="/dashboard/case"
                     search={{ propertyId: resolvedProperty.id }}
+                    target="_blank"
+                    rel="noopener noreferrer"
                     className="btn-outline border-white/30 text-primary-foreground hover:bg-background/10 text-sm py-1.5"
                   >
                     View Case
@@ -1192,10 +1194,13 @@ function Report() {
               if (target) openModule(target);
             }}
             onStartProtest={startProtest}
-            onViewCase={() =>
-              resolvedProperty &&
-              nav({ to: "/dashboard/case", search: { propertyId: resolvedProperty.id } })
-            }
+            onViewCase={() => {
+              if (!resolvedProperty) return;
+              // New tab, not nav() — View Case shouldn't navigate the report
+              // itself away from whatever module the user was just looking at.
+              const url = `${window.location.origin}${import.meta.env.BASE_URL}dashboard/case?propertyId=${encodeURIComponent(resolvedProperty.id)}`;
+              window.open(url, "_blank", "noopener,noreferrer");
+            }}
           />
           <div className="mt-6 flex gap-2 justify-end">
             <button onClick={() => setOpenId(null)} className="btn-outline">
