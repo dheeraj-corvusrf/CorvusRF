@@ -101,7 +101,6 @@ import {
 } from "@/lib/documents";
 import { analyzeEvidence, type EvidenceAnalysis } from "@/lib/protest-reason";
 import { ProtestAuthorizationFlow } from "@/components/ProtestAuthorizationFlow";
-import { CaseDetailModal } from "@/components/CaseDetailModal";
 import { AnimatedNumber } from "@/components/AnimatedNumber";
 import { ValueHistorySection } from "@/components/ValueHistorySection";
 import { Modal } from "@/components/Modal";
@@ -217,7 +216,6 @@ function Report() {
   const [resolvedProperty, setResolvedProperty] = useState<PropertyRecord | null>(null);
   const [existingProtest, setExistingProtest] = useState<ProtestRecord | null>(null);
   const [authorizing, setAuthorizing] = useState(false);
-  const [showCase, setShowCase] = useState(false);
   // Evidence (photos/repair estimates/appraisals) the user has uploaded for this
   // property, fed into the Improvement Condition module's analysis — see
   // handleUploadEvidence() and loadModule() below.
@@ -1053,12 +1051,15 @@ function Report() {
                 <span className="badge-soft">
                   Protest {existingProtest.status.replace("_", " ")}
                 </span>
-                <button
-                  onClick={() => setShowCase(true)}
-                  className="btn-outline border-white/30 text-primary-foreground hover:bg-background/10 text-sm py-1.5"
-                >
-                  View Case
-                </button>
+                {resolvedProperty && (
+                  <Link
+                    to="/dashboard/case"
+                    search={{ propertyId: resolvedProperty.id }}
+                    className="btn-outline border-white/30 text-primary-foreground hover:bg-background/10 text-sm py-1.5"
+                  >
+                    View Case
+                  </Link>
+                )}
               </div>
             ) : (
               <button onClick={startProtest} className="btn-accent text-sm py-1.5">
@@ -1191,7 +1192,10 @@ function Report() {
               if (target) openModule(target);
             }}
             onStartProtest={startProtest}
-            onViewCase={() => setShowCase(true)}
+            onViewCase={() =>
+              resolvedProperty &&
+              nav({ to: "/dashboard/case", search: { propertyId: resolvedProperty.id } })
+            }
           />
           <div className="mt-6 flex gap-2 justify-end">
             <button onClick={() => setOpenId(null)} className="btn-outline">
@@ -1243,15 +1247,6 @@ function Report() {
               console.error("Case prep generation failed:", err),
             );
           }}
-        />
-      )}
-
-      {showCase && user && resolvedProperty && existingProtest && (
-        <CaseDetailModal
-          userId={user.id}
-          property={resolvedProperty}
-          protest={existingProtest}
-          onClose={() => setShowCase(false)}
         />
       )}
     </div>

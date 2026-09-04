@@ -58,20 +58,25 @@ import { searchPropertiesByOwner } from "@/lib/cad-owner-search";
 import { draftProtestReason } from "@/lib/protest-reason";
 import { PdfFormEditor } from "@/components/PdfFormEditor";
 import { FilingMethodsList } from "@/components/FilingMethodsList";
-import { Modal } from "@/components/Modal";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { SignatureValue } from "@/components/SignaturePad";
 
-export function CaseDetailModal({
+// Renders as a full page (see routes/dashboard/_layout.case.tsx), not an
+// overlay — previously this was a <Modal>; per product direction, View Case
+// now navigates to its own URL instead of opening on top of whatever page
+// triggered it. onBack is "return to wherever View Case was clicked from,"
+// not "dismiss an overlay," even though the internal state/logic below is
+// unchanged from the modal version.
+export function CaseDetailView({
   userId,
   property: propertyProp,
   protest,
-  onClose,
+  onBack,
 }: {
   userId: string;
   property: PropertyRecord;
   protest: ProtestRecord;
-  onClose: () => void;
+  onBack: () => void;
 }) {
   const [caseData, setCaseData] = useState<ProtestCase | null>(null);
   const [loading, setLoading] = useState(true);
@@ -137,7 +142,10 @@ export function CaseDetailModal({
   const needsGuidanceAck = current.status === "requested" && !acknowledgedThisOpen;
 
   return (
-    <Modal onClose={onClose} wide>
+    <div>
+      <button onClick={onBack} className="btn-outline text-sm mb-4">
+        ← Back
+      </button>
       <h3 className="font-serif text-xl font-semibold">Case: {property.address}</h3>
       <p className="text-xs text-muted-foreground">
         AI-generated from your property's official CAD record.
@@ -210,13 +218,7 @@ export function CaseDetailModal({
           />
         </>
       )}
-
-      <div className="mt-5 flex justify-end">
-        <button onClick={onClose} className="btn-outline text-sm">
-          Close
-        </button>
-      </div>
-    </Modal>
+    </div>
   );
 }
 

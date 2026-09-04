@@ -15,7 +15,6 @@ import { listHealthScores, type PropertyAiScore } from "@/lib/property-scores";
 import { getPropertyProtestStatus, type ActionStatus } from "@/lib/portfolio-status";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ProtestAuthorizationFlow } from "@/components/ProtestAuthorizationFlow";
-import { CaseDetailModal } from "@/components/CaseDetailModal";
 import { generateCasePrep } from "@/lib/protest-case";
 import { CopyButton } from "@/components/CopyButton";
 import { ImportPropertiesModal } from "@/components/ImportPropertiesModal";
@@ -40,7 +39,6 @@ function Properties() {
   const [protests, setProtests] = useState<ProtestRecord[]>([]);
   const [healthScores, setHealthScores] = useState<Record<string, PropertyAiScore>>({});
   const [authorizingProperty, setAuthorizingProperty] = useState<PropertyRecord | null>(null);
-  const [caseProperty, setCaseProperty] = useState<PropertyRecord | null>(null);
   const [importOpen, setImportOpen] = useState(false);
   const [ownershipsOpen, setOwnershipsOpen] = useState(false);
   const [authorizingBatch, setAuthorizingBatch] = useState<PropertyRecord[] | null>(null);
@@ -212,9 +210,13 @@ function Properties() {
                     )}
                     {existingProtest ? (
                       <>
-                        <button onClick={() => setCaseProperty(p)} className="btn-outline">
+                        <Link
+                          to="/dashboard/case"
+                          search={{ propertyId: p.id }}
+                          className="btn-outline"
+                        >
                           View Case
-                        </button>
+                        </Link>
                         {canReFile && (
                           <button
                             onClick={() => setAuthorizingProperty(p)}
@@ -298,15 +300,6 @@ function Properties() {
             }
             setAuthorizingBatch(null);
           }}
-        />
-      )}
-
-      {caseProperty && user && (
-        <CaseDetailModal
-          userId={user.id}
-          property={caseProperty}
-          protest={protests.find((pr) => pr.propertyId === caseProperty.id)!}
-          onClose={() => setCaseProperty(null)}
         />
       )}
     </div>
