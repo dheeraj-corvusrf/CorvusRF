@@ -102,6 +102,20 @@ export async function getProtestEvidenceDocuments(
   );
 }
 
+// Real "Filing Proof"-tagged documents for one property — see
+// CaseDetailModal.tsx's "Have you completed and submitted your property
+// protest?" flow. The case is never marked Filed without at least one of
+// these on file (see handleConfirmFiled).
+export async function getFilingProofDocuments(
+  userId: string,
+  propertyId: string,
+): Promise<DocumentRecord[]> {
+  const docs = await listDocuments(userId);
+  return docs.filter(
+    (d) => d.propertyId === propertyId && d.documentType === FILING_PROOF_DOCUMENT_TYPE,
+  );
+}
+
 export async function getDocumentUrl(storagePath: string): Promise<string> {
   const { data, error } = await supabase.storage
     .from("documents")

@@ -150,6 +150,25 @@ function agentAuthorityEndSuggestions(): FieldSuggestion[] {
   ];
 }
 
+// Form 50-283's Section 7 signature date is split across 3 real fields
+// ("day of" / "Sig Month" / "Sig Year" — see the printed line "Signed on
+// this ___ day of ___ , 20 ___") rather than the one combined MM/DD/YYYY
+// field the other two forms use, so this needs its own 3 real, computed
+// suggestions instead of reusing todaySuggestion(). Sig Year is only the
+// last 2 digits — the "20" is already printed on the real form.
+function signatureDaySuggestion(): FieldSuggestion[] {
+  return [{ label: "Today", value: String(new Date().getDate()) }];
+}
+
+function signatureMonthSuggestion(): FieldSuggestion[] {
+  const monthName = new Date().toLocaleDateString("en-US", { month: "long" });
+  return [{ label: "Today", value: monthName }];
+}
+
+function signatureYearSuggestion(): FieldSuggestion[] {
+  return [{ label: "Today", value: String(new Date().getFullYear()).slice(-2) }];
+}
+
 // The mobile-reminder field is genuinely separate from Section 1's own phone
 // field (different purpose — text reminders, not general contact), but in
 // practice it's very often the same number, which this form has often
@@ -617,6 +636,263 @@ export const NOTICE_OF_PROTEST_SCHEMA: FieldSection[] = [
   },
 ];
 
+// Real field names/labels read directly off public/forms/50-283.pdf's own
+// AcroForm (getForm().getFields()) plus its widget rects (page/x/y — see
+// SIGNATURE_FIELD_RECT below), cross-referenced with pdftotext's layout —
+// same discipline as the two schemas above. Fetched live from
+// comptroller.texas.gov/forms/50-283.pdf; its own footer reads
+// "50-283 • 07-26/12" — flag for a human recheck if that ever looks stale.
+//
+// This is a SWORN AFFIDAVIT (Tax Code §41.45) that must be signed in the
+// physical presence of a notary public — the app can prepare and let the
+// owner draw a signature here, same as the other two forms, but that
+// signature alone does NOT execute the affidavit; see the notarization
+// notice PdfFormEditor shows for formKind "evidence-declaration". The 4
+// notary-only fields on the real PDF (Notary Public/Commission Expires/
+// Printed Name, and the "Sworn" date trio) are deliberately NOT in this
+// schema — nothing this app fills in should stand in for a notary's own
+// completion of that section.
+//
+// Required markers: owner name, property description, and the signature
+// block are required for the same reason as the Notice of Protest's own
+// required fields — a blank affidavit isn't a real one. Section 3 (Reasons)
+// requires at least one, matching the real form's own warning text; Section
+// 6 (Hearing Type) is required since it's explicitly "select only one box"
+// and determines whether this affidavit is even usable at the hearing.
+export const EVIDENCE_DECLARATION_SCHEMA: FieldSection[] = [
+  {
+    title: "Appraisal District & Tax Year",
+    fields: [
+      {
+        type: "text",
+        name: "Appraisal Districts County Name",
+        label: "Appraisal District's County",
+        required: true,
+      },
+      { type: "text", name: "ADAN", label: "Appraisal District Account Number (if known)" },
+      { type: "text", name: "Tax Year", label: "Tax Year", required: true },
+    ],
+  },
+  {
+    title: "Section 1: Property Owner or Lessee",
+    fields: [
+      {
+        type: "text",
+        name: "Name of Property Owner or Lessee",
+        label: "Name of Property Owner or Lessee",
+        required: true,
+      },
+      {
+        type: "text",
+        name: "Mailing Address City State ZIP Code",
+        label: "Mailing Address, City, State, ZIP Code",
+      },
+      {
+        type: "text",
+        name: "Phone Number area code and number",
+        label: "Phone Number (area code and number)",
+      },
+      { type: "text", name: "Email Address", label: "Email Address" },
+    ],
+  },
+  {
+    title: "Section 2: Property Description",
+    fields: [
+      {
+        type: "text",
+        name: "Sect2-1",
+        label: "Physical Address, City, State, ZIP Code (if different than above)",
+        required: true,
+      },
+      { type: "text", name: "Sect2-2", label: "Legal description (if no street address)" },
+      {
+        type: "text",
+        name: "Sect2-3",
+        label: "Mobile Home Make, Model and Identification (if applicable)",
+      },
+    ],
+  },
+  {
+    title: "Section 3: Reasons for Protest",
+    // Same real warning as the Notice of Protest's own Section 3: "Failure
+    // to select the box that corresponds to each reason for your protest
+    // may result in your inability to protest an issue that you want to
+    // pursue."
+    requireAtLeastOne: true,
+    fields: [
+      {
+        type: "checkbox",
+        name: "Reason for protest 1",
+        label:
+          "Incorrect appraised (market) value and/or value is unequal compared with other properties.",
+      },
+      {
+        type: "text",
+        name: "name of taxing unit",
+        label: "Taxing unit (for “should not be taxed in …”, if that reason applies)",
+      },
+      {
+        type: "checkbox",
+        name: "Reason for protest 2",
+        label: "Property should not be taxed in the taxing unit named above.",
+      },
+      {
+        type: "checkbox",
+        name: "Reason for protest 3",
+        label:
+          "Property is not located in this appraisal district or otherwise should not be included on the appraisal district's record.",
+      },
+      {
+        type: "text",
+        name: "type",
+        label: "Type of notice not received (if that reason applies)",
+      },
+      { type: "checkbox", name: "Reason for protest 4", label: "Failure to send required notice." },
+      {
+        type: "checkbox",
+        name: "Reason for protest 5",
+        label: "Exemption was denied, modified or canceled.",
+      },
+      {
+        type: "checkbox",
+        name: "Reason for protest 6",
+        label: "Temporary disaster damage exemption was denied or modified.",
+      },
+      {
+        type: "checkbox",
+        name: "Reason for protest 7",
+        label: "Ag-use, open-space or other special appraisal was denied, modified or canceled.",
+      },
+      {
+        type: "checkbox",
+        name: "Reason for protest 8",
+        label: "Change in use of land appraised as ag-use, open-space or timberland.",
+      },
+      {
+        type: "checkbox",
+        name: "Reason for protest 9",
+        label:
+          "Incorrect appraised or market value of land under special appraisal for ag-use, open-space or other special appraisal.",
+      },
+      { type: "checkbox", name: "Reason for protest 10", label: "Owner's name is incorrect." },
+      {
+        type: "checkbox",
+        name: "Reason for protest 11",
+        label: "Property description is incorrect.",
+      },
+      {
+        type: "checkbox",
+        name: "Reason for protest 12",
+        label:
+          "Incorrect damage assessment rating for a property qualified for a temporary disaster exemption.",
+      },
+      {
+        type: "checkbox",
+        name: "Reason for protest 13",
+        label:
+          "Circuit breaker limitation on appraised value for non-homestead real property was denied, modified or canceled.",
+      },
+      {
+        type: "checkbox",
+        name: "Reason for protest 14",
+        label:
+          "Incorrect appraised value and allocation of value of a structure, archaeological site and land necessary for access under a historic site exemption.",
+      },
+      { type: "text", name: "Sect3-15other", label: "Other reason (if the “Other” box applies)" },
+      { type: "checkbox", name: "Reason for protest 15", label: "Other." },
+    ],
+  },
+  {
+    title: "Section 4: Evidence",
+    fields: [
+      {
+        type: "text",
+        name: "Sect4-1",
+        label: "Total number of pages or images submitted as evidence with this affidavit",
+      },
+    ],
+  },
+  {
+    title: "Section 5: Statement of Facts or Arguments",
+    fields: [
+      {
+        type: "text",
+        name: "Sect5-1",
+        label: "State all facts or arguments that may help resolve your case",
+        aiSuggestable: true,
+        multiline: true,
+      },
+    ],
+  },
+  {
+    title: "Section 6: Hearing Type",
+    fields: [
+      {
+        type: "radio",
+        name: "ARB hearing",
+        label: "How do you intend to participate in the ARB hearing? (select only one)",
+        required: true,
+        options: [
+          "I do not intend to appear at the hearing in person, by telephone conference call or by videoconference. \nThis affidavit and the evidence and/or argument submitted with it may be used at the hearing if I do not appear in person at the hearing.",
+          "I intend to appear in person at the hearing.  \nThis affidavit may not be used for the hearing if I do appear in person at the hearing. This affidavit may not be used for the hearing if I do appear in person at the hearing.",
+          "I intend to appear by telephone conference call for the hearing.  This affidavit and the evidence submitted with it may be used for the hearing if I do not appear in person at the hearing.",
+          "I intend to appear by videoconference for the hearing. This affidavit and the evidence submitted with it may be used for the hearing if I do not appear in person at the hearing.*",
+        ],
+      },
+    ],
+  },
+  {
+    title: "Section 7: Name and Signature",
+    fields: [
+      {
+        type: "text",
+        name: "Texas County name",
+        label: "County where this affidavit is sworn (“County of ___”)",
+        required: true,
+      },
+      {
+        type: "text",
+        name: "Affiant Name",
+        label:
+          "Affiant name (“personally appeared ___, who, being duly sworn, deposed as follows”)",
+        required: true,
+      },
+      {
+        type: "text",
+        name: "Affiant Name_2",
+        label: "Affiant name again (“My name is ___”)",
+        required: true,
+      },
+      {
+        type: "text",
+        name: "sect7_4",
+        label: "Total pages/images being submitted as evidence (repeats Section 4's count)",
+      },
+      {
+        type: "text",
+        name: "day of",
+        label: "Signed on this day (number)",
+        required: true,
+        suggestions: signatureDaySuggestion,
+      },
+      {
+        type: "text",
+        name: "Sig Month",
+        label: "Signed this month",
+        required: true,
+        suggestions: signatureMonthSuggestion,
+      },
+      {
+        type: "text",
+        name: "Sig Year",
+        label: "Signed year (last 2 digits, printed form already shows “20__”)",
+        required: true,
+        suggestions: signatureYearSuggestion,
+      },
+    ],
+  },
+];
+
 // Required markers below are grounded in the form's own text (see the
 // pdftotext extraction this was checked against): STEP 2 and STEP 4 are
 // each explicitly "(check one)" groups, STEP 6's signing-capacity boxes are
@@ -888,6 +1164,34 @@ export function getNoticeOfProtestDefaults(
   return values;
 }
 
+// evidenceDocCount is the customer's REAL uploaded-evidence count (see
+// evidenceDocuments in ai-report.tsx/CaseDetailModal.tsx) — filled directly
+// into both of the form's "total pages or images" fields rather than left
+// for the user to count by hand, same "autofill what's actually known"
+// principle as every other field here. Still fully editable afterward: the
+// real number of PAGES/IMAGES can differ from the number of uploaded FILES
+// (e.g. a single multi-page PDF), so this is a starting point, not a claim
+// of certainty.
+export function getEvidenceDeclarationDefaults(
+  property: PropertyRecord,
+  taxYear: number | null,
+  evidenceDocCount: number,
+): FieldValues {
+  const evidenceCount = evidenceDocCount > 0 ? String(evidenceDocCount) : "";
+  return {
+    "Appraisal Districts County Name": property.cad ?? "",
+    ADAN: property.accountNumber ?? "",
+    "Tax Year": taxYear != null ? String(taxYear) : "",
+    "Name of Property Owner or Lessee": property.ownerName ?? "",
+    "Mailing Address City State ZIP Code": property.address ?? "",
+    "Sect2-1": property.address ?? "",
+    "Sect4-1": evidenceCount,
+    sect7_4: evidenceCount,
+    "Affiant Name": property.ownerName ?? "",
+    "Affiant Name_2": property.ownerName ?? "",
+  };
+}
+
 function splitAgentAddress(): { street: string; cityStateZip: string } {
   const [street, ...rest] = AGREEMENT.address.split(",");
   return { street: street.trim(), cityStateZip: rest.join(",").trim() };
@@ -1045,10 +1349,29 @@ const SIGNATURE_FIELD_RECT: Record<
     height: 32.001,
     maxDrawHeight: 38,
   },
+  // 50-283's "Affiant Signature" is a true /Sig field, same as 50-132's —
+  // drawn directly rather than plain-filled. Clearance here is genuinely
+  // tight: the "Signed on this ___ day of ___, 20 ___" row sits right above
+  // at y=386 (height 13), only 8pt above this line's own top edge (365+13)
+  // — real measured numbers, not guessed, hence the smaller maxDrawHeight
+  // than the other two forms.
+  "forms/50-283.pdf": {
+    page: 1,
+    x: 29,
+    y: 365,
+    width: 305,
+    height: 13,
+    maxDrawHeight: 10,
+  },
 };
 const DATE_FIELD_NAME: Record<string, string> = {
   "forms/50-132.pdf": "Date of Signature",
   "forms/50-162.pdf": "Date",
+  // No entry for 50-283 — its signature date is 3 separate real fields
+  // ("day of"/"Sig Month"/"Sig Year", see EVIDENCE_DECLARATION_SCHEMA)
+  // filled by the user/suggestion-chips like any other field, not
+  // auto-injected at sign time the way the other two forms' single Date
+  // field is.
 };
 
 export async function signPdf(

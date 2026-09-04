@@ -34,18 +34,27 @@ import {
   isPreFilingBlocked,
   type PreFilingCheckItem,
 } from "@/lib/pre-filing-check";
-import { uploadDocument, getProtestEvidenceDocuments, type DocumentRecord } from "@/lib/documents";
+import {
+  uploadDocument,
+  getProtestEvidenceDocuments,
+  getFilingProofDocuments,
+  FILING_PROOF_DOCUMENT_TYPE,
+  type DocumentRecord,
+} from "@/lib/documents";
+import { verifyFilingProof, type FilingProofVerification } from "@/lib/filing-proof";
 import { getAuthorization, type AuthorizationRecord } from "@/lib/protest-authorizations";
 import {
   getNoticeOfProtestDefaults,
   getAppointmentOfAgentDefaults,
   getAdditionalOwnerPropertyFields,
+  getEvidenceDeclarationDefaults,
   buildPdf,
   signPdf,
   downloadPdf,
   resolveDateFields,
   NOTICE_OF_PROTEST_SCHEMA,
   APPOINTMENT_OF_AGENT_SCHEMA,
+  EVIDENCE_DECLARATION_SCHEMA,
   type FieldValues,
 } from "@/lib/protest-documents";
 import {
@@ -772,6 +781,191 @@ export function CasePlanSection({
   );
 }
 
+// Real, county-specific guidance on what "proof of filing" actually looks
+// like for each real way this county accepts a protest — grounded in the
+// same real filingMethod facts FilingMethodsList already reads, not generic
+// advice. Every county returns at least one real tip, or the honest
+// fallback below when this county has no confirmed filing methods on file.
+function filingProofGuidance(countyInfo: CountyProtestInfo | null): string[] {
+  const tips: string[] = [];
+  if (countyInfo?.filingMethod.online) {
+    tips.push(
+      "Filed online: a screenshot or PDF of the confirmation page, or the confirmation email the portal sent you.",
+    );
+  }
+  if (countyInfo?.filingMethod.mail) {
+    tips.push(
+      "Mailed it: a photo of your Certified Mail receipt/tracking number, or the postmarked envelope.",
+    );
+  }
+  if (countyInfo?.filingMethod.inPerson) {
+    tips.push(
+      "Delivered in person: a photo of the stamped/dated copy the district handed back to you.",
+    );
+  }
+  if (countyInfo?.filingMethod.email.available) {
+    tips.push("Emailed it: a screenshot of your sent email, or any reply confirming receipt.");
+  }
+  if (tips.length === 0) {
+    tips.push(
+      "Any confirmation you received when you submitted it — a screenshot, email, receipt, or stamped copy.",
+    );
+  }
+  return tips;
+}
+
+// "Have you completed and submitted your property protest?" — the real gate
+// before a case moves to "filed" (see handleMarkFiled and friends in
+// DocumentsSection below). Two steps: the Yes/Not Yet question itself, then
+// — only after Yes — real proof upload plus an advisory AI read of what it
+// shows. Never auto-advances; every step here needs an explicit click.
+function FilingConfirmationFlow({
+  step,
+  countyInfo,
+  proofDocs,
+  uploadingProof,
+  onUploadProof,
+  proofCheck,
+  checkingProof,
+  proofCheckError,
+  onRecheck,
+  markingFiled,
+  onNotYet,
+  onConfirmIntent,
+  onConfirmFiled,
+}: {
+  step: "ask" | "proof";
+  countyInfo: CountyProtestInfo | null;
+  proofDocs: DocumentRecord[];
+  uploadingProof: boolean;
+  onUploadProof: (files: File[]) => void;
+  proofCheck: FilingProofVerification | null;
+  checkingProof: boolean;
+  proofCheckError: string | null;
+  onRecheck: () => void;
+  markingFiled: boolean;
+  onNotYet: () => void;
+  onConfirmIntent: () => void;
+  onConfirmFiled: () => void;
+}) {
+  if (step === "ask") {
+    return (
+      <div className="mt-3 rounded-md border border-accent/40 bg-accent/5 p-4 text-sm">
+        <p className="font-medium">Have you completed and submitted your property protest?</p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button onClick={onConfirmIntent} className="btn-accent text-xs py-1.5">
+            Yes — Protest Filed
+          </button>
+          <button onClick={onNotYet} className="btn-outline text-xs py-1.5">
+            Not Yet
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const tips = filingProofGuidance(countyInfo);
+  return (
+    <div className="mt-3 rounded-md border border-accent/40 bg-accent/5 p-4 text-sm">
+      <p className="font-medium">Upload proof that you filed</p>
+      <p className="mt-1 text-xs text-muted-foreground">
+        This app has no direct connection to {countyInfo?.cad ?? "your county"} — your own proof is
+        the record this case relies on. What counts as proof depends on how you filed:
+      </p>
+      <ul className="mt-2 grid gap-1 text-xs text-muted-foreground">
+        {tips.map((tip) => (
+          <li key={tip}>• {tip}</li>
+        ))}
+      </ul>
+
+      {proofDocs.length > 0 && (
+        <ul className="mt-3 grid gap-1 text-xs">
+          {proofDocs.map((doc) => (
+            <li key={doc.id} className="text-foreground">
+              {doc.fileName}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <label
+        className={`mt-3 inline-flex btn-outline cursor-pointer py-1.5 text-xs ${uploadingProof ? "pointer-events-none opacity-60" : ""}`}
+      >
+        {uploadingProof ? "Uploading…" : "Upload Proof"}
+        <input
+          type="file"
+          accept="image/*,.pdf"
+          multiple
+          className="hidden"
+          disabled={uploadingProof}
+          onChange={(e) => {
+            const selected = e.target.files ? Array.from(e.target.files) : [];
+            e.target.value = "";
+            if (selected.length > 0) onUploadProof(selected);
+          }}
+        />
+      </label>
+
+      {checkingProof && (
+        <p className="mt-3 text-xs text-muted-foreground">Checking what this shows…</p>
+      )}
+      {proofCheckError && <p className="mt-3 text-xs text-destructive">{proofCheckError}</p>}
+      {proofCheck && !checkingProof && (
+        <div className="mt-3 rounded-md border border-border p-2.5 text-xs">
+          <div className="font-medium">AI check — review before confirming</div>
+          <div className="mt-1.5 grid gap-1.5">
+            {proofCheck.findings.map((f, i) => (
+              <div key={i}>
+                <span className="font-medium">{f.fileName}:</span>{" "}
+                {f.hasVisibleSignature ? (
+                  <span className="text-success">
+                    signature visible
+                    {f.signatureNameObserved ? ` (${f.signatureNameObserved})` : ""}
+                  </span>
+                ) : (
+                  <span className="text-warning-foreground">no signature visible</span>
+                )}
+                {f.dateObserved && (
+                  <>
+                    {" · date: "}
+                    <span className={f.dateYearPlausible === false ? "text-destructive" : ""}>
+                      {f.dateObserved}
+                      {f.dateYearPlausible === false
+                        ? " — looks like it may be a prior year, please double-check"
+                        : ""}
+                    </span>
+                  </>
+                )}
+                <p className="mt-0.5 text-muted-foreground">{f.notes}</p>
+              </div>
+            ))}
+          </div>
+          {proofCheck.overallAssessment && (
+            <p className="mt-1.5 text-muted-foreground">{proofCheck.overallAssessment}</p>
+          )}
+          <button type="button" onClick={onRecheck} className="mt-1.5 text-accent hover:underline">
+            Re-check
+          </button>
+        </div>
+      )}
+
+      <div className="mt-4 flex flex-wrap gap-2">
+        <button
+          onClick={onConfirmFiled}
+          disabled={proofDocs.length === 0 || markingFiled}
+          title={proofDocs.length === 0 ? "Upload at least one proof document first" : undefined}
+          className="btn-accent text-xs py-1.5 disabled:opacity-60"
+        >
+          {markingFiled ? "Saving…" : "Confirm — Mark as Filed"}
+        </button>
+        <button onClick={onNotYet} className="btn-outline text-xs py-1.5">
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function DocumentsSection({
   userId,
   protest,
@@ -800,7 +994,7 @@ export function DocumentsSection({
   const [markingFiled, setMarkingFiled] = useState(false);
   const [authorization, setAuthorization] = useState<AuthorizationRecord | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
-  const [editingForm, setEditingForm] = useState<"protest" | "agent" | null>(null);
+  const [editingForm, setEditingForm] = useState<"protest" | "agent" | "evidence" | null>(null);
   const [values, setValues] = useState<FieldValues>({});
   const [downloading, setDownloading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -813,6 +1007,25 @@ export function DocumentsSection({
   // kept local here rather than lifted, since nothing outside Documents
   // currently needs it. Loaded whenever the agent editor opens, below.
   const [agentFormSignedAt, setAgentFormSignedAt] = useState<string | null>(null);
+  // Same again for the Evidence Declaration (Form 50-283) — note that
+  // "signed" here only means the in-app signature was drawn and saved, not
+  // that the affidavit was actually notarized (see PdfFormEditor's own
+  // notarization notice for formKind "evidence-declaration").
+  const [evidenceDeclarationSignedAt, setEvidenceDeclarationSignedAt] = useState<string | null>(
+    null,
+  );
+
+  // "Have you completed and submitted your property protest?" flow — see
+  // handleMarkFiled/handleConfirmFiled below. The case is never moved to
+  // "filed" just because the Notice of Protest was signed; this is the real
+  // gate: an explicit Yes, at least one real proof-of-filing document, and
+  // an (advisory, never blocking) AI read of what that document shows.
+  const [filingStep, setFilingStep] = useState<"closed" | "ask" | "proof">("closed");
+  const [filingProofDocs, setFilingProofDocs] = useState<DocumentRecord[]>([]);
+  const [uploadingProof, setUploadingProof] = useState(false);
+  const [proofCheck, setProofCheck] = useState<FilingProofVerification | null>(null);
+  const [checkingProof, setCheckingProof] = useState(false);
+  const [proofCheckError, setProofCheckError] = useState<string | null>(null);
 
   useEffect(() => {
     getAuthorization(protest.id)
@@ -821,14 +1034,32 @@ export function DocumentsSection({
       .finally(() => setAuthLoading(false));
   }, [protest.id]);
 
+  useEffect(() => {
+    getFilingProofDocuments(userId, property.id)
+      .then(setFilingProofDocs)
+      .catch((err) => console.error("Could not load proof-of-filing documents:", err));
+  }, [userId, property.id]);
+
   const formType: FormType | null =
     editingForm === "protest"
       ? "notice_of_protest"
       : editingForm === "agent"
         ? "appointment_of_agent"
-        : null;
-  const templatePath = editingForm === "protest" ? "forms/50-132.pdf" : "forms/50-162.pdf";
-  const schema = editingForm === "protest" ? NOTICE_OF_PROTEST_SCHEMA : APPOINTMENT_OF_AGENT_SCHEMA;
+        : editingForm === "evidence"
+          ? "evidence_declaration"
+          : null;
+  const templatePath =
+    editingForm === "protest"
+      ? "forms/50-132.pdf"
+      : editingForm === "agent"
+        ? "forms/50-162.pdf"
+        : "forms/50-283.pdf";
+  const schema =
+    editingForm === "protest"
+      ? NOTICE_OF_PROTEST_SCHEMA
+      : editingForm === "agent"
+        ? APPOINTMENT_OF_AGENT_SCHEMA
+        : EVIDENCE_DECLARATION_SCHEMA;
 
   // Opens immediately with computed defaults (no loading state on click), then
   // swaps in a saved draft/signed submission if one exists — a prior Save
@@ -861,6 +1092,22 @@ export function DocumentsSection({
       })
       .catch((err) => console.error("Could not load saved Appointment of Agent draft:", err))
       .finally(fillAdditionalOwnerProperties);
+  }
+
+  function openEvidenceDeclarationEditor() {
+    setValues(getEvidenceDeclarationDefaults(property, property.taxYear, evidenceDocuments.length));
+    setEditingForm("evidence");
+    setSigningOpen(false);
+    setSignature(null);
+    setEvidenceDeclarationSignedAt(null);
+    getSubmission(protest.id, "evidence_declaration")
+      .then((existing) => {
+        if (existing) {
+          setValues(existing.fieldValues);
+          setEvidenceDeclarationSignedAt(existing.signedAt);
+        }
+      })
+      .catch((err) => console.error("Could not load saved Evidence Declaration draft:", err));
   }
 
   // Form 50-162 authorizes an agent for possibly several properties at once —
@@ -922,7 +1169,9 @@ export function DocumentsSection({
         bytes,
         editingForm === "protest"
           ? `Notice-of-Protest-${filenameBase}.pdf`
-          : `Appointment-of-Agent-${filenameBase}.pdf`,
+          : editingForm === "agent"
+            ? `Appointment-of-Agent-${filenameBase}.pdf`
+            : `Evidence-Declaration-${filenameBase}.pdf`,
       );
       // Downloading shouldn't be able to lose edits either — save silently
       // alongside it (no separate toast — the real next-step message below
@@ -932,7 +1181,9 @@ export function DocumentsSection({
       toast.success(
         editingForm === "protest"
           ? "Downloaded. Review it, then use Sign & Submit above to file this protest — or deliver this PDF to your county yourself."
-          : "Downloaded. Once signed, deliver this PDF to your appraisal district.",
+          : editingForm === "agent"
+            ? "Downloaded. Once signed, deliver this PDF to your appraisal district."
+            : "Downloaded. This affidavit isn't valid until signed before a notary public.",
       );
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not generate this document.");
@@ -956,29 +1207,41 @@ export function DocumentsSection({
       const fileName =
         editingForm === "protest"
           ? `Signed-Notice-of-Protest-${filenameBase}.pdf`
-          : `Signed-Appointment-of-Agent-${filenameBase}.pdf`;
+          : editingForm === "agent"
+            ? `Signed-Appointment-of-Agent-${filenameBase}.pdf`
+            : `Signed-Evidence-Declaration-${filenameBase}.pdf`;
       const file = new File([bytes as BlobPart], fileName, { type: "application/pdf" });
       const doc = await uploadDocument(
         userId,
         property.id,
         file,
-        editingForm === "protest" ? "Signed Notice of Protest" : "Signed Appointment of Agent",
+        editingForm === "protest"
+          ? "Signed Notice of Protest"
+          : editingForm === "agent"
+            ? "Signed Appointment of Agent"
+            : "Signed Evidence Declaration",
       );
       await signAndSubmit(userId, protest.id, formType, resolvedValues, signature, doc.id);
       // Signing here is NOT the same as filing — this app has no e-filing
       // integration with any county, so it can't truthfully claim the
       // protest has been filed the moment it's signed. Status stays
       // "requested"; the customer confirms filing themselves, once they've
-      // actually delivered it, via the "Mark as Filed" action below.
+      // actually delivered it, via the "Mark as Filed" action below. For the
+      // Evidence Declaration specifically, signing here isn't even a
+      // complete signature yet — see the notarization notice in
+      // PdfFormEditor.
       if (editingForm === "protest") onNoticeSigned(signedAt.toISOString());
-      else setAgentFormSignedAt(signedAt.toISOString());
+      else if (editingForm === "agent") setAgentFormSignedAt(signedAt.toISOString());
+      else setEvidenceDeclarationSignedAt(signedAt.toISOString());
       downloadPdf(bytes, fileName);
       setSigningOpen(false);
       setSignature(null);
       toast.success(
         editingForm === "protest"
           ? 'Signed and saved. This does not file your protest — deliver it to your county (online, by mail, or in person), then click "Mark as Filed" below.'
-          : "Signed and saved. Deliver this PDF to your appraisal district to put it into effect.",
+          : editingForm === "agent"
+            ? "Signed and saved. Deliver this PDF to your appraisal district to put it into effect."
+            : "Saved. This does not complete your affidavit — Texas law requires it be signed before a notary public.",
       );
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not sign this document.");
@@ -987,17 +1250,83 @@ export function DocumentsSection({
     }
   }
 
-  // The customer's own explicit confirmation that they actually delivered
-  // the signed Notice of Protest to their county — this app has no way to
-  // verify that on its own (no e-filing integration with any county), so
-  // it never sets status to "filed" by itself; this is the one honest
-  // source of that fact. Only advances a case still at "requested" —
-  // markFiled() itself is a no-op if something else already moved it on.
-  async function handleMarkFiled() {
+  // Opens the "Have you completed and submitted your property protest?"
+  // flow — no longer marks the case filed directly (kept the same name/
+  // signature since it's already wired as PdfFormEditor's onMarkFiled prop
+  // and the standalone banner's button below). Also closes the form editor
+  // modal when called from inside it (PdfFormEditor's own "Mark as Filed"
+  // button) — the flow itself renders inline in this section, behind where
+  // that modal would otherwise stay open on top of it.
+  function handleMarkFiled() {
+    setEditingForm(null);
+    setProofCheck(null);
+    setProofCheckError(null);
+    setFilingStep("ask");
+  }
+
+  // "Not Yet" — closes the prompt and leaves the case exactly as it was, so
+  // the customer lands back on the real filing instructions/guidance above
+  // rather than anywhere that implies progress was lost.
+  function handleNotYetFiled() {
+    setFilingStep("closed");
+  }
+
+  function handleConfirmIntentToFile() {
+    setFilingStep("proof");
+  }
+
+  async function handleUploadProof(files: File[]) {
+    setUploadingProof(true);
+    try {
+      const uploaded: DocumentRecord[] = [];
+      for (const file of files) {
+        uploaded.push(await uploadDocument(userId, property.id, file, FILING_PROOF_DOCUMENT_TYPE));
+      }
+      setFilingProofDocs((prev) => [...prev, ...uploaded]);
+      // Runs automatically the moment there's something to check — this is
+      // meant to be a real step in confirming filing, not an easily-skipped
+      // optional extra the customer has to remember to click.
+      handleCheckProof([...filingProofDocs, ...uploaded]);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not upload this file.");
+    } finally {
+      setUploadingProof(false);
+    }
+  }
+
+  // Real AI read of what the uploaded proof actually shows (signature
+  // presence, whose name, what date/year) — see verify-filing-proof's own
+  // comment. Advisory only: never blocks handleConfirmFiled below, and
+  // never runs unless the customer has actually uploaded something real to
+  // look at.
+  async function handleCheckProof(docs: DocumentRecord[] = filingProofDocs) {
+    if (docs.length === 0) return;
+    setCheckingProof(true);
+    setProofCheckError(null);
+    try {
+      const result = await verifyFilingProof(property, docs);
+      setProofCheck(result);
+    } catch (err) {
+      setProofCheckError(err instanceof Error ? err.message : "Could not check this proof.");
+    } finally {
+      setCheckingProof(false);
+    }
+  }
+
+  // The real, final confirmation — never reachable without at least one
+  // real proof-of-filing document on file (see the disabled state on the
+  // button below). This app still has no way to independently verify
+  // filing (no e-filing integration with any county), so the customer's
+  // own explicit Yes plus a real uploaded document is the one honest source
+  // of this fact, same discipline as before — just no longer a single,
+  // unconfirmed click.
+  async function handleConfirmFiled() {
+    if (filingProofDocs.length === 0) return;
     setMarkingFiled(true);
     try {
       await markFiled(protest.id);
       onUpdate({ status: "filed" });
+      setFilingStep("closed");
       toast.success("Marked as filed.");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not mark this case as filed.");
@@ -1015,7 +1344,10 @@ export function DocumentsSection({
     setGeneratingReason(true);
     try {
       const text = await draftProtestReason(property, strategyRecommendation, evidenceDocuments);
-      handleFieldChange("Facts to resolve protest", text);
+      // The two forms' aiSuggestable field has a different real name — 50-132's
+      // "Facts to resolve protest" vs. 50-283's "Sect5-1" (Section 5,
+      // Statement of Facts or Arguments — see EVIDENCE_DECLARATION_SCHEMA).
+      handleFieldChange(editingForm === "evidence" ? "Sect5-1" : "Facts to resolve protest", text);
       toast.success("Suggested — review and edit before signing.");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not generate a suggestion.");
@@ -1050,10 +1382,15 @@ export function DocumentsSection({
         >
           Complete Agent Representation Form (Optional)
         </button>
+        <button onClick={openEvidenceDeclarationEditor} className="btn-outline text-xs py-1.5">
+          Complete Evidence Declaration
+        </button>
       </div>
       <p className="mt-1 text-xs text-muted-foreground">
-        <span className="font-medium text-foreground">Optional.</span> Complete this form only if a
-        tax agent or other authorized representative will represent you in the protest.
+        <span className="font-medium text-foreground">Optional.</span> Complete the Agent
+        Representation Form only if a tax agent or other authorized representative will represent
+        you. Complete the Evidence Declaration (Form 50-283, a sworn affidavit) only if you won't
+        appear in person at your ARB hearing — see Section 6 of your Notice of Protest.
       </p>
 
       {/* Filing itself always happens on the county's own site or mailbox —
@@ -1096,21 +1433,35 @@ export function DocumentsSection({
         )}
       </div>
 
-      {noticeSignedAt && protest.status === "requested" && (
+      {noticeSignedAt && protest.status === "requested" && filingStep === "closed" && (
         <div className="mt-3 rounded-md border border-accent/30 bg-accent/5 p-3 text-sm">
           <p>
             You've signed your Notice of Protest — that only prepares the document. It isn't filed
             with {property.cad ?? "your county"} until you actually deliver it (online, by mail, or
             in person). Once you have, confirm it below.
           </p>
-          <button
-            onClick={handleMarkFiled}
-            disabled={markingFiled}
-            className="btn-accent mt-2 text-xs py-1.5 disabled:opacity-60"
-          >
-            {markingFiled ? "Saving…" : "I've delivered this — Mark as Filed"}
+          <button onClick={handleMarkFiled} className="btn-accent mt-2 text-xs py-1.5">
+            Have you filed?
           </button>
         </div>
+      )}
+
+      {noticeSignedAt && protest.status === "requested" && filingStep !== "closed" && (
+        <FilingConfirmationFlow
+          step={filingStep}
+          countyInfo={countyInfo}
+          proofDocs={filingProofDocs}
+          uploadingProof={uploadingProof}
+          onUploadProof={handleUploadProof}
+          proofCheck={proofCheck}
+          checkingProof={checkingProof}
+          proofCheckError={proofCheckError}
+          onRecheck={() => handleCheckProof()}
+          markingFiled={markingFiled}
+          onNotYet={handleNotYetFiled}
+          onConfirmIntent={handleConfirmIntentToFile}
+          onConfirmFiled={handleConfirmFiled}
+        />
       )}
 
       {editingForm && (
@@ -1118,7 +1469,9 @@ export function DocumentsSection({
           title={
             editingForm === "protest"
               ? "Notice of Protest (Form 50-132)"
-              : "Appointment of Agent (Form 50-162)"
+              : editingForm === "agent"
+                ? "Appointment of Agent (Form 50-162)"
+                : "Property Owner's Affidavit of Evidence (Form 50-283)"
           }
           sections={schema}
           values={values}
@@ -1145,14 +1498,28 @@ export function DocumentsSection({
             const key =
               editingForm === "protest"
                 ? "Print Name of Property Owner or Authorized Representative"
-                : "Name of Property Owner";
+                : editingForm === "agent"
+                  ? "Name of Property Owner"
+                  : "Affiant Name_2";
             const v = values[key];
             return typeof v === "string" && v ? v : undefined;
           })()}
           onClose={() => setEditingForm(null)}
-          formKind={editingForm === "protest" ? "protest" : "agent"}
+          formKind={
+            editingForm === "protest"
+              ? "protest"
+              : editingForm === "agent"
+                ? "agent"
+                : "evidence-declaration"
+          }
           countyInfo={countyInfo}
-          signedAt={editingForm === "protest" ? noticeSignedAt : agentFormSignedAt}
+          signedAt={
+            editingForm === "protest"
+              ? noticeSignedAt
+              : editingForm === "agent"
+                ? agentFormSignedAt
+                : evidenceDeclarationSignedAt
+          }
           caseStatus={protest.status}
           onMarkFiled={handleMarkFiled}
           markingFiled={markingFiled}

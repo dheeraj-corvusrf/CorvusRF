@@ -75,7 +75,7 @@ export function PdfFormEditor({
   submitting: boolean;
   expectedSignerName?: string;
   onClose: () => void;
-  formKind: "protest" | "agent";
+  formKind: "protest" | "agent" | "evidence-declaration";
   countyInfo: CountyProtestInfo | null;
   // Real signed_at for WHICHEVER form is open (Notice of Protest or
   // Appointment of Agent) — the caller picks the right one; this component
@@ -139,12 +139,27 @@ export function PdfFormEditor({
           <p className="text-xs text-muted-foreground">
             {formKind === "protest"
               ? "Please review all information before signing and submitting your protest."
-              : "Please review all information before signing this Appointment of Agent."}
+              : formKind === "agent"
+                ? "Please review all information before signing this Appointment of Agent."
+                : "Please review every declaration below before signing this sworn affidavit."}
           </p>
           <div className="mt-4 rounded-lg border border-accent/30 bg-accent/5 p-4">
             <h4 className="text-sm font-semibold">
-              {formKind === "protest" ? "Ready to File" : "Ready to Sign"}
+              {formKind === "protest"
+                ? "Ready to File"
+                : formKind === "agent"
+                  ? "Ready to Sign"
+                  : "Ready to Sign — Sworn Affidavit"}
             </h4>
+            {formKind === "evidence-declaration" && (
+              <div className="mt-2 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-xs text-destructive">
+                <span className="font-semibold">
+                  You are solely responsible for the truth and accuracy of every declaration below
+                </span>
+                , including any evidence you attach. This is a sworn statement under Texas Tax Code
+                §41.45 — do not sign it unless everything here is true and correct.
+              </div>
+            )}
             <div className="mt-3 grid gap-5">
               {sections.map((section) => (
                 <FieldSectionView
@@ -163,12 +178,15 @@ export function PdfFormEditor({
                 onChange={(e) => setReviewed(e.target.checked)}
                 className="mt-0.5"
               />
-              I have reviewed the completed form and confirm the information is accurate.
+              {formKind === "evidence-declaration"
+                ? "I have reviewed every declaration above and swear/affirm that they are true and correct."
+                : "I have reviewed the completed form and confirm the information is accurate."}
             </label>
           </div>
 
           {allowSigning && signingOpen && (
             <SignPanel
+              formKind={formKind}
               expectedSignerName={expectedSignerName}
               signature={signature}
               onSignatureChange={onSignatureChange}
@@ -280,6 +298,7 @@ export function PdfFormEditor({
 }
 
 function SignPanel({
+  formKind,
   expectedSignerName,
   signature,
   onSignatureChange,
@@ -287,6 +306,7 @@ function SignPanel({
   onConfirmSign,
   submitting,
 }: {
+  formKind: "protest" | "agent" | "evidence-declaration";
   expectedSignerName?: string;
   signature: SignatureValue | null;
   onSignatureChange: (v: SignatureValue | null) => void;
@@ -296,12 +316,26 @@ function SignPanel({
 }) {
   return (
     <div className="mt-5 rounded-lg border border-accent/40 bg-accent/5 p-4">
-      <h4 className="text-sm font-semibold">Sign this document</h4>
-      <p className="mt-1 text-xs text-muted-foreground">
-        Signing saves this exact document as your case record and downloads a copy. There's no
-        county-wide e-filing system — delivering the signed PDF to your appraisal district is still
-        on you.
-      </p>
+      <h4 className="text-sm font-semibold">
+        {formKind === "evidence-declaration" ? "Sign this affidavit" : "Sign this document"}
+      </h4>
+      {formKind === "evidence-declaration" ? (
+        <p className="mt-1 text-xs text-muted-foreground">
+          <span className="font-semibold text-destructive">
+            Texas law requires this affidavit be signed in the physical presence of a notary public.
+          </span>{" "}
+          Drawing your signature here prepares the document and saves it to your case record — it
+          does not notarize it. Print the completed PDF and sign the "Affiant Signature" line only
+          when you're in front of a notary, who will complete the "Sworn To and Subscribed" section
+          themselves.
+        </p>
+      ) : (
+        <p className="mt-1 text-xs text-muted-foreground">
+          Signing saves this exact document as your case record and downloads a copy. There's no
+          county-wide e-filing system — delivering the signed PDF to your appraisal district is
+          still on you.
+        </p>
+      )}
       <div className="mt-3">
         <SignaturePad expectedName={expectedSignerName} onChange={onSignatureChange} />
       </div>
@@ -341,7 +375,7 @@ function SignedFilingGuidance({
   downloading,
   onMakeChanges,
 }: {
-  formKind: "protest" | "agent";
+  formKind: "protest" | "agent" | "evidence-declaration";
   countyInfo: CountyProtestInfo | null;
   caseStatus: ProtestStatus;
   onMarkFiled: () => void;
@@ -350,10 +384,77 @@ function SignedFilingGuidance({
   downloading: boolean;
   onMakeChanges: () => void;
 }) {
-  const docLabel = formKind === "protest" ? "Notice of Protest" : "Appointment of Agent";
+  const docLabel =
+    formKind === "protest"
+      ? "Notice of Protest"
+      : formKind === "agent"
+        ? "Appointment of Agent"
+        : "Evidence Declaration";
   const mailto = countyInfo?.filingMethod.email.available
     ? buildFilingMailto(countyInfo, docLabel)
     : null;
+
+  if (formKind === "evidence-declaration") {
+    return (
+      <div className="mt-4 grid gap-4">
+        <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4">
+          <h4 className="text-sm font-semibold text-destructive">
+            Prepared — not yet a valid affidavit
+          </h4>
+          <p className="mt-1 text-xs text-muted-foreground">
+            This affidavit is filled out and saved, but the signature you drew only prepares it.
+            Texas law requires it be signed before a notary public before it has any legal effect.
+            Print the completed PDF, sign the "Affiant Signature" line in the notary's presence, and
+            have them complete the "Sworn To and Subscribed" section.
+          </p>
+        </div>
+
+        {countyInfo ? (
+          <div className="rounded-md border border-border p-3 text-sm">
+            <p className="font-medium">Once notarized, submit it to the ARB for {countyInfo.cad}</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              This must reach the ARB before your hearing begins — either in paper or on a small
+              portable electronic device (CD/USB/thumb drive), attached with your evidence. Do not
+              file this with the Texas Comptroller.
+            </p>
+            {countyInfo.filingMethod.mail && (
+              <p className="mt-2 text-xs text-muted-foreground">
+                Mailing address on file: {countyInfo.filingMethod.mail.address}
+              </p>
+            )}
+            {countyInfo.filingMethod.inPerson && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                In-person/drop-off address on file: {countyInfo.filingMethod.inPerson.address}
+              </p>
+            )}
+            {mailto && (
+              <a href={mailto} className="btn-outline mt-2 inline-flex text-xs py-1.5">
+                Draft Email
+              </a>
+            )}
+          </div>
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            We don't have this county's confirmed ARB address on file yet — check your appraisal
+            district's website or your hearing notice for where to send this.
+          </p>
+        )}
+
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={onDownload}
+            disabled={downloading}
+            className="btn-outline text-xs py-1.5 disabled:opacity-60"
+          >
+            {downloading ? "Generating…" : `Download Completed ${docLabel}`}
+          </button>
+          <button onClick={onMakeChanges} className="text-xs text-accent hover:underline">
+            Make changes &amp; re-sign
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="mt-4 grid gap-4">

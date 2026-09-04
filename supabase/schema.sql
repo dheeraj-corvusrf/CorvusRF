@@ -724,9 +724,10 @@ create policy "Users can delete their own documents"
   );
 
 -- One row per (protest, form) — holds both in-progress edits (Save Progress,
--- no signature) and the final signed record (Sign & Submit) for the two real
--- Comptroller forms (Notice of Protest / Appointment of Agent, see
--- protest-documents.ts). field_values is the whole (dynamic, ~30-40-key)
+-- no signature) and the final signed record (Sign & Submit) for the three
+-- real Comptroller forms (Notice of Protest / Appointment of Agent /
+-- Property Owner's Affidavit of Evidence, see protest-documents.ts).
+-- field_values is the whole (dynamic, ~30-40-key)
 -- FieldValues map, JSON-stringified into a plain text column rather than a
 -- jsonb column — this schema has none (see value_history's text[] precedent
 -- above) — since the field set is open-ended and doesn't fit fixed columns.
@@ -734,7 +735,9 @@ create table if not exists public.protest_form_submissions (
   id uuid primary key default gen_random_uuid(),
   protest_id uuid not null references public.protests (id) on delete cascade,
   user_id uuid not null references auth.users (id) on delete cascade,
-  form_type text not null check (form_type in ('notice_of_protest', 'appointment_of_agent')),
+  form_type text not null check (
+    form_type in ('notice_of_protest', 'appointment_of_agent', 'evidence_declaration')
+  ),
   field_values text not null,
   signature_type text,
   signature_data text,
