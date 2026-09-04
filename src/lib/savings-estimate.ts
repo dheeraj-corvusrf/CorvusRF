@@ -75,9 +75,13 @@ export type SavingsEstimateInput = {
 // getEffectiveTaxRate(cad), a real county-level rate (or the statewide average
 // for counties without a specific entry) — see texas-tax-rates.ts for sourcing.
 //
-// Returns null only when there's no assessed value to estimate from at all.
+// Returns null when there's no real assessed value to estimate from at all
+// — including a literal $0 (a new/unassessed parcel still mid-reappraisal,
+// not a genuine "confirmed zero savings opportunity"; the formula tier
+// below would otherwise happily compute totalValue * reductionPct * rate =
+// 0 * anything = 0 and present it as a real finding it isn't).
 export async function estimateSavings(property: SavingsEstimateInput): Promise<SavingsEstimate> {
-  if (property.totalValue == null) return null;
+  if (!property.totalValue) return null;
   const totalValue = property.totalValue;
   const rate = getEffectiveTaxRate(property.cad);
 
