@@ -294,6 +294,15 @@ create policy "Admins can view invited users"
   on public.invited_users for select
   using (public.is_admin());
 
+-- Same additive is_admin() pattern as beta_leads' own delete policy — lets
+-- staff clear out an invite (they no longer want it pending, wrong address,
+-- etc.) straight from the client, no edge function needed since this never
+-- touches auth.users.
+drop policy if exists "Admins can delete invited users" on public.invited_users;
+create policy "Admins can delete invited users"
+  on public.invited_users for delete
+  using (public.is_admin());
+
 -- Stripe billing: the webhook (supabase/functions/stripe-webhook) writes plan and
 -- these two ids; the admin panel's manual plan dropdown still works unchanged since
 -- it edits the same `plan` column.

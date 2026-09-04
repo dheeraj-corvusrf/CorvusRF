@@ -23,6 +23,7 @@ import {
   deleteBetaLead,
   listInvitedUsers,
   resendInvite,
+  deleteInvitedUser,
   PLAN_OPTIONS,
   PROTEST_STATUS_OPTIONS,
   type AdminUserRecord,
@@ -62,6 +63,8 @@ function AdminPanel() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(new Set());
   const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [selectedInvitedIds, setSelectedInvitedIds] = useState<Set<string>>(new Set());
+  const [bulkDeletingInvited, setBulkDeletingInvited] = useState(false);
 
   const [protests, setProtests] = useState<AdminProtestRecord[]>([]);
   const [protestsLoading, setProtestsLoading] = useState(true);
@@ -247,6 +250,54 @@ function AdminPanel() {
     refreshAuditLog();
     if (failures.length === 0) {
       toast.success(`${succeededIds.size} user${succeededIds.size === 1 ? "" : "s"} deleted.`);
+    } else if (succeededIds.size > 0) {
+      toast.error(
+        `${succeededIds.size} deleted, ${failures.length} failed: ${failures.join("; ")}`,
+      );
+    } else {
+      toast.error(`Could not delete: ${failures.join("; ")}`);
+    }
+  }
+
+  async function handleDeleteInvited(id: string) {
+    if (!window.confirm("Delete this pending invite?")) return;
+    try {
+      await deleteInvitedUser(id);
+      setInvitedUsers((prev) => prev.filter((i) => i.id !== id));
+      toast.success("Invite deleted.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not delete this invite.");
+    }
+  }
+
+  // Same sequential-delete reasoning as handleBulkDeleteUsers above.
+  async function handleBulkDeleteInvited() {
+    const ids = [...selectedInvitedIds];
+    if (ids.length === 0) return;
+    if (
+      !window.confirm(
+        `Delete ${ids.length} invite${ids.length === 1 ? "" : "s"}? This can't be undone.`,
+      )
+    ) {
+      return;
+    }
+    setBulkDeletingInvited(true);
+    const succeededIds = new Set<string>();
+    const failures: string[] = [];
+    for (const id of ids) {
+      try {
+        await deleteInvitedUser(id);
+        succeededIds.add(id);
+      } catch (err) {
+        const email = invitedUsers.find((i) => i.id === id)?.email ?? id;
+        failures.push(`${email} — ${err instanceof Error ? err.message : "failed"}`);
+      }
+    }
+    setInvitedUsers((prev) => prev.filter((i) => !succeededIds.has(i.id)));
+    setSelectedInvitedIds(new Set());
+    setBulkDeletingInvited(false);
+    if (failures.length === 0) {
+      toast.success(`${succeededIds.size} invite${succeededIds.size === 1 ? "" : "s"} deleted.`);
     } else if (succeededIds.size > 0) {
       toast.error(
         `${succeededIds.size} deleted, ${failures.length} failed: ${failures.join("; ")}`,
@@ -452,6 +503,48 @@ function AdminPanel() {
             Sent a sign-up link, haven't finished creating their account yet — no account exists for
             anyone here. Drops off this list automatically the moment they actually sign up.
           </p>
+          {!invitedUsersLoading && invitedUsers.length > 0 && (
+            <div className="mt-4 flex flex-wrap items-center gap-3 text-sm">
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={
+                    invitedUsers.length > 0 &&
+                    invitedUsers.every((i) => selectedInvitedIds.has(i.id))
+                  }
+                  onChange={(e) =>
+                    setSelectedInvitedIds(
+                      e.target.checked ? new Set(invitedUsers.map((i) => i.id)) : new Set(),
+                    )
+                  }
+                />
+                Select all
+              </label>
+              {selectedInvitedIds.size > 0 && (
+                <>
+                  <span className="text-muted-foreground">{selectedInvitedIds.size} selected</span>
+                  <button
+                    type="button"
+                    onClick={handleBulkDeleteInvited}
+                    disabled={bulkDeletingInvited}
+                    className="btn-outline text-xs text-destructive disabled:opacity-60"
+                  >
+                    {bulkDeletingInvited
+                      ? "Deleting…"
+                      : `Delete ${selectedInvitedIds.size} Invite${selectedInvitedIds.size === 1 ? "" : "s"}`}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedInvitedIds(new Set())}
+                    className="text-xs text-muted-foreground hover:text-foreground"
+                  >
+                    Clear selection
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+
           <div className="mt-4 grid gap-2">
             {invitedUsersLoading ? (
               <PropertyRowSkeleton />
@@ -459,7 +552,21 @@ function AdminPanel() {
               <p className="text-sm text-muted-foreground">No pending invites.</p>
             ) : (
               invitedUsers.map((invite) => (
-                <InvitedUserRow key={invite.id} invite={invite} onResent={refreshAll} />
+                <InvitedUserRow
+                  key={invite.id}
+                  invite={invite}
+                  onResent={refreshAll}
+                  onDelete={() => handleDeleteInvited(invite.id)}
+                  selected={selectedInvitedIds.has(invite.id)}
+                  onToggleSelect={() =>
+                    setSelectedInvitedIds((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(invite.id)) next.delete(invite.id);
+                      else next.add(invite.id);
+                      return next;
+                    })
+                  }
+                />
               ))
             )}
           </div>
@@ -1451,7 +1558,19 @@ function BetaLeadRow({
   );
 }
 
-function InvitedUserRow({ invite, onResent }: { invite: InvitedUserRecord; onResent: () => void }) {
+function InvitedUserRow({
+  invite,
+  onResent,
+  onDelete,
+  selected,
+  onToggleSelect,
+}: {
+  invite: InvitedUserRecord;
+  onResent: () => void;
+  onDelete: () => void;
+  selected: boolean;
+  onToggleSelect: () => void;
+}) {
   const [resending, setResending] = useState(false);
   const name = [invite.firstName, invite.lastName].filter(Boolean).join(" ");
 
@@ -1471,12 +1590,21 @@ function InvitedUserRow({ invite, onResent }: { invite: InvitedUserRecord; onRes
   return (
     <div className="rounded-md bg-secondary/40 px-3 py-2 text-sm">
       <div className="flex items-start justify-between gap-2 flex-wrap">
-        <div className="min-w-0 flex-1">
-          {name && <span className="font-medium">{name}</span>}
-          <div className="flex items-center gap-1 text-xs text-muted-foreground">
-            {invite.email}
-            <CopyButton value={invite.email} label="Email copied" />
-            {invite.wantsBeta && <span className="badge-soft ml-1">Beta</span>}
+        <div className="flex min-w-0 flex-1 items-start gap-2">
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={onToggleSelect}
+            className="mt-0.5"
+            aria-label={`Select ${invite.email}`}
+          />
+          <div className="min-w-0">
+            {name && <span className="font-medium">{name}</span>}
+            <div className="flex items-center gap-1 text-xs text-muted-foreground">
+              {invite.email}
+              <CopyButton value={invite.email} label="Email copied" />
+              {invite.wantsBeta && <span className="badge-soft ml-1">Beta</span>}
+            </div>
           </div>
         </div>
         <div className="flex shrink-0 items-start gap-3">
@@ -1496,6 +1624,9 @@ function InvitedUserRow({ invite, onResent }: { invite: InvitedUserRecord; onRes
             className="btn-outline text-xs disabled:opacity-60"
           >
             {resending ? "Sending…" : "Resend Invite"}
+          </button>
+          <button type="button" onClick={onDelete} className="btn-outline text-xs text-destructive">
+            Delete
           </button>
         </div>
       </div>
