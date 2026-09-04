@@ -60,6 +60,8 @@ function AdminPanel() {
   const [usersLoading, setUsersLoading] = useState(true);
   const [usersError, setUsersError] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(new Set());
+  const [bulkDeleting, setBulkDeleting] = useState(false);
 
   const [protests, setProtests] = useState<AdminProtestRecord[]>([]);
   const [protestsLoading, setProtestsLoading] = useState(true);
@@ -213,6 +215,47 @@ function AdminPanel() {
     }
   }
 
+  // Sequential (not Promise.all), same reasoning as BulkInviteForm's send
+  // loop — one failure's error stays attributable to its own user instead of
+  // racing every delete at once, and a partial failure still deletes
+  // everyone it got through rather than rolling back on the first error.
+  async function handleBulkDeleteUsers() {
+    const ids = [...selectedUserIds];
+    if (ids.length === 0) return;
+    if (
+      !window.confirm(
+        `Delete ${ids.length} user${ids.length === 1 ? "" : "s"}? This removes their accounts, properties, and profiles permanently.`,
+      )
+    ) {
+      return;
+    }
+    setBulkDeleting(true);
+    const succeededIds = new Set<string>();
+    const failures: string[] = [];
+    for (const id of ids) {
+      try {
+        await deleteUserAccount(id);
+        succeededIds.add(id);
+      } catch (err) {
+        const email = users.find((u) => u.id === id)?.email ?? id;
+        failures.push(`${email} — ${err instanceof Error ? err.message : "failed"}`);
+      }
+    }
+    setUsers((prev) => prev.filter((u) => !succeededIds.has(u.id)));
+    setSelectedUserIds(new Set());
+    setBulkDeleting(false);
+    refreshAuditLog();
+    if (failures.length === 0) {
+      toast.success(`${succeededIds.size} user${succeededIds.size === 1 ? "" : "s"} deleted.`);
+    } else if (succeededIds.size > 0) {
+      toast.error(
+        `${succeededIds.size} deleted, ${failures.length} failed: ${failures.join("; ")}`,
+      );
+    } else {
+      toast.error(`Could not delete: ${failures.join("; ")}`);
+    }
+  }
+
   // Opens a new tab signed in as the target user via a real one-time Supabase
   // login link — this tab's own admin session is untouched. window.open() is
   // called synchronously in the click handler (before the await resolves) to
@@ -243,6 +286,11 @@ function AdminPanel() {
   }
 
   if (loading || !user || !isAdmin) return null;
+
+  // Excludes yourself — same self-protection as the single-row Delete User
+  // button (isSelf), just applied to "select all" and bulk delete too, so
+  // there's no way to bulk-delete your own account from this list.
+  const selectableUserIds = users.filter((u) => u.id !== user.id).map((u) => u.id);
 
   const TABS: { key: AdminTab; label: string; count: number | null }[] = [
     { key: "users", label: "Users", count: usersLoading ? null : users.length },
@@ -312,7 +360,47 @@ function AdminPanel() {
 
           {usersError && <p className="mt-4 text-sm text-destructive">{usersError}</p>}
 
-          <div className="mt-6 grid gap-4">
+          {!usersLoading && users.length > 0 && (
+            <div className="mt-6 flex flex-wrap items-center gap-3 text-sm">
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={
+                    selectableUserIds.length > 0 &&
+                    selectableUserIds.every((id) => selectedUserIds.has(id))
+                  }
+                  onChange={(e) =>
+                    setSelectedUserIds(e.target.checked ? new Set(selectableUserIds) : new Set())
+                  }
+                />
+                Select all
+              </label>
+              {selectedUserIds.size > 0 && (
+                <>
+                  <span className="text-muted-foreground">{selectedUserIds.size} selected</span>
+                  <button
+                    type="button"
+                    onClick={handleBulkDeleteUsers}
+                    disabled={bulkDeleting}
+                    className="btn-outline text-xs text-destructive disabled:opacity-60"
+                  >
+                    {bulkDeleting
+                      ? "Deleting…"
+                      : `Delete ${selectedUserIds.size} User${selectedUserIds.size === 1 ? "" : "s"}`}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedUserIds(new Set())}
+                    className="text-xs text-muted-foreground hover:text-foreground"
+                  >
+                    Clear selection
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+
+          <div className="mt-4 grid gap-4">
             {usersLoading ? (
               <>
                 <UserRowSkeleton />
@@ -325,6 +413,15 @@ function AdminPanel() {
                   key={u.id}
                   record={u}
                   isSelf={u.id === user.id}
+                  selected={selectedUserIds.has(u.id)}
+                  onToggleSelect={() =>
+                    setSelectedUserIds((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(u.id)) next.delete(u.id);
+                      else next.add(u.id);
+                      return next;
+                    })
+                  }
                   expanded={expandedId === u.id}
                   onToggleExpand={() => setExpandedId(expandedId === u.id ? null : u.id)}
                   onPlanChange={(plan) => handlePlanChange(u.id, plan)}
@@ -926,6 +1023,8 @@ function ProtestRow({
 function UserRow({
   record,
   isSelf,
+  selected,
+  onToggleSelect,
   expanded,
   onToggleExpand,
   onPlanChange,
@@ -943,6 +1042,8 @@ function UserRow({
 }: {
   record: AdminUserRecord;
   isSelf: boolean;
+  selected: boolean;
+  onToggleSelect: () => void;
   expanded: boolean;
   onToggleExpand: () => void;
   onPlanChange: (plan: PlanValue) => void;
@@ -966,20 +1067,34 @@ function UserRow({
   return (
     <div className="card-elev row-hover p-6" style={{ animationDelay: `${delayMs}ms` }}>
       <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div>
-          <h3 className="font-serif text-lg font-semibold">
-            {record.firstName} {record.lastName}
-            {isSelf && <span className="ml-2 text-xs text-muted-foreground">(you)</span>}
-            {record.isAdmin && (
-              <span className="ml-2 badge-soft text-[10px] align-middle">Admin</span>
-            )}
-          </h3>
-          <p className="text-sm text-muted-foreground">
-            {record.email} • {record.phone}
-          </p>
-          <p className="text-xs text-muted-foreground mt-1">
-            Joined {new Date(record.createdAt).toLocaleDateString()}
-          </p>
+        <div className="flex items-start gap-3">
+          {/* Hidden for yourself — same self-protection as the single-row
+              Delete User button below; you can't select your own account
+              for bulk delete either. */}
+          {!isSelf && (
+            <input
+              type="checkbox"
+              checked={selected}
+              onChange={onToggleSelect}
+              className="mt-1.5"
+              aria-label={`Select ${record.email}`}
+            />
+          )}
+          <div>
+            <h3 className="font-serif text-lg font-semibold">
+              {record.firstName} {record.lastName}
+              {isSelf && <span className="ml-2 text-xs text-muted-foreground">(you)</span>}
+              {record.isAdmin && (
+                <span className="ml-2 badge-soft text-[10px] align-middle">Admin</span>
+              )}
+            </h3>
+            <p className="text-sm text-muted-foreground">
+              {record.email} • {record.phone}
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">
+              Joined {new Date(record.createdAt).toLocaleDateString()}
+            </p>
+          </div>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <select
