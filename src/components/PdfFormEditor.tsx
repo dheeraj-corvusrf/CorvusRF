@@ -22,9 +22,12 @@ function fieldInputId(name: string): string {
 // Generic renderer for either Comptroller form's field schema — both forms
 // are just collections of text/checkbox/radio fields grouped into sections,
 // so one data-driven component covers both rather than ~90 hand-written rows.
-// Also owns the guided File Protest sequence for the Notice of Protest:
-// edit → Final Review (explicit "I have reviewed" confirmation) → sign →
-// real, county-specific post-sign filing guidance — see isProtestForm below.
+// Also owns the guided sequence for BOTH forms: edit → Final Review
+// (explicit "I have reviewed" confirmation) → sign → real, county-specific
+// post-submission guidance — see formKind below. Both forms go to the same
+// real appraisal district, so both get the same real guidance once signed;
+// only the copy and the "Mark as Filed" action (protest-specific — an
+// agent appointment doesn't have its own "filed" status) differ.
 export function PdfFormEditor({
   title,
   sections,
@@ -44,9 +47,9 @@ export function PdfFormEditor({
   submitting,
   expectedSignerName,
   onClose,
-  isProtestForm,
+  formKind,
   countyInfo,
-  noticeSignedAt,
+  signedAt,
   caseStatus,
   onMarkFiled,
   markingFiled,
@@ -72,13 +75,13 @@ export function PdfFormEditor({
   submitting: boolean;
   expectedSignerName?: string;
   onClose: () => void;
-  // The Final Review step + post-sign filing guidance only apply to the
-  // real Notice of Protest — the Appointment of Agent form keeps today's
-  // simpler review → sign flow (signing it doesn't file anything with a
-  // county, so there's no filing-method guidance to show afterward).
-  isProtestForm: boolean;
+  formKind: "protest" | "agent";
   countyInfo: CountyProtestInfo | null;
-  noticeSignedAt: string | null;
+  // Real signed_at for WHICHEVER form is open (Notice of Protest or
+  // Appointment of Agent) — the caller picks the right one; this component
+  // doesn't care which, only whether the form it's currently showing has a
+  // real signature on file.
+  signedAt: string | null;
   caseStatus: ProtestStatus;
   onMarkFiled: () => void;
   markingFiled: boolean;
@@ -100,14 +103,13 @@ export function PdfFormEditor({
   const [view, setView] = useState<"edit" | "review" | "signed">("edit");
   const [reviewed, setReviewed] = useState(false);
 
-  // Reacts to a REAL sign completing (noticeSignedAt going from null to a
-  // real timestamp) — also fires on mount if the case was already signed
-  // in an earlier session, so reopening File Protest on an already-signed
-  // case goes straight to the real filing guidance instead of back through
-  // edit/review. Never fires for the Appointment of Agent form.
+  // Reacts to a REAL sign completing (signedAt going from null to a real
+  // timestamp) — also fires on mount if this form was already signed in an
+  // earlier session, so reopening it goes straight to the real submission
+  // guidance instead of back through edit/review.
   useEffect(() => {
-    if (isProtestForm && noticeSignedAt) setView("signed");
-  }, [isProtestForm, noticeSignedAt]);
+    if (signedAt) setView("signed");
+  }, [signedAt]);
 
   function jumpToNextRequiredField() {
     const name = getFirstIncompleteFieldName(sections, values);
@@ -121,8 +123,9 @@ export function PdfFormEditor({
     <Modal onClose={onClose} wide>
       <h3 className="font-serif text-xl font-semibold">{title}</h3>
 
-      {view === "signed" && isProtestForm ? (
+      {view === "signed" ? (
         <SignedFilingGuidance
+          formKind={formKind}
           countyInfo={countyInfo}
           caseStatus={caseStatus}
           onMarkFiled={onMarkFiled}
@@ -134,10 +137,14 @@ export function PdfFormEditor({
       ) : view === "review" ? (
         <>
           <p className="text-xs text-muted-foreground">
-            Please review all information before signing and submitting your protest.
+            {formKind === "protest"
+              ? "Please review all information before signing and submitting your protest."
+              : "Please review all information before signing this Appointment of Agent."}
           </p>
           <div className="mt-4 rounded-lg border border-accent/30 bg-accent/5 p-4">
-            <h4 className="text-sm font-semibold">Ready to File</h4>
+            <h4 className="text-sm font-semibold">
+              {formKind === "protest" ? "Ready to File" : "Ready to Sign"}
+            </h4>
             <div className="mt-3 grid gap-5">
               {sections.map((section) => (
                 <FieldSectionView
@@ -314,13 +321,18 @@ function SignPanel({
   );
 }
 
-// Shown once the Notice of Protest is actually signed — real, county-
-// specific instructions for whichever filing methods this county actually
-// confirms (never a fabricated "direct integration": no county publishes a
-// public submission API, so every path here ends in the customer's own
-// real action). Reuses the exact same FilingMethodsList data as
-// CaseDetailModal.tsx's own "How to actually file this" block.
+// Shown once a form is actually signed — real, county-specific submission
+// instructions for whichever methods this county actually confirms (never
+// a fabricated "direct integration": no county publishes a public
+// submission API, so every path here ends in the customer's own real
+// action). Both the Notice of Protest and the Appointment of Agent go to
+// the same real appraisal district, so both reuse the exact same
+// FilingMethodsList data as CaseDetailModal.tsx's own "How to actually
+// file this" block — only the copy and the protest-specific "Mark as
+// Filed" action (an agent appointment has no "filed" status of its own)
+// differ by formKind.
 function SignedFilingGuidance({
+  formKind,
   countyInfo,
   caseStatus,
   onMarkFiled,
@@ -329,6 +341,7 @@ function SignedFilingGuidance({
   downloading,
   onMakeChanges,
 }: {
+  formKind: "protest" | "agent";
   countyInfo: CountyProtestInfo | null;
   caseStatus: ProtestStatus;
   onMarkFiled: () => void;
@@ -337,22 +350,35 @@ function SignedFilingGuidance({
   downloading: boolean;
   onMakeChanges: () => void;
 }) {
-  const mailto = countyInfo?.filingMethod.email.available ? buildFilingMailto(countyInfo) : null;
+  const docLabel = formKind === "protest" ? "Notice of Protest" : "Appointment of Agent";
+  const mailto = countyInfo?.filingMethod.email.available
+    ? buildFilingMailto(countyInfo, docLabel)
+    : null;
 
   return (
     <div className="mt-4 grid gap-4">
       <div className="rounded-lg border border-success/30 bg-success/5 p-4">
-        <h4 className="text-sm font-semibold text-success">Signed — now deliver it</h4>
+        <h4 className="text-sm font-semibold text-success">Signed — now submit it</h4>
         <p className="mt-1 text-xs text-muted-foreground">
-          Your Notice of Protest is signed and saved. It is not yet filed with{" "}
-          {countyInfo?.cad ?? "your county"} — delivering it is the one step left, and only you can
-          confirm you've done it.
+          {formKind === "protest" ? (
+            <>
+              Your Notice of Protest is signed and saved. It is not yet filed with{" "}
+              {countyInfo?.cad ?? "your county"} — delivering it is the one step left, and only you
+              can confirm you've done it.
+            </>
+          ) : (
+            <>
+              Your Appointment of Agent is signed and saved. It isn't in effect with{" "}
+              {countyInfo?.cad ?? "your county"} until you deliver it — until then, the district
+              will keep working with you directly, not your agent.
+            </>
+          )}
         </p>
       </div>
 
       {countyInfo ? (
         <div className="rounded-md border border-border p-3 text-sm">
-          <p className="font-medium">Real ways to file with {countyInfo.cad}</p>
+          <p className="font-medium">Real ways to submit to {countyInfo.cad}</p>
           <div className="mt-2 text-xs text-muted-foreground">
             <FilingMethodsList countyInfo={countyInfo} />
           </div>
@@ -375,14 +401,14 @@ function SignedFilingGuidance({
           </div>
           {countyInfo.filingMethod.mail && (
             <p className="mt-2 text-xs text-muted-foreground">
-              Mailing? Recommended: Certified Mail with Return Receipt Requested (one of Form
-              50-132's own options) — keep the receipt as your proof of timely mailing.
+              Mailing? Recommended: Certified Mail with Return Receipt Requested — keep the receipt
+              as your proof of timely mailing.
             </p>
           )}
           {countyInfo.filingMethod.inPerson && (
             <p className="mt-1 text-xs text-muted-foreground">
-              Filing in person? Bring the signed form and a photo ID, and ask for a stamped/dated
-              copy as your receipt.
+              Submitting in person? Bring the signed form and a photo ID, and ask for a
+              stamped/dated copy as your receipt.
             </p>
           )}
         </div>
@@ -399,9 +425,9 @@ function SignedFilingGuidance({
           disabled={downloading}
           className="btn-outline text-xs py-1.5 disabled:opacity-60"
         >
-          {downloading ? "Generating…" : "Download Completed Protest"}
+          {downloading ? "Generating…" : `Download Completed ${docLabel}`}
         </button>
-        {caseStatus === "requested" && (
+        {formKind === "protest" && caseStatus === "requested" && (
           <button
             onClick={onMarkFiled}
             disabled={markingFiled}
@@ -420,10 +446,10 @@ function SignedFilingGuidance({
 
 // mailto: can't attach a file — the body says so explicitly rather than
 // implying the PDF travels with the draft.
-function buildFilingMailto(countyInfo: CountyProtestInfo): string {
+function buildFilingMailto(countyInfo: CountyProtestInfo, docLabel: string): string {
   const to = countyInfo.filingMethod.email.address ?? "";
-  const subject = `Notice of Protest — ${countyInfo.cad}`;
-  const body = `Please find my Notice of Protest attached. (Attach your downloaded, signed PDF to this email before sending — it isn't included automatically.)${
+  const subject = `${docLabel} — ${countyInfo.cad}`;
+  const body = `Please find my ${docLabel} attached. (Attach your downloaded, signed PDF to this email before sending — it isn't included automatically.)${
     countyInfo.filingMethod.email.notes ? `\n\n${countyInfo.filingMethod.email.notes}` : ""
   }`;
   return `mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;

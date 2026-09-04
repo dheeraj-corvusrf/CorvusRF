@@ -865,6 +865,11 @@ export function DocumentsSection({
   const [signature, setSignature] = useState<SignatureValue | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [generatingReason, setGeneratingReason] = useState(false);
+  // Same real signed_at signal as the Notice of Protest's noticeSignedAt
+  // (see CaseDetailModal.tsx), but for the Appointment of Agent form —
+  // kept local here rather than lifted, since nothing outside Documents
+  // currently needs it. Loaded whenever the agent editor opens, below.
+  const [agentFormSignedAt, setAgentFormSignedAt] = useState<string | null>(null);
 
   useEffect(() => {
     getAuthorization(protest.id)
@@ -903,8 +908,14 @@ export function DocumentsSection({
     setEditingForm("agent");
     setSigningOpen(false);
     setSignature(null);
+    setAgentFormSignedAt(null);
     getSubmission(protest.id, "appointment_of_agent")
-      .then((existing) => existing && setValues(existing.fieldValues))
+      .then((existing) => {
+        if (existing) {
+          setValues(existing.fieldValues);
+          setAgentFormSignedAt(existing.signedAt);
+        }
+      })
       .catch((err) => console.error("Could not load saved Appointment of Agent draft:", err))
       .finally(fillAdditionalOwnerProperties);
   }
@@ -1017,6 +1028,7 @@ export function DocumentsSection({
       // "requested"; the customer confirms filing themselves, once they've
       // actually delivered it, via the "Mark as Filed" action below.
       if (editingForm === "protest") onNoticeSigned(signedAt.toISOString());
+      else setAgentFormSignedAt(signedAt.toISOString());
       downloadPdf(bytes, fileName);
       setSigningOpen(false);
       setSignature(null);
@@ -1093,9 +1105,13 @@ export function DocumentsSection({
               : undefined
           }
         >
-          Review Appointment of Agent (Form 50-162)
+          Complete Agent Representation Form (Optional)
         </button>
       </div>
+      <p className="mt-1 text-xs text-muted-foreground">
+        <span className="font-medium text-foreground">Optional.</span> Complete this form only if a
+        tax agent or other authorized representative will represent you in the protest.
+      </p>
 
       {/* Filing itself always happens on the county's own site or mailbox —
           CorvusRF has no e-filing integration with any appraisal district
@@ -1191,9 +1207,9 @@ export function DocumentsSection({
             return typeof v === "string" && v ? v : undefined;
           })()}
           onClose={() => setEditingForm(null)}
-          isProtestForm={editingForm === "protest"}
+          formKind={editingForm === "protest" ? "protest" : "agent"}
           countyInfo={countyInfo}
-          noticeSignedAt={editingForm === "protest" ? noticeSignedAt : null}
+          signedAt={editingForm === "protest" ? noticeSignedAt : agentFormSignedAt}
           caseStatus={protest.status}
           onMarkFiled={handleMarkFiled}
           markingFiled={markingFiled}
