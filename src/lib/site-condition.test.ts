@@ -46,6 +46,14 @@ describe("pickHeadlineFactor", () => {
     const picked = pickHeadlineFactor(factors);
     expect(picked?.factor).toBe("Grade");
   });
+
+  it("never picks a Not Applicable factor even if it's the only non-gap", () => {
+    const factors = [
+      factor({ factor: "Easements", status: "Not Applicable", severity: "High" }),
+      factor({ factor: "Drainage", status: "Additional Data Needed" }),
+    ];
+    expect(pickHeadlineFactor(factors)).toBeNull();
+  });
 });
 
 describe("countDataGaps", () => {
@@ -67,5 +75,13 @@ describe("countDataGaps", () => {
   it("returns the full length when every factor is a gap", () => {
     const factors = [factor(), factor({ factor: "Easements" }), factor({ factor: "Drainage" })];
     expect(countDataGaps(factors)).toBe(3);
+  });
+
+  it("excludes Not Applicable factors from the gap count", () => {
+    const factors = [
+      factor({ factor: "Easements", status: "Not Applicable" }),
+      factor({ factor: "Drainage", status: "Additional Data Needed" }),
+    ];
+    expect(countDataGaps(factors)).toBe(1);
   });
 });

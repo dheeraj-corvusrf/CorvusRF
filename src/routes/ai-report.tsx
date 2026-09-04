@@ -101,6 +101,16 @@ import {
   type DocumentRecord,
 } from "@/lib/documents";
 import { analyzeEvidence, type EvidenceAnalysis } from "@/lib/protest-reason";
+import {
+  listModuleOverrides,
+  markNotApplicable as markModuleNotApplicable,
+  clearNotApplicable as clearModuleNotApplicable,
+  isModuleNotApplicable,
+  isItemNotApplicable,
+  itemsNotApplicable,
+  WHOLE_MODULE_KEY,
+  type ModuleOverride,
+} from "@/lib/module-overrides";
 import { ProtestAuthorizationFlow } from "@/components/ProtestAuthorizationFlow";
 import { AnimatedNumber } from "@/components/AnimatedNumber";
 import { ValueHistorySection } from "@/components/ValueHistorySection";
@@ -228,6 +238,11 @@ function Report() {
   // handleUploadEvidence() and loadModule() below.
   const [evidenceDocs, setEvidenceDocs] = useState<DocumentRecord[]>([]);
   const [uploadingEvidence, setUploadingEvidence] = useState(false);
+  // Real, user-confirmed "not applicable" marks for gated modules/factors/
+  // components — see module-overrides.ts. Loaded once resolvedProperty
+  // exists (same gate as the evidence-docs effect below, since overrides
+  // are keyed by property id too).
+  const [overrides, setOverrides] = useState<ModuleOverride[]>([]);
 
   useEffect(() => {
     const s = readIntake();
@@ -273,6 +288,62 @@ function Report() {
       )
       .catch((err) => console.error("Could not load uploaded evidence for this property:", err));
   }, [user, resolvedProperty]);
+
+  useEffect(() => {
+    if (!resolvedProperty) return;
+    listModuleOverrides(resolvedProperty.id)
+      .then(setOverrides)
+      .catch((err) => console.error("Could not load module overrides for this property:", err));
+  }, [resolvedProperty]);
+
+  // Marks a module (itemKey omitted) or a specific site-factor/building-
+  // component (itemKey set) as not applicable — persists it, updates local
+  // state immediately (optimistic — the write above almost never fails, and
+  // this is the exact same pattern uploadDocument-adjacent state already
+  // uses elsewhere on this page), and force-reloads any module whose prompt
+  // depends on this signal so the AI's own text stays consistent with what
+  // just changed, not just the client-side display.
+  async function markNotApplicable(moduleId: string, itemKey: string = WHOLE_MODULE_KEY) {
+    if (!user || !resolvedProperty) return;
+    try {
+      await markModuleNotApplicable(user.id, resolvedProperty.id, moduleId, itemKey);
+      setOverrides((prev) => [
+        ...prev.filter((o) => !(o.moduleId === moduleId && o.itemKey === itemKey)),
+        { moduleId, itemKey },
+      ]);
+      reloadDependentModules(moduleId);
+    } catch (err) {
+      toast.error(getErrorMessage(err, "Could not save — please try again."));
+    }
+  }
+
+  async function clearNotApplicable(moduleId: string, itemKey: string = WHOLE_MODULE_KEY) {
+    if (!resolvedProperty) return;
+    try {
+      await clearModuleNotApplicable(resolvedProperty.id, moduleId, itemKey);
+      setOverrides((prev) =>
+        prev.filter((o) => !(o.moduleId === moduleId && o.itemKey === itemKey)),
+      );
+      reloadDependentModules(moduleId);
+    } catch (err) {
+      toast.error(getErrorMessage(err, "Could not save — please try again."));
+    }
+  }
+
+  // Only force-reloads a module that's already loaded (data or error) —
+  // never triggers a fresh AI call for a module the user hasn't opened yet,
+  // same discipline as every other loadModule() call on this page.
+  function reloadDependentModules(moduleId: string) {
+    const dependents =
+      moduleId === "income"
+        ? ["strategy", "executive"]
+        : moduleId === "site" || moduleId === "improvement"
+          ? [moduleId, "strategy", "evidence", "executive"]
+          : [moduleId];
+    for (const id of dependents) {
+      if (moduleData[id]?.data || moduleData[id]?.error) loadModule(id, { force: true });
+    }
+  }
 
   // Shared by startProtest (below) and handleUploadEvidence — resolves the real
   // saved PropertyRecord this report is for, creating it on first use if the user
@@ -452,6 +523,40 @@ function Report() {
         .filter((s) => s.relatedModules.includes(id))
         .map((s) => ({ strategy: s.name, score: s.strengthScore }));
       if (relevant.length > 0) input.priorityContext = relevant;
+    }
+
+    // Real, user-confirmed exclusions — see module-overrides.ts. Site/
+    // improvement get their own exact factor/component list, hard-clamped
+    // server-side (enforceSiteFactorRealData/enforceBuildingComponentRealData);
+    // strategy/evidence/executive get prose context only, since their
+    // missing-evidence output is free text, not a fixed schema this page
+    // could reclamp itself — see notApplicableContext's own comment in the
+    // edge function.
+    if (id === "site") {
+      const na = itemsNotApplicable(overrides, "site");
+      if (na.length > 0) input.notApplicableFactors = na;
+    }
+    if (id === "improvement") {
+      const na = itemsNotApplicable(overrides, "improvement");
+      if (na.length > 0) input.notApplicableComponents = na;
+    }
+    if (id === "strategy" || id === "evidence" || id === "executive") {
+      const context: string[] = [];
+      if (isModuleNotApplicable(overrides, "income")) {
+        context.push(
+          "Income Approach: user confirmed no P&L, rent roll, or operating statement is " +
+            "available for this property.",
+        );
+      }
+      const siteNA = itemsNotApplicable(overrides, "site");
+      if (siteNA.length > 0) {
+        context.push(`Site Condition: no documentation available for ${siteNA.join(", ")}.`);
+      }
+      const improvementNA = itemsNotApplicable(overrides, "improvement");
+      if (improvementNA.length > 0) {
+        context.push(`Improvement Condition: no photo available for ${improvementNA.join(", ")}.`);
+      }
+      if (context.length > 0) input.notApplicableContext = context;
     }
 
     // Real signals (never fabricated) shared by Module 1 (health) and Module
@@ -1134,6 +1239,7 @@ function Report() {
               propertyType={state.propertyType}
               totalValue={state.totalValue}
               improvementValue={state.improvementValue}
+              overrides={overrides}
               onOpen={() => openModule(m)}
               onForceReload={() => loadModule(m.id, { force: true })}
             />
@@ -1189,6 +1295,9 @@ function Report() {
                 onOpenModule={() => {}}
                 onStartProtest={() => {}}
                 onViewCase={() => {}}
+                overrides={overrides}
+                onMarkNotApplicable={() => {}}
+                onClearNotApplicable={() => {}}
               />
             </div>
           ));
@@ -1235,6 +1344,9 @@ function Report() {
               const url = `${window.location.origin}${import.meta.env.BASE_URL}dashboard/case?propertyId=${encodeURIComponent(resolvedProperty.id)}`;
               window.open(url, "_blank", "noopener,noreferrer");
             }}
+            overrides={overrides}
+            onMarkNotApplicable={markNotApplicable}
+            onClearNotApplicable={clearNotApplicable}
           />
           <div className="mt-6 flex gap-2 justify-end">
             <button onClick={() => setOpenId(null)} className="btn-outline">
@@ -1304,6 +1416,7 @@ function ModuleCard({
   propertyType,
   totalValue,
   improvementValue,
+  overrides,
   onOpen,
   onForceReload,
 }: {
@@ -1323,6 +1436,7 @@ function ModuleCard({
   propertyType?: string;
   totalValue?: number | null;
   improvementValue?: number | null;
+  overrides: ModuleOverride[];
   onOpen: () => void;
   onForceReload: () => void;
 }) {
@@ -1333,7 +1447,9 @@ function ModuleCard({
   const status: CardStatus = !unlocked
     ? "Locked"
     : m.id === "income"
-      ? "Needs Data"
+      ? isModuleNotApplicable(overrides, "income")
+        ? "Not Applicable"
+        : "Needs Data"
       : m.id === "savings"
         ? "Completed"
         : !moduleState || moduleState.loading
@@ -1341,7 +1457,9 @@ function ModuleCard({
           : moduleState.error
             ? "Error"
             : "Completed";
-  const insight = unlocked ? moduleInsight(m, moduleState, compsMap, estimated, totalValue) : null;
+  const insight = unlocked
+    ? moduleInsight(m, moduleState, compsMap, estimated, totalValue, overrides)
+    : null;
   // Module 2's own score for this module's strategy, once it's resolved — see
   // the priorityContext sequencing in loadModule()/the eager-load effects
   // above. Only comps/site/improvement/income/zoning map to one of Module 2's
@@ -1379,26 +1497,32 @@ function ModuleCard({
             )}
             <StatusChip status={status} />
             {/* Hidden for a locked/gated card (nothing to refetch), "Needs
-                Data" (income — that's a P&L upload gate, not an AI call this
-                page ever fires), and "savings" (deterministic, no AI call at
-                all — loadModule() no-ops for it). Spins in place, doubling
-                as the loading indicator the user asked for, and doubles as a
-                one-click retry for a genuinely slow/stuck module without
-                having to open the modal's own Retry button. */}
-            {unlocked && m.id !== "savings" && status !== "Locked" && status !== "Needs Data" && (
-              <button
-                type="button"
-                onClick={onForceReload}
-                disabled={status === "Analyzing"}
-                title={status === "Analyzing" ? "Analyzing…" : "Refresh this module"}
-                aria-label={status === "Analyzing" ? "Analyzing" : "Refresh this module"}
-                className="rounded-full p-1 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:cursor-default disabled:hover:bg-transparent"
-              >
-                <RefreshCw
-                  className={`h-3.5 w-3.5 ${status === "Analyzing" ? "animate-spin" : ""}`}
-                />
-              </button>
-            )}
+                Data"/"Not Applicable" (income — that's a P&L upload gate,
+                not an AI call this page ever fires, whether or not the user
+                has marked it not applicable), and "savings" (deterministic,
+                no AI call at all — loadModule() no-ops for it). Spins in
+                place, doubling as the loading indicator the user asked for,
+                and doubles as a one-click retry for a genuinely slow/stuck
+                module without having to open the modal's own Retry
+                button. */}
+            {unlocked &&
+              m.id !== "savings" &&
+              status !== "Locked" &&
+              status !== "Needs Data" &&
+              status !== "Not Applicable" && (
+                <button
+                  type="button"
+                  onClick={onForceReload}
+                  disabled={status === "Analyzing"}
+                  title={status === "Analyzing" ? "Analyzing…" : "Refresh this module"}
+                  aria-label={status === "Analyzing" ? "Analyzing" : "Refresh this module"}
+                  className="rounded-full p-1 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:cursor-default disabled:hover:bg-transparent"
+                >
+                  <RefreshCw
+                    className={`h-3.5 w-3.5 ${status === "Analyzing" ? "animate-spin" : ""}`}
+                  />
+                </button>
+              )}
           </div>
         </div>
         <div className="mt-4 flex-1 flex flex-col justify-center">
@@ -1413,6 +1537,7 @@ function ModuleCard({
             propertyType={propertyType}
             totalValue={totalValue}
             improvementValue={improvementValue}
+            overrides={overrides}
             onOpen={onOpen}
           />
         </div>
@@ -1434,7 +1559,7 @@ function ModuleCard({
   );
 }
 
-type CardStatus = "Locked" | "Analyzing" | "Completed" | "Needs Data" | "Error";
+type CardStatus = "Locked" | "Analyzing" | "Completed" | "Needs Data" | "Not Applicable" | "Error";
 
 function StatusChip({ status }: { status: CardStatus }) {
   const map: Record<CardStatus, string> = {
@@ -1442,6 +1567,7 @@ function StatusChip({ status }: { status: CardStatus }) {
     Analyzing: "bg-secondary text-muted-foreground",
     Completed: "bg-success/15 text-success",
     "Needs Data": "bg-warning/20 text-warning-foreground",
+    "Not Applicable": "bg-secondary text-muted-foreground",
     Error: "bg-destructive/10 text-destructive",
   };
   return (
@@ -1468,6 +1594,7 @@ function ModuleVisual({
   propertyType,
   totalValue,
   improvementValue,
+  overrides,
   onOpen,
 }: {
   m: Module;
@@ -1485,6 +1612,7 @@ function ModuleVisual({
   propertyType?: string;
   totalValue?: number | null;
   improvementValue?: number | null;
+  overrides: ModuleOverride[];
   onOpen: () => void;
 }) {
   if (!unlocked) {
@@ -1510,7 +1638,12 @@ function ModuleVisual({
   }
 
   if (m.id === "income") {
-    return (
+    return isModuleNotApplicable(overrides, "income") ? (
+      <div className="flex items-center gap-2 text-muted-foreground">
+        <CheckCircle2 className="h-4 w-4 shrink-0" />
+        <span className="text-xs">Marked not applicable — excluded from this protest</span>
+      </div>
+    ) : (
       <div className="flex items-center gap-2 text-muted-foreground">
         <FileWarning className="h-4 w-4 shrink-0" />
         <span className="text-xs">Upload financials to run this analysis</span>
@@ -2757,6 +2890,7 @@ const SITE_FACTOR_STATUS_TONE: Record<SiteFactor["status"], string> = {
   Confirmed: "bg-success/15 text-success",
   "Partial Data": "bg-warning/15 text-warning-foreground",
   "Additional Data Needed": "bg-secondary/60 text-muted-foreground",
+  "Not Applicable": "bg-secondary/60 text-muted-foreground",
 };
 
 // One row of Module 4's 14-factor table. status is server-enforced (see
@@ -2815,20 +2949,58 @@ function SiteFactorRow({
 function SiteFactorGapTile({
   factor,
   onOpenModule,
+  onMarkNotApplicable,
 }: {
   factor: SiteFactor;
   onOpenModule: (moduleId: string) => void;
+  // No document exists for most of these 14 factors at all (see
+  // enforceSiteFactorRealData) — this is the escape hatch so the card
+  // isn't a permanent dead end when there's genuinely nothing to upload.
+  onMarkNotApplicable: () => void;
 }) {
   return (
-    <button
-      type="button"
-      onClick={() => onOpenModule("evidence")}
+    <div
       title={factor.evidenceNeeded ?? undefined}
       className="flex flex-col items-center gap-1 rounded-lg border border-dashed border-border px-1.5 py-2 text-center transition-colors hover:border-accent hover:bg-secondary/40"
     >
-      <FileWarning className="h-4 w-4 shrink-0 text-muted-foreground" />
-      <span className="line-clamp-2 text-[10px] font-medium leading-tight">{factor.factor}</span>
-    </button>
+      <button
+        type="button"
+        onClick={() => onOpenModule("evidence")}
+        className="flex flex-col items-center gap-1"
+      >
+        <FileWarning className="h-4 w-4 shrink-0 text-muted-foreground" />
+        <span className="line-clamp-2 text-[10px] font-medium leading-tight">{factor.factor}</span>
+      </button>
+      <button
+        type="button"
+        onClick={onMarkNotApplicable}
+        className="text-[9px] font-medium text-muted-foreground underline decoration-dotted hover:text-foreground"
+      >
+        Mark N/A
+      </button>
+    </div>
+  );
+}
+
+// The "Marked Not Applicable" counterpart — same tile shape, neutral
+// checkmark instead of the warning icon, with an Undo back to the gap
+// tile above in case the user marked one by mistake or later finds the
+// document after all.
+function SiteFactorNotApplicableTile({ label, onClear }: { label: string; onClear: () => void }) {
+  return (
+    <div className="flex flex-col items-center gap-1 rounded-lg border border-border bg-secondary/30 px-1.5 py-2 text-center">
+      <CheckCircle2 className="h-4 w-4 shrink-0 text-muted-foreground" />
+      <span className="line-clamp-2 text-[10px] font-medium leading-tight text-muted-foreground">
+        {label}
+      </span>
+      <button
+        type="button"
+        onClick={onClear}
+        className="text-[9px] font-medium text-accent hover:underline"
+      >
+        Undo
+      </button>
+    </div>
   );
 }
 
@@ -2839,12 +3011,15 @@ const BUILDING_CONDITION_TONE: Record<string, string> = {
   Unknown: "bg-secondary/60 text-muted-foreground",
 };
 
-// One row of Module 5's Building Condition Overview. condition/hasPhoto are
-// server-enforced (see enforceBuildingComponentRealData) — this component
-// just renders whatever it's given, never re-decides "no photo" itself.
+// One row of Module 5's Building Condition Overview. condition/hasPhoto/
+// notApplicable are server-enforced (see enforceBuildingComponentRealData)
+// — this component just renders whatever it's given, never re-decides "no
+// photo" itself.
 function BuildingComponentRow({
   c,
   onUploadClick,
+  onMarkNotApplicable,
+  onClearNotApplicable,
 }: {
   c: ModuleResultMap["improvement"]["buildingComponents"][number];
   // Optional — the modal already has the "Add Evidence" upload section in
@@ -2852,6 +3027,10 @@ function BuildingComponentRow({
   // card's rows pass onOpen (opens this module's own modal, where that
   // section lives).
   onUploadClick?: () => void;
+  // Optional for the same reason — only the modal's rows offer the N/A
+  // escape hatch, matching onUploadClick's own pattern.
+  onMarkNotApplicable?: () => void;
+  onClearNotApplicable?: () => void;
 }) {
   return (
     <div className="card-elev p-2.5">
@@ -2860,9 +3039,9 @@ function BuildingComponentRow({
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="text-sm font-semibold">{c.component}</span>
             <span
-              className={`shrink-0 whitespace-nowrap rounded-full px-1.5 py-0.5 text-[9px] font-semibold ${BUILDING_CONDITION_TONE[c.condition]}`}
+              className={`shrink-0 whitespace-nowrap rounded-full px-1.5 py-0.5 text-[9px] font-semibold ${c.notApplicable ? "bg-secondary/60 text-muted-foreground" : BUILDING_CONDITION_TONE[c.condition]}`}
             >
-              {c.hasPhoto ? c.condition : "No Photo Provided"}
+              {c.hasPhoto ? c.condition : c.notApplicable ? "Not Applicable" : "No Photo Provided"}
             </span>
           </div>
           {c.hasPhoto ? (
@@ -2872,6 +3051,10 @@ function BuildingComponentRow({
                 <p className="mt-0.5 text-xs font-medium text-foreground/80">{c.actionNeeded}</p>
               )}
             </>
+          ) : c.notApplicable ? (
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Marked not applicable — no photo available for this component.
+            </p>
           ) : (
             <p className="mt-0.5 text-xs text-muted-foreground">
               Upload a photo showing the {c.component.toLowerCase()} to assess condition.
@@ -2879,10 +3062,30 @@ function BuildingComponentRow({
           )}
         </div>
       </div>
-      {!c.hasPhoto && onUploadClick && (
-        <button onClick={onUploadClick} className="mt-1.5 text-xs text-accent hover:underline">
-          Upload Photo →
+      {!c.hasPhoto && c.notApplicable && onClearNotApplicable && (
+        <button
+          onClick={onClearNotApplicable}
+          className="mt-1.5 text-xs text-accent hover:underline"
+        >
+          Undo — I can upload a photo
         </button>
+      )}
+      {!c.hasPhoto && !c.notApplicable && (onUploadClick || onMarkNotApplicable) && (
+        <div className="mt-1.5 flex items-center gap-3">
+          {onUploadClick && (
+            <button onClick={onUploadClick} className="text-xs text-accent hover:underline">
+              Upload Photo →
+            </button>
+          )}
+          {onMarkNotApplicable && (
+            <button
+              onClick={onMarkNotApplicable}
+              className="text-xs text-muted-foreground underline decoration-dotted hover:text-foreground"
+            >
+              Mark Not Applicable
+            </button>
+          )}
+        </div>
       )}
     </div>
   );
@@ -2954,8 +3157,13 @@ function moduleInsight(
   compsMap: { data: CompsResult | null; loading: boolean },
   estimated: { savings: number },
   totalValue: number | null | undefined,
+  overrides: ModuleOverride[],
 ): string | null {
-  if (m.id === "income") return "Upload financials to unlock";
+  if (m.id === "income") {
+    return isModuleNotApplicable(overrides, "income")
+      ? "Marked Not Applicable"
+      : "Upload financials to unlock";
+  }
   if (m.id === "savings") return estimated.savings > 0 ? "Strong Potential Savings" : null;
   if (!moduleState?.data) return null;
   switch (m.id) {
@@ -4050,6 +4258,9 @@ function ModulePreviewContent({
   onOpenModule,
   onStartProtest,
   onViewCase,
+  overrides,
+  onMarkNotApplicable,
+  onClearNotApplicable,
 }: {
   m: Module;
   estimated: {
@@ -4079,6 +4290,12 @@ function ModulePreviewContent({
   onOpenModule: (moduleId: string) => void;
   onStartProtest: () => void;
   onViewCase: () => void;
+  // Real, user-confirmed "not applicable" marks — see module-overrides.ts.
+  // onMarkNotApplicable/onClearNotApplicable default `itemKey` to the
+  // whole-module key (see markNotApplicable/clearNotApplicable in Report()).
+  overrides: ModuleOverride[];
+  onMarkNotApplicable: (moduleId: string, itemKey?: string) => void;
+  onClearNotApplicable: (moduleId: string, itemKey?: string) => void;
 }) {
   // Real AI analysis of the customer's own uploaded evidence — see Module
   // 8's "evidence" case below and analyzeEvidence() in protest-reason.ts.
@@ -4090,13 +4307,40 @@ function ModulePreviewContent({
   const [analysisError, setAnalysisError] = useState<string | null>(null);
 
   if (m.requiresUserData) {
+    const isNotApplicable = isModuleNotApplicable(overrides, "income");
     return (
       <div className="mt-4 card-elev p-4 bg-secondary/60">
-        <p className="text-sm">
-          This module requires private financial data (P&L, rent roll, or operating statement) to
-          complete. Upload once you subscribe — AI will run the income approach and compare to your
-          assessed value.
-        </p>
+        {isNotApplicable ? (
+          <>
+            <p className="flex items-center gap-2 text-sm">
+              <CheckCircle2 className="h-4 w-4 shrink-0 text-muted-foreground" />
+              Marked not applicable — no P&L, rent roll, or operating statement is available for
+              this property. The income approach is excluded from this protest.
+            </p>
+            <button
+              type="button"
+              onClick={() => onClearNotApplicable("income")}
+              className="mt-2 text-xs font-medium text-accent hover:underline"
+            >
+              Undo — I can upload financials
+            </button>
+          </>
+        ) : (
+          <>
+            <p className="text-sm">
+              This module requires private financial data (P&L, rent roll, or operating statement)
+              to complete. Upload once you subscribe — AI will run the income approach and compare
+              to your assessed value.
+            </p>
+            <button
+              type="button"
+              onClick={() => onMarkNotApplicable("income")}
+              className="mt-2 text-xs font-medium text-accent hover:underline"
+            >
+              I don't have this — mark Not Applicable
+            </button>
+          </>
+        )}
       </div>
     );
   }
@@ -4634,8 +4878,24 @@ function ModulePreviewContent({
               tappable icon grid instead of 12 more full-text cards nobody
               would actually read through. */}
           {(() => {
-            const withData = d.factors.filter((f) => f.status !== "Additional Data Needed");
-            const missing = d.factors.filter((f) => f.status === "Additional Data Needed");
+            // Combines the server's own status with the override state
+            // directly (not just d.factors.status) so a factor moves to
+            // "Marked Not Applicable" the instant the user clicks, without
+            // waiting on the forced reload this also triggers (see
+            // markNotApplicable() in Report()) to come back.
+            const isNA = (factor: string) => isItemNotApplicable(overrides, "site", factor);
+            const withData = d.factors.filter(
+              (f) =>
+                f.status !== "Additional Data Needed" &&
+                f.status !== "Not Applicable" &&
+                !isNA(f.factor),
+            );
+            const missing = d.factors.filter(
+              (f) => f.status === "Additional Data Needed" && !isNA(f.factor),
+            );
+            const notApplicableFactors = d.factors.filter(
+              (f) => f.status === "Not Applicable" || isNA(f.factor),
+            );
             return (
               <>
                 {withData.length > 0 && (
@@ -4662,7 +4922,28 @@ function ModulePreviewContent({
                     </div>
                     <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-4">
                       {missing.map((f) => (
-                        <SiteFactorGapTile key={f.factor} factor={f} onOpenModule={onOpenModule} />
+                        <SiteFactorGapTile
+                          key={f.factor}
+                          factor={f}
+                          onOpenModule={onOpenModule}
+                          onMarkNotApplicable={() => onMarkNotApplicable("site", f.factor)}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {notApplicableFactors.length > 0 && (
+                  <div>
+                    <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Marked Not Applicable
+                    </div>
+                    <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-4">
+                      {notApplicableFactors.map((f) => (
+                        <SiteFactorNotApplicableTile
+                          key={f.factor}
+                          label={f.factor}
+                          onClear={() => onClearNotApplicable("site", f.factor)}
+                        />
                       ))}
                     </div>
                   </div>
@@ -4727,7 +5008,19 @@ function ModulePreviewContent({
             </div>
             <div className="grid gap-1.5">
               {d.buildingComponents.map((c) => (
-                <BuildingComponentRow key={c.component} c={c} />
+                <BuildingComponentRow
+                  key={c.component}
+                  c={
+                    // Same instant-feedback reasoning as the site factors
+                    // above — reflect the override immediately rather than
+                    // waiting on the forced reload it also triggers.
+                    !c.hasPhoto && isItemNotApplicable(overrides, "improvement", c.component)
+                      ? { ...c, notApplicable: true }
+                      : c
+                  }
+                  onMarkNotApplicable={() => onMarkNotApplicable("improvement", c.component)}
+                  onClearNotApplicable={() => onClearNotApplicable("improvement", c.component)}
+                />
               ))}
             </div>
           </div>
