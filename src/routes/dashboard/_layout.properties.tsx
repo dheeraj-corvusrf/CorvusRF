@@ -92,7 +92,14 @@ function Properties() {
   return (
     <div>
       <div className="flex flex-wrap items-end justify-between gap-4">
-        <h1 className="font-serif text-2xl font-semibold">My Properties</h1>
+        <div className="flex flex-wrap items-baseline gap-2">
+          <h1 className="font-serif text-2xl font-semibold">My Properties</h1>
+          {!propertiesLoading && (
+            <span className="badge-soft">
+              {properties.length} propert{properties.length === 1 ? "y" : "ies"}
+            </span>
+          )}
+        </div>
         <div className="flex flex-wrap gap-2">
           <button type="button" onClick={() => setImportOpen(true)} className="btn-outline">
             Import CSV
