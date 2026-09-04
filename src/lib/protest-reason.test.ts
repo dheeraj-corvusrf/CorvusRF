@@ -6,12 +6,17 @@ vi.mock("./documents", () => ({
   getDocumentUrl: vi.fn(async (path: string) => `https://signed.example/${path}`),
 }));
 vi.mock("./edge-functions", () => ({
-  invokeEdgeFunction: vi.fn(async () => ({ text: "Suggested reason text." })),
+  invokeEdgeFunction: vi.fn(async () => ({
+    text: "Suggested reason text.",
+    suggestedReason: "Suggested reason text.",
+    summary: "Overall summary.",
+    documentFindings: [{ fileName: "rent-roll.pdf", assessment: "Shows real occupancy data." }],
+  })),
 }));
 
 import { getDocumentUrl } from "./documents";
 import { invokeEdgeFunction } from "./edge-functions";
-import { draftProtestReason, NoEvidenceDocumentsError } from "./protest-reason";
+import { draftProtestReason, analyzeEvidence, NoEvidenceDocumentsError } from "./protest-reason";
 
 const property: PropertyRecord = {
   id: "prop-1",
@@ -116,5 +121,30 @@ describe("draftProtestReason", () => {
     await draftProtestReason(property, null, documents);
     const call = vi.mocked(invokeEdgeFunction).mock.calls[0][1] as { documents: unknown[] };
     expect(call.documents).toHaveLength(5);
+  });
+});
+
+describe("analyzeEvidence", () => {
+  it("throws NoEvidenceDocumentsError when there are no documents at all", async () => {
+    await expect(analyzeEvidence(property, null, [])).rejects.toThrow(NoEvidenceDocumentsError);
+  });
+
+  it("returns the full structured analysis, not just the suggested paragraph", async () => {
+    mockFetchOk();
+    const result = await analyzeEvidence(property, "Market Value", [doc({})]);
+
+    expect(result.summary).toBe("Overall summary.");
+    expect(result.suggestedReason).toBe("Suggested reason text.");
+    expect(result.documentFindings).toEqual([
+      { fileName: "rent-roll.pdf", assessment: "Shows real occupancy data." },
+    ]);
+  });
+
+  it("shares the same real download/size-cap policy as draftProtestReason", async () => {
+    const big = new Uint8Array(9 * 1024 * 1024);
+    mockFetchOk(big);
+    await expect(analyzeEvidence(property, null, [doc({ fileName: "huge.pdf" })])).rejects.toThrow(
+      NoEvidenceDocumentsError,
+    );
   });
 });

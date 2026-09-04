@@ -3,15 +3,18 @@
 // ask-about-document).
 //
 // Reads the user's own uploaded evidence documents (rent roll, appraisal
-// report, comps, photos, etc.) and drafts a suggested paragraph for Form
-// 50-132's "Facts that may help resolve this protest" field — the one
-// piece of the Notice of Protest that's genuinely free text, not something
-// getNoticeOfProtestDefaults() can already fill from real case data alone.
-// Same real Gemini multimodal pattern as classify-document (inline_data
-// per file, temperature 0), but the output here is prose the CUSTOMER
-// still reviews, edits, and signs — never inserted or submitted
-// automatically. See PdfFormEditor.tsx's "Generate Suggested Reason"
-// button, which is the only thing that calls this.
+// report, comps, photos, etc.) and produces a real, structured AI analysis:
+// what each document actually shows (and whether it looks like real
+// supporting evidence at all — flagging an obvious mismatch, like a signed
+// form uploaded where evidence was expected), an overall summary of what
+// the evidence supports, and a suggested paragraph for Form 50-132's
+// "Facts that may help resolve this protest" field. Same real Gemini
+// multimodal pattern as classify-document (inline_data per file,
+// temperature 0, forced JSON), but every field here is something the
+// customer reviews — never inserted or submitted automatically. Two real
+// callers: PdfFormEditor.tsx's "Generate Suggested Reason" button (reads
+// only suggestedReason) and ai-report.tsx's Module 8 "Analyze My Evidence"
+// (reads the full analysis).
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -20,15 +23,18 @@ const corsHeaders = {
 
 const MAX_DOCS = 5;
 
-const SYSTEM = `You are CorvusPT's Texas property tax protest assistant. The user has uploaded evidence documents (e.g. a rent roll, an independent appraisal, comparable sales/equity data, a property condition assessment, photos of damage) for a property they are protesting the appraised value of. Draft a single suggested paragraph for the "Facts that may help resolve this protest" field on Texas Comptroller Form 50-132.
+const SYSTEM = `You are CorvusPT's Texas property tax protest assistant. The user has uploaded evidence documents (e.g. a rent roll, an independent appraisal, comparable sales/equity data, a property condition assessment, photos of damage) for a property they are protesting the appraised value of. Analyze the real, actual content of each document and produce a structured analysis.
 
 Rules:
 - Base every claim ONLY on what is actually visible in the case data and the uploaded documents. Never invent a number, date, or fact that isn't actually there.
-- If a document is unclear, low quality, or doesn't obviously support a value argument, do not fabricate what it might say — omit it rather than guess.
-- If none of the documents provide anything usable, say so plainly instead of writing a generic paragraph — do not manufacture filler.
-- Write in the voice of the property owner making their own case ("The property's..." / "Comparable properties..."), not as an AI describing the documents.
-- Plain prose only — no markdown, no bullet points, no headers, no quotation marks around the whole thing.
-- This is a SUGGESTION the property owner will review and can edit before signing — do not claim certainty beyond what the documents actually show.`;
+- If a document is unclear, low quality, or doesn't obviously support a value argument, say so plainly in its assessment rather than guessing what it might show.
+- If a document doesn't look like real property-tax-protest evidence at all (e.g. it's a signed form, an unrelated file, or something with no bearing on value/condition), say so directly in its assessment — do not force it into a supportive-sounding assessment it doesn't earn.
+- documentFindings must have exactly one entry per document provided, in the same order, using the exact fileName given for each.
+- summary: 2-4 sentences synthesizing what the evidence collectively shows and how strongly it supports a value reduction. If the evidence overall is weak or off-topic, say that plainly instead of writing generic filler.
+- suggestedReason: a single paragraph suitable for the "Facts that may help resolve this protest" field on Texas Comptroller Form 50-132, written in the voice of the property owner ("The property's..." / "Comparable properties..."), not as an AI describing the documents. If none of the documents provide anything usable for this field, say so plainly instead of manufacturing filler.
+- Plain prose only in every field — no markdown, no bullet points, no headers.
+- Every field here is a SUGGESTION the property owner will review and can edit — do not claim certainty beyond what the documents actually show.
+- Return ONLY a JSON object matching this exact shape: {"documentFindings":[{"fileName":"...","assessment":"..."}],"summary":"...","suggestedReason":"..."}`;
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -55,12 +61,20 @@ Deno.serve(async (req: Request) => {
         : null,
     ].filter(Boolean);
 
+    const usableDocs = documents
+      .slice(0, MAX_DOCS)
+      .filter((doc: { dataUrl?: string }) => String(doc.dataUrl ?? "").includes(","));
+
+    const fileList = usableDocs
+      .map((doc: { fileName?: string }, i: number) => `${i + 1}. ${doc.fileName ?? `Document ${i + 1}`}`)
+      .join("\n");
+
     const parts: Array<{ text?: string; inline_data?: { mime_type: string; data: string } }> = [
       {
-        text: `Case context:\n${contextLines.length > 0 ? contextLines.join("\n") : "(none on file)"}\n\nDraft the suggested paragraph from the ${documents.length} document(s) below.`,
+        text: `Case context:\n${contextLines.length > 0 ? contextLines.join("\n") : "(none on file)"}\n\nDocuments provided, in order:\n${fileList}\n\nAnalyze each document below (in the same order listed above) and produce the full JSON response.`,
       },
     ];
-    for (const doc of documents.slice(0, MAX_DOCS)) {
+    for (const doc of usableDocs) {
       const base64 = String(doc.dataUrl ?? "").split(",", 2)[1] ?? "";
       if (!base64) continue;
       parts.push({ inline_data: { mime_type: doc.mimeType, data: base64 } });
@@ -69,7 +83,7 @@ Deno.serve(async (req: Request) => {
     const body = {
       systemInstruction: { parts: [{ text: SYSTEM }] },
       contents: [{ role: "user", parts }],
-      generationConfig: { temperature: 0 },
+      generationConfig: { responseMimeType: "application/json", temperature: 0 },
     };
 
     const res = await fetch(
@@ -95,9 +109,35 @@ Deno.serve(async (req: Request) => {
     const json = (await res.json()) as {
       candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
     };
-    const text = json.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ?? "";
+    const raw = json.candidates?.[0]?.content?.parts?.[0]?.text ?? "{}";
+    let parsed: {
+      documentFindings?: Array<{ fileName?: string; assessment?: string }>;
+      summary?: string;
+      suggestedReason?: string;
+    };
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      const m = raw.match(/\{[\s\S]*\}/);
+      parsed = m ? JSON.parse(m[0]) : {};
+    }
 
-    return new Response(JSON.stringify({ text }), { status: 200, headers: corsHeaders });
+    const result = {
+      documentFindings: Array.isArray(parsed.documentFindings)
+        ? parsed.documentFindings.map((f, i) => ({
+            fileName: f.fileName ?? usableDocs[i]?.fileName ?? `Document ${i + 1}`,
+            assessment: f.assessment ?? "",
+          }))
+        : [],
+      summary: parsed.summary ?? "",
+      suggestedReason: parsed.suggestedReason ?? "",
+      // Kept alongside suggestedReason for the existing File Protest
+      // caller (PdfFormEditor.tsx), which only ever reads this field —
+      // never remove without updating that caller too.
+      text: parsed.suggestedReason ?? "",
+    };
+
+    return new Response(JSON.stringify(result), { status: 200, headers: corsHeaders });
   } catch (err) {
     return new Response(
       JSON.stringify({ error: err instanceof Error ? err.message : "unknown error" }),

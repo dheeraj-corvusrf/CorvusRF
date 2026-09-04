@@ -99,6 +99,7 @@ import {
   PROTEST_EVIDENCE_DOCUMENT_TYPE,
   type DocumentRecord,
 } from "@/lib/documents";
+import { analyzeEvidence, type EvidenceAnalysis } from "@/lib/protest-reason";
 import { ProtestAuthorizationFlow } from "@/components/ProtestAuthorizationFlow";
 import { CaseDetailModal } from "@/components/CaseDetailModal";
 import { AnimatedNumber } from "@/components/AnimatedNumber";
@@ -4045,6 +4046,15 @@ function ModulePreviewContent({
   onStartProtest: () => void;
   onViewCase: () => void;
 }) {
+  // Real AI analysis of the customer's own uploaded evidence — see Module
+  // 8's "evidence" case below and analyzeEvidence() in protest-reason.ts.
+  // Declared unconditionally at the top (not inside the "evidence" case)
+  // so this never runs afoul of the Rules of Hooks against the early
+  // returns below.
+  const [analyzing, setAnalyzing] = useState(false);
+  const [analysis, setAnalysis] = useState<EvidenceAnalysis | null>(null);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
+
   if (m.requiresUserData) {
     return (
       <div className="mt-4 card-elev p-4 bg-secondary/60">
@@ -4849,6 +4859,33 @@ function ModulePreviewContent({
       const protestEvidenceDocs = evidenceDocs.filter(
         (doc) => doc.documentType === PROTEST_EVIDENCE_DOCUMENT_TYPE,
       );
+
+      // Real AI read of the customer's own uploaded evidence — never
+      // automatic, only from the explicit "Analyze My Evidence" click
+      // below. Same real strategy-name lookup Module 10 (executive) below
+      // already does from this same moduleData prop.
+      const strategyForAnalysis =
+        (moduleData.strategy?.data as ModuleResultMap["strategy"] | undefined)?.strategies[0]
+          ?.name ?? null;
+
+      async function handleAnalyzeEvidence() {
+        if (!resolvedProperty) return;
+        setAnalyzing(true);
+        setAnalysisError(null);
+        try {
+          const result = await analyzeEvidence(
+            resolvedProperty,
+            strategyForAnalysis,
+            protestEvidenceDocs,
+          );
+          setAnalysis(result);
+        } catch (err) {
+          setAnalysisError(err instanceof Error ? err.message : "Could not analyze this evidence.");
+        } finally {
+          setAnalyzing(false);
+        }
+      }
+
       return (
         <div className="mt-4 grid gap-3">
           {focus.length > 0 && (
@@ -4901,6 +4938,65 @@ function ModulePreviewContent({
                   }}
                 />
               </label>
+            </div>
+          )}
+
+          {allowEvidenceUpload && protestEvidenceDocs.length > 0 && (
+            <div className="border-t border-border/60 pt-4 print:hidden">
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-sm font-medium">AI Evidence Analysis</div>
+                <button
+                  type="button"
+                  onClick={handleAnalyzeEvidence}
+                  disabled={analyzing}
+                  className="btn-outline text-xs py-1 disabled:opacity-60"
+                >
+                  {analyzing
+                    ? "Reading your evidence…"
+                    : analysis
+                      ? "Re-Analyze"
+                      : "Analyze My Evidence"}
+                </button>
+              </div>
+              {!analysis && !analyzing && !analysisError && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Corvus reads your {protestEvidenceDocs.length} uploaded document
+                  {protestEvidenceDocs.length === 1 ? "" : "s"} and tells you what it actually found
+                  — including flagging anything that doesn't look like real supporting evidence.
+                </p>
+              )}
+              {analysisError && <p className="mt-1 text-xs text-destructive">{analysisError}</p>}
+              {analysis && (
+                <div className="mt-3 grid gap-3">
+                  <div className="grid gap-1.5">
+                    {analysis.documentFindings.map((f, i) => (
+                      <div key={i} className="rounded-md border border-border p-2 text-xs">
+                        <div className="font-medium">{f.fileName}</div>
+                        <p className="mt-0.5 text-muted-foreground">{f.assessment}</p>
+                      </div>
+                    ))}
+                  </div>
+                  {analysis.summary && (
+                    <div className="rounded-md bg-secondary/40 p-2.5 text-xs">
+                      <span className="font-medium">Summary: </span>
+                      {analysis.summary}
+                    </div>
+                  )}
+                  {analysis.suggestedReason && (
+                    <div className="rounded-md border border-accent/30 bg-accent/5 p-2.5 text-xs">
+                      <span className="font-medium text-foreground">
+                        Suggested reason for protest:
+                      </span>
+                      <p className="mt-1 text-muted-foreground">{analysis.suggestedReason}</p>
+                      <p className="mt-1.5 text-[11px] text-muted-foreground">
+                        This is a draft — it'll also be offered as a suggestion when you complete
+                        your Notice of Protest under File Protest, where you can review and edit it
+                        before signing.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </div>
