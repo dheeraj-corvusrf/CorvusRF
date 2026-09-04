@@ -189,8 +189,6 @@ function DocumentReview() {
   }
 
   async function onConfirm() {
-    if (mismatch) return;
-    if (lowConfidence) return;
     const eff = effectiveExtraction(state);
     if (!eff) return;
     const routed = routeWorkflows(eff);
@@ -341,7 +339,7 @@ function DocumentReview() {
         <FlagBanner
           tone="error"
           title="Possible county or account mismatch."
-          body="This document's county or account number doesn't match what you entered earlier in this session. Review before proceeding — final confirmation is blocked until resolved."
+          body="This document's county or account number doesn't match what you entered earlier in this session. Double-check the details below before confirming."
         />
       )}
 
@@ -552,17 +550,8 @@ function DocumentReview() {
             <>
               <button
                 onClick={onConfirm}
-                disabled={mismatch || lowConfidence || saving}
-                className={`btn-primary btn-primary-hover ${
-                  mismatch || lowConfidence ? "opacity-50 cursor-not-allowed" : ""
-                } ${saving ? "opacity-60" : ""}`}
-                title={
-                  mismatch
-                    ? "Blocked — resolve mismatch"
-                    : lowConfidence
-                      ? "Blocked — awaiting staff review"
-                      : ""
-                }
+                disabled={saving}
+                className={`btn-primary btn-primary-hover ${saving ? "opacity-60" : ""}`}
               >
                 {saving ? "Saving…" : "Confirm Details"}
               </button>
