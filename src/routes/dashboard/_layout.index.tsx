@@ -359,41 +359,35 @@ function Overview() {
           <Link
             to="/intake"
             onClick={() => resetIntake()}
-            className="card-elev p-4 transition-all hover:-translate-y-0.5 hover:bg-secondary/40 hover:shadow-elev"
+            className="card-elev flex items-center gap-2.5 p-3 transition-all hover:-translate-y-0.5 hover:bg-secondary/40 hover:shadow-elev"
           >
             <span
-              className={`grid h-9 w-9 place-items-center rounded-lg ${ICON_COLORS[0].bg} ${ICON_COLORS[0].text}`}
+              className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg ${ICON_COLORS[0].bg} ${ICON_COLORS[0].text}`}
             >
               <Plus className="h-4 w-4" />
             </span>
-            <div className="mt-3 flex items-center gap-1 text-base font-semibold">
+            <div className="flex items-center gap-1 text-sm font-semibold">
               Add Property <ArrowUpRight className="h-3.5 w-3.5" />
             </div>
-            <p className="mt-1 text-xs text-muted-foreground">
-              AI normalizes, checks county records, flags mismatches.
-            </p>
           </Link>
 
           <Link
             to="/dashboard/bpp-accounts"
-            className="card-elev p-4 transition-all hover:-translate-y-0.5 hover:bg-secondary/40 hover:shadow-elev"
+            className="card-elev flex items-center gap-2.5 p-3 transition-all hover:-translate-y-0.5 hover:bg-secondary/40 hover:shadow-elev"
             style={{ animationDelay: "60ms" }}
           >
             <span
-              className={`grid h-9 w-9 place-items-center rounded-lg ${ICON_COLORS[1].bg} ${ICON_COLORS[1].text}`}
+              className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg ${ICON_COLORS[1].bg} ${ICON_COLORS[1].text}`}
             >
               <Briefcase className="h-4 w-4" />
             </span>
-            <div className="mt-3 flex items-center gap-1 text-base font-semibold">
+            <div className="flex items-center gap-1 text-sm font-semibold">
               Add BPP Account <ArrowUpRight className="h-3.5 w-3.5" />
             </div>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Track a business personal property account.
-            </p>
           </Link>
 
           <label
-            className={`card-elev p-4 cursor-pointer block transition-all ${
+            className={`card-elev flex cursor-pointer items-center gap-2.5 p-3 transition-all ${
               uploading
                 ? "opacity-60 pointer-events-none"
                 : "hover:-translate-y-0.5 hover:bg-secondary/40 hover:shadow-elev"
@@ -402,20 +396,17 @@ function Overview() {
             {...noticeDropHandlers}
           >
             <span
-              className={`grid h-9 w-9 place-items-center rounded-lg ${ICON_COLORS[2].bg} ${ICON_COLORS[2].text}`}
+              className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg ${ICON_COLORS[2].bg} ${ICON_COLORS[2].text}`}
             >
               <Upload className="h-4 w-4" />
             </span>
-            <div className="mt-3 text-base font-semibold">
+            <div className="text-sm font-semibold">
               {isDraggingNotice
                 ? "Drop to upload"
                 : uploading
                   ? "Reading document…"
                   : "Upload Notice"}
             </div>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Drop any tax notice — AI extracts fields and routes it.
-            </p>
             <input
               type="file"
               className="hidden"
@@ -430,21 +421,20 @@ function Overview() {
 
           <form
             onSubmit={submitAsk}
-            className="card-elev p-4 transition-all hover:-translate-y-0.5 hover:shadow-elev"
+            className="card-elev flex items-center gap-2.5 p-3 transition-all hover:shadow-elev"
             style={{ animationDelay: "180ms" }}
           >
             <span
-              className={`grid h-9 w-9 place-items-center rounded-lg ${ICON_COLORS[4].bg} ${ICON_COLORS[4].text}`}
+              className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg ${ICON_COLORS[4].bg} ${ICON_COLORS[4].text}`}
             >
               <Sparkles className="h-4 w-4" />
             </span>
-            <div className="mt-3 text-base font-semibold">Ask AI</div>
             <input
               value={askQuery}
               onChange={(e) => setAskQuery(e.target.value)}
-              placeholder="Describe the situation…"
+              placeholder="Ask AI…"
               disabled={asking}
-              className="mt-2 w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs outline-none placeholder:text-muted-foreground disabled:opacity-60"
+              className="min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-1.5 text-xs outline-none placeholder:text-muted-foreground disabled:opacity-60"
             />
           </form>
         </div>
@@ -611,11 +601,11 @@ function StatCard({
 }) {
   const content = (
     <>
-      <span className={`grid h-8 w-8 place-items-center rounded-lg ${color.bg} ${color.text}`}>
-        <Icon className="h-4 w-4" />
+      <span className={`grid h-9 w-9 place-items-center rounded-lg ${color.bg} ${color.text}`}>
+        <Icon className="h-5 w-5" />
       </span>
       <div className="mt-2 text-sm font-medium text-muted-foreground">{label}</div>
-      <div className="mt-1 font-serif text-3xl font-bold">
+      <div className="mt-auto truncate font-serif text-4xl font-black leading-none tracking-tight sm:text-5xl">
         {value === null ? "…" : <AnimatedNumber value={value} format={format} />}
       </div>
     </>
@@ -624,7 +614,7 @@ function StatCard({
     return (
       <Link
         to={to}
-        className="card-elev p-4 block transition-all hover:-translate-y-0.5 hover:bg-secondary/40 hover:shadow-elev"
+        className="card-elev aspect-square flex flex-col p-5 transition-all hover:-translate-y-0.5 hover:bg-secondary/40 hover:shadow-elev"
         style={{ animationDelay: `${delayMs}ms` }}
       >
         {content}
@@ -632,7 +622,10 @@ function StatCard({
     );
   }
   return (
-    <div className="card-elev p-4" style={{ animationDelay: `${delayMs}ms` }}>
+    <div
+      className="card-elev aspect-square flex flex-col p-5"
+      style={{ animationDelay: `${delayMs}ms` }}
+    >
       {content}
     </div>
   );
