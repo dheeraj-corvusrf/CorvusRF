@@ -26,6 +26,7 @@ import {
 } from "@/lib/tax-calendar";
 import { downloadIcs } from "@/lib/ics";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 
 export const Route = createFileRoute("/dashboard/_layout/calendar")({
   component: CalendarPage,
@@ -50,7 +51,11 @@ function DaysLeftBadge({ event }: { event: CalendarEvent }) {
   const daysLeft = daysUntil(event.date);
   return (
     <span className={`badge-soft ${daysLeft <= 7 ? "text-destructive" : ""}`}>
-      {daysLeft < 0 ? "Past due" : daysLeft === 0 ? "Today" : `${daysLeft} day${daysLeft === 1 ? "" : "s"} left`}
+      {daysLeft < 0
+        ? "Past due"
+        : daysLeft === 0
+          ? "Today"
+          : `${daysLeft} day${daysLeft === 1 ? "" : "s"} left`}
     </span>
   );
 }
@@ -123,7 +128,9 @@ function CalendarPage() {
     try {
       await markPropertyPaid(propertyId);
       setEvents((prev) =>
-        prev.map((e) => (e.propertyId === propertyId && e.type === "tax_due" ? { ...e, resolved: true } : e)),
+        prev.map((e) =>
+          e.propertyId === propertyId && e.type === "tax_due" ? { ...e, resolved: true } : e,
+        ),
       );
       toast.success("Marked as paid.");
     } catch (err) {
@@ -235,7 +242,7 @@ function CalendarPage() {
             const inMonth = isSameMonth(day, month);
             const selected = selectedDate === iso;
             const types = Array.from(new Set(dayEvents.map((e) => e.type)));
-            return (
+            const dayButton = (
               <button
                 key={iso}
                 onClick={() => setSelectedDate(selected ? null : iso)}
@@ -263,6 +270,22 @@ function CalendarPage() {
                 )}
               </button>
             );
+            // Hover reveals which property (and event) each dot belongs to
+            // — the dots alone give no way to tell, and event.title already
+            // carries the real property address (see tax-calendar.ts).
+            if (dayEvents.length === 0) return dayButton;
+            return (
+              <Tooltip key={iso}>
+                <TooltipTrigger asChild>{dayButton}</TooltipTrigger>
+                <TooltipContent side="top" className="max-w-xs">
+                  <div className="grid gap-0.5">
+                    {dayEvents.map((e) => (
+                      <span key={e.id}>{e.title}</span>
+                    ))}
+                  </div>
+                </TooltipContent>
+              </Tooltip>
+            );
           })}
         </div>
       </div>
@@ -272,7 +295,10 @@ function CalendarPage() {
           <p className="text-sm text-muted-foreground">
             Showing {format(new Date(selectedDate + "T00:00:00"), "MMMM d, yyyy")}
           </p>
-          <button onClick={() => setSelectedDate(null)} className="text-sm text-accent hover:underline">
+          <button
+            onClick={() => setSelectedDate(null)}
+            className="text-sm text-accent hover:underline"
+          >
             Clear filter — show all
           </button>
         </div>
