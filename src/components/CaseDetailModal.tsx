@@ -991,6 +991,7 @@ export function DocumentsSection({
   onNoticeSigned: (signedAt: string | null) => void;
   allowSigning?: boolean;
 }) {
+  const navigate = useNavigate();
   const [markingFiled, setMarkingFiled] = useState(false);
   const [authorization, setAuthorization] = useState<AuthorizationRecord | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -1108,6 +1109,15 @@ export function DocumentsSection({
         }
       })
       .catch((err) => console.error("Could not load saved Evidence Declaration draft:", err));
+  }
+
+  // Same real deep link as CasePlanSection's own goToModule8 — evidence
+  // upload lives in exactly one place (Module 8 on the AI Report page), so
+  // this button just gets the user there rather than duplicating an upload
+  // widget in a second location.
+  function goToModule8() {
+    updateIntake(buildAiReportIntakePatch(property));
+    navigate({ to: "/ai-report", search: { openModule: "evidence" } });
   }
 
   // Form 50-162 authorizes an agent for possibly several properties at once —
@@ -1366,6 +1376,22 @@ export function DocumentsSection({
         Official Texas Comptroller forms, pre-filled from this case. Review or edit every field
         in-app, then download.
       </p>
+      {!hasEvidence && (
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-md border border-accent/30 bg-accent/5 p-3 text-sm">
+          <p className="text-xs text-muted-foreground">
+            <span className="font-medium text-foreground">Tip (optional):</span> Upload whatever
+            evidence you already have first — AI can then suggest a stronger strategy and draft the
+            "facts to resolve protest" text for you. Not required — you can also fill out and file
+            the protest form directly below.
+          </p>
+          <button
+            onClick={goToModule8}
+            className="btn-outline shrink-0 whitespace-nowrap text-xs py-1.5"
+          >
+            Upload Evidence First →
+          </button>
+        </div>
+      )}
       <div className="mt-2 flex flex-wrap gap-2">
         <button onClick={openProtestEditor} className="btn-accent text-xs py-1.5">
           File Protest
