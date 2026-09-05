@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
+import { ChevronDown } from "lucide-react";
 import { toast } from "sonner";
 import { readIntake, classifyAndStoreDocument, type IntakeState } from "@/lib/intake-store";
 import { useAuth } from "@/lib/auth";
@@ -351,7 +352,18 @@ export function JourneyBlock({
           const active = i === currentStep && !allDone;
           const circle = (
             <li key={label} className="flex items-center shrink-0">
-              <div className="flex flex-col items-center gap-1 w-[72px]">
+              <div className="relative flex flex-col items-center gap-1 w-[72px]">
+                {/* Points at whichever step is actually current — moves on
+                    its own as `active` shifts to a later step, since it's
+                    just this same per-step render checking the same
+                    `active` flag the circle's own color already uses. */}
+                {active && (
+                  <ChevronDown
+                    aria-hidden="true"
+                    strokeWidth={3}
+                    className="absolute -top-4 h-4 w-4 text-primary motion-safe:animate-bounce"
+                  />
+                )}
                 <span
                   className={`h-8 w-8 rounded-full grid place-items-center text-xs font-semibold ${
                     done
