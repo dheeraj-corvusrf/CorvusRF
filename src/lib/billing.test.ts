@@ -22,7 +22,6 @@ const {
   bracketMonthlyTotal,
   getEntitledPropertyIds,
   planUsesPerPropertyEntitlement,
-  ENFORCE_PER_PROPERTY_ENTITLEMENT,
 } = await import("./billing");
 
 describe("getMyBilling", () => {
@@ -186,14 +185,5 @@ describe("planUsesPerPropertyEntitlement", () => {
     expect(planUsesPerPropertyEntitlement("ai_report")).toBe(false);
     expect(planUsesPerPropertyEntitlement("managed_protest")).toBe(false);
     expect(planUsesPerPropertyEntitlement("free_ai_review")).toBe(false);
-  });
-});
-
-describe("ENFORCE_PER_PROPERTY_ENTITLEMENT", () => {
-  it("stays off until explicitly enabled", () => {
-    // The whole feature is implemented but intentionally held off per
-    // product direction — this pins that down so it can't flip on silently
-    // in a future refactor without a test failure calling it out.
-    expect(ENFORCE_PER_PROPERTY_ENTITLEMENT).toBe(false);
   });
 });

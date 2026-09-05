@@ -58,9 +58,9 @@ import {
   getEntitledPropertyIds,
   planUsesPerPropertyEntitlement,
   bracketPropertyCount,
-  ENFORCE_PER_PROPERTY_ENTITLEMENT,
   type PlanValue,
 } from "@/lib/billing";
+import { getAppSettings } from "@/lib/app-settings";
 import {
   getHealthScore,
   type HealthScoreResult,
@@ -851,23 +851,22 @@ function Report() {
   // bracket-priced plan (owner_managed/corvusrf_managed) whose paid
   // property count doesn't actually cover THIS property, instead of the
   // effect above's plan-only check letting one paid property's worth of
-  // subscription unlock every property the customer ever adds. Inert while
-  // ENFORCE_PER_PROPERTY_ENTITLEMENT is false (see billing.ts) — implemented
-  // and ready, held off on purpose per explicit product direction ("I'll
-  // say when to enable it"); the very first line below is the entire
-  // difference in behavior until then. Only ever narrows access (never
-  // widens it back past what the effect above already granted), and only
-  // once resolvedProperty is actually known — a property that hasn't been
-  // saved yet isn't consuming a paid slot either, so there's nothing real
-  // to check against yet.
+  // subscription unlock every property the customer ever adds. Gated on a
+  // real, admin-toggleable setting (app_settings.enforce_per_property_
+  // entitlement — see app-settings.ts and the Settings tab in admin.tsx),
+  // not a hardcoded constant, so turning this on/off is a live DB write, no
+  // redeploy needed. Only ever narrows access (never widens it back past
+  // what the effect above already granted), and only once resolvedProperty
+  // is actually known — a property that hasn't been saved yet isn't
+  // consuming a paid slot either, so there's nothing real to check against
+  // yet.
   useEffect(() => {
-    if (!ENFORCE_PER_PROPERTY_ENTITLEMENT) return;
     if (!user || !myPlan || !resolvedProperty) return;
     if (!planUsesPerPropertyEntitlement(myPlan)) return;
     let cancelled = false;
-    Promise.all([getMyBilling(user.id), listProperties(user.id)])
-      .then(([{ subscriptionBrackets }, properties]) => {
-        if (cancelled) return;
+    Promise.all([getAppSettings(), getMyBilling(user.id), listProperties(user.id)])
+      .then(([settings, { subscriptionBrackets }, properties]) => {
+        if (cancelled || !settings.enforcePerPropertyEntitlement) return;
         const entitled = getEntitledPropertyIds(
           properties,
           bracketPropertyCount(subscriptionBrackets),

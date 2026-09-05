@@ -16,9 +16,13 @@ export function mockQueryBuilder<T = unknown>(result: QueryResult<T>) {
     update: vi.fn(() => builder),
     eq: vi.fn(() => builder),
     order: vi.fn(() => builder),
+    limit: vi.fn(() => builder),
     single: vi.fn(() => Promise.resolve(result)),
-    then: (onFulfilled: (value: QueryResult<T>) => unknown, onRejected?: (reason: unknown) => unknown) =>
-      Promise.resolve(result).then(onFulfilled, onRejected),
+    maybeSingle: vi.fn(() => Promise.resolve(result)),
+    then: (
+      onFulfilled: (value: QueryResult<T>) => unknown,
+      onRejected?: (reason: unknown) => unknown,
+    ) => Promise.resolve(result).then(onFulfilled, onRejected),
   };
   return builder;
 }
