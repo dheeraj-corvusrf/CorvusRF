@@ -182,8 +182,12 @@ export function JourneyTracker() {
 
   useEffect(() => {
     if (!user) return;
-    listProtests(user.id).then(setProtests).catch((err) => console.error(err));
-    listProperties(user.id).then(setProperties).catch((err) => console.error(err));
+    listProtests(user.id)
+      .then(setProtests)
+      .catch((err) => console.error(err));
+    listProperties(user.id)
+      .then(setProperties)
+      .catch((err) => console.error(err));
   }, [user, pathname]);
 
   async function onFile(f: File) {
@@ -329,7 +333,9 @@ export function JourneyBlock({
       <div className="flex items-start justify-between flex-wrap gap-2">
         <div className="min-w-0 flex-1">
           <h2 className="font-serif text-xl font-semibold">
-            {allDone ? "All steps complete" : `Step ${currentStep + 1} of ${TOTAL_STEPS}: ${STEP_LABELS[currentStep]}`}
+            {allDone
+              ? "All steps complete"
+              : `Step ${currentStep + 1} of ${TOTAL_STEPS}: ${STEP_LABELS[currentStep]}`}
           </h2>
           {title && <p className="text-sm text-muted-foreground">{title}</p>}
         </div>
@@ -339,12 +345,12 @@ export function JourneyBlock({
         </div>
       </div>
 
-      <ol className="mt-5 flex items-start gap-2 overflow-x-auto pb-1">
-        {STEP_LABELS.map((label, i) => {
+      <ol className="mt-5 flex items-start overflow-x-auto pb-1">
+        {STEP_LABELS.flatMap((label, i) => {
           const done = steps[i];
           const active = i === currentStep && !allDone;
-          return (
-            <li key={label} className="flex items-center gap-2 shrink-0">
+          const circle = (
+            <li key={label} className="flex items-center shrink-0">
               <div className="flex flex-col items-center gap-1 w-[72px]">
                 <span
                   className={`h-8 w-8 rounded-full grid place-items-center text-xs font-semibold ${
@@ -365,9 +371,27 @@ export function JourneyBlock({
                   {label}
                 </span>
               </div>
-              {i < TOTAL_STEPS - 1 && <span className="w-4 h-px bg-border mt-4" />}
             </li>
           );
+          if (i === TOTAL_STEPS - 1) return [circle];
+          // A separate, flex-growing list item rather than a fixed-width
+          // span nested inside the circle's own li — on a wide card
+          // (matching the property list's width, see SignedInJourney in
+          // __root.tsx) a fixed w-4 connector left a big empty gap between
+          // the last step and the card's right edge instead of spreading
+          // the 11 steps across the full width. min-w-[8px] plus the row's
+          // own overflow-x-auto keeps this from crushing to nothing on a
+          // narrow/mobile card instead — it scrolls there, same as before.
+          const connector = (
+            <li
+              key={`${label}-connector`}
+              aria-hidden="true"
+              className="flex flex-1 min-w-[8px] items-center"
+            >
+              <span className="mt-4 h-px w-full bg-border" />
+            </li>
+          );
+          return [circle, connector];
         })}
       </ol>
 
