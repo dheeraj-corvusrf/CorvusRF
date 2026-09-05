@@ -355,13 +355,13 @@ export function JourneyBlock({
                 <span
                   className={`h-8 w-8 rounded-full grid place-items-center text-xs font-semibold ${
                     done
-                      ? "bg-success text-success-foreground"
+                      ? "bg-success/15 text-success"
                       : active
                         ? "bg-primary text-primary-foreground"
                         : "bg-secondary text-muted-foreground"
                   }`}
                 >
-                  {done ? "✓" : i + 1}
+                  {i + 1}
                 </span>
                 <span
                   className={`text-[11px] text-center leading-tight ${
