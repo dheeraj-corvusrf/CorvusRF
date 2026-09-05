@@ -167,6 +167,30 @@
     font-family: var(--font-serif);
     letter-spacing: -0.01em;
   }
+  /* A consistent, on-brand keyboard-focus ring everywhere — the shadcn
+     <Button> component already rings itself (focus-visible:ring-ring in
+     button.tsx), but most buttons/links across the app are plain elements
+     styled via the .btn-accent/.btn-primary/.btn-outline utility classes
+     below or bare <a>/<input>, none of which had ANY focus-visible rule —
+     they fell back to whatever blue the browser felt like that day, which
+     both looks off-brand next to this app's navy/emerald palette and, on
+     some elements, is easy to lose entirely. :focus-visible (not :focus)
+     so mouse clicks never show a ring, only real keyboard navigation.
+     Skipped for [role="tab"]/[role="radio"] elements that already paint
+     their own selected-state background (the pricing toggle, hearing/
+     appraiser-category pickers) — a ring there would double up with that. */
+  a,
+  button,
+  input,
+  select,
+  textarea,
+  [tabindex]:not([tabindex="-1"]) {
+    &:focus-visible {
+      outline: 2px solid var(--color-ring);
+      outline-offset: 2px;
+      border-radius: 2px;
+    }
+  }
 }
 
 @utility container-page {

@@ -26,6 +26,8 @@ export function SiteNav() {
   const [profileOpen, setProfileOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const profileRef = useRef<HTMLDivElement>(null);
+  const profileButtonRef = useRef<HTMLButtonElement>(null);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
   const { user } = useAuth();
   const signedIn = !!user;
   const [isAdmin, setIsAdmin] = useState(false);
@@ -54,9 +56,36 @@ export function SiteNav() {
         setProfileOpen(false);
       }
     }
+    // Escape closes the menu and returns focus to its trigger — without
+    // this, a keyboard user who opens the menu has no way to dismiss it
+    // except tabbing all the way through its items, and closing it any
+    // other way silently drops focus into the page with no visible ring.
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        setProfileOpen(false);
+        profileButtonRef.current?.focus();
+      }
+    }
     document.addEventListener("mousedown", onClickOutside);
-    return () => document.removeEventListener("mousedown", onClickOutside);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onClickOutside);
+      document.removeEventListener("keydown", onKeyDown);
+    };
   }, [profileOpen]);
+
+  // Same Escape-to-close-and-return-focus pattern for the mobile nav sheet.
+  useEffect(() => {
+    if (!open) return;
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        setOpen(false);
+        menuButtonRef.current?.focus();
+      }
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [open]);
 
   // Sticky nav gains a bit of depth once content has actually scrolled under
   // it, instead of always casting the same flat shadow.
@@ -145,9 +174,12 @@ export function SiteNav() {
           {signedIn ? (
             <div className="relative" ref={profileRef}>
               <button
+                ref={profileButtonRef}
                 onClick={() => setProfileOpen((v) => !v)}
                 className="flex h-9 w-9 items-center justify-center rounded-full bg-primary text-primary-foreground text-sm font-semibold transition-transform hover:scale-105 active:scale-95"
                 aria-label="Profile menu"
+                aria-haspopup="menu"
+                aria-expanded={profileOpen}
               >
                 {(user?.email?.[0] ?? "U").toUpperCase()}
               </button>
@@ -213,9 +245,11 @@ export function SiteNav() {
             </Link>
           )}
           <button
+            ref={menuButtonRef}
             className="lg:hidden btn-outline text-sm"
             onClick={() => setOpen((v) => !v)}
             aria-label="Menu"
+            aria-expanded={open}
           >
             Menu
           </button>

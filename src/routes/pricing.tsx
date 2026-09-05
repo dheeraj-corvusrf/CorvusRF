@@ -2,6 +2,7 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
+import { ScrollReveal } from "@/components/ScrollReveal";
 import {
   startCheckout,
   openBillingPortal,
@@ -272,7 +273,7 @@ function Page() {
           so this can never drift out of sync with what a subscriber is actually
           charged the way the $699/$799 mismatch did. */}
       <div className="container-page">
-        <div className="card-elev overflow-hidden">
+        <ScrollReveal className="card-elev overflow-hidden">
           <div className="p-6 pb-4">
             <h2 className="font-serif text-xl font-semibold">Pricing at a glance</h2>
             <p className="mt-1 text-sm text-muted-foreground">
@@ -325,7 +326,7 @@ function Page() {
               </tbody>
             </table>
           </div>
-        </div>
+        </ScrollReveal>
       </div>
 
       <div className="container-page pb-16">
@@ -386,14 +387,15 @@ function Page() {
             {/* Both tiers shown side by side, plus a Custom card for $25M+ —
             so a visitor can compare every price without switching tabs. */}
             <div className="mt-8 grid grid-cols-1 gap-6 lg:grid-cols-3">
-              {PAID_PLANS.map((p) => {
+              {PAID_PLANS.map((p, i) => {
                 const isWhiteGlove = p.tier === "corvusrf_managed";
                 const tierBrackets = bracketsFor(p.tier);
                 const monthlyTotal = bracketMonthlyTotal(p.tier, tierBrackets);
                 const propertyCount = bracketPropertyCount(tierBrackets);
                 return (
-                  <div
+                  <ScrollReveal
                     key={p.tier}
+                    delay={i * 120}
                     className={`card-elev p-6 flex flex-col h-full transition-all hover:-translate-y-0.5 hover:shadow-elev ${p.highlight ? "ring-2 ring-accent" : isWhiteGlove ? "ring-2 ring-warning/60" : ""}`}
                   >
                     <div
@@ -542,11 +544,14 @@ function Page() {
                         </button>
                       )}
                     </div>
-                  </div>
+                  </ScrollReveal>
                 );
               })}
 
-              <div className="card-elev p-6 flex flex-col h-full">
+              <ScrollReveal
+                delay={PAID_PLANS.length * 120}
+                className="card-elev p-6 flex flex-col h-full"
+              >
                 <div className="badge-soft self-start">{CUSTOM_TIER.tag}</div>
                 <h3 className="mt-3 font-serif text-2xl">{CUSTOM_TIER.label}</h3>
                 <p className="mt-2 text-sm text-muted-foreground">{CUSTOM_TIER.blurb}</p>
@@ -554,7 +559,7 @@ function Page() {
                 <Link to="/contact" className="w-full btn-outline text-center">
                   Contact Us
                 </Link>
-              </div>
+              </ScrollReveal>
             </div>
           </>
         )}

@@ -80,6 +80,59 @@ export function bracketPropertyCount(brackets: BracketQuantities): number {
   return VALUE_BRACKETS.reduce((sum, { value }) => sum + brackets[value], 0);
 }
 
+// ── Per-property entitlement ────────────────────────────────────────────
+// Real business rule: a subscription's bracket quantities pay for that many
+// PROPERTIES, not for the account as a whole — one payment does not unlock
+// every property the customer ever adds. Today, ai-report.tsx's
+// `hasFullAccess` is computed from `plan` alone (owner_managed/
+// corvusrf_managed/etc. → true), with no check against how many properties
+// that subscription actually covers, so a customer who pays for 1 property
+// currently gets full AI Report access on every property in their account.
+// This function is the real fix — see ai-report.tsx for how it's wired in —
+// but is gated behind ENFORCE_PER_PROPERTY_ENTITLEMENT below, left OFF for
+// now per explicit product direction ("put it on hold, I'll say when to
+// enable it"). While off, every call site's behavior is byte-for-byte
+// unchanged from before this existed.
+//
+// Rule: the first `paidPropertyCount` properties, oldest first (by
+// createdAt), are entitled; everything added after that isn't, until the
+// subscription's bracket quantities increase. Deliberately NOT trying to
+// match a specific property's real value against a specific bracket
+// (under2m/mid2m10m/over10m) — those quantities are self-declared by the
+// customer at checkout (create-checkout-session doesn't itself validate a
+// property's value against the bracket chosen for it either), so the only
+// number that's actually real and unambiguous here is the total paid count.
+export function getEntitledPropertyIds(
+  properties: { id: string; createdAt: string }[],
+  paidPropertyCount: number,
+): Set<string> {
+  if (paidPropertyCount <= 0) return new Set();
+  const oldestFirst = [...properties].sort(
+    (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+  );
+  return new Set(oldestFirst.slice(0, paidPropertyCount).map((p) => p.id));
+}
+
+// Plans this entitlement cap actually applies to — the two real, current
+// per-property-bracket-priced tiers. "beta" is deliberately excluded: every
+// AI module is unlocked on every property for free for the whole beta
+// (see pricing.tsx's own "You have full Beta access" copy) — that's an
+// explicit, unlimited grant, not a bracket-quantity purchase. The legacy
+// "ai_report"/"managed_protest" values predate the per-property model
+// entirely (kept only for old rows — see the PlanValue comment above) and
+// were never sold with a bracket quantity to check against, so they're left
+// uncapped too rather than retroactively restricting a grandfathered account.
+const BRACKET_PRICED_PLANS: PlanValue[] = ["owner_managed", "corvusrf_managed"];
+
+export function planUsesPerPropertyEntitlement(plan: PlanValue): boolean {
+  return BRACKET_PRICED_PLANS.includes(plan);
+}
+
+// The kill switch. Flip to true (and deploy) only when explicitly told to —
+// implemented and ready, intentionally inert until then. When false, every
+// caller must behave exactly as if this feature didn't exist yet.
+export const ENFORCE_PER_PROPERTY_ENTITLEMENT = false;
+
 export const PLAN_OPTIONS: { value: PlanValue; label: string }[] = [
   { value: "free_ai_review", label: "Free AI Review" },
   { value: "owner_managed", label: "Owner-Managed ($99–$499/mo/property, by value)" },
