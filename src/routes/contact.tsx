@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { Phone } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { getMyProfile } from "@/lib/profile";
+import { ScrollReveal } from "@/components/ScrollReveal";
 
 const PHONE_DISPLAY = "(469) 501-9362";
 const PHONE_TEL = "+14695019362";
@@ -105,21 +106,23 @@ function Contact() {
       </div>
 
       <div className="container-page pb-16 max-w-2xl">
-        <a
-          href={`tel:${PHONE_TEL}`}
-          className="card-elev mb-8 flex items-center justify-between gap-4 p-6 transition-all hover:-translate-y-0.5 hover:shadow-elev"
-        >
-          <div className="flex items-center gap-4">
-            <span className="flex h-11 w-11 items-center justify-center rounded-full bg-accent/15 text-accent">
-              <Phone className="h-5 w-5" />
-            </span>
-            <div>
-              <h3 className="font-semibold">Prefer to talk now?</h3>
-              <p className="text-sm text-muted-foreground">Call us at {PHONE_DISPLAY}</p>
+        <ScrollReveal>
+          <a
+            href={`tel:${PHONE_TEL}`}
+            className="card-elev mb-8 flex items-center justify-between gap-4 p-6 transition-all hover:-translate-y-0.5 hover:shadow-elev"
+          >
+            <div className="flex items-center gap-4">
+              <span className="flex h-11 w-11 items-center justify-center rounded-full bg-accent/15 text-accent">
+                <Phone className="h-5 w-5" />
+              </span>
+              <div>
+                <h3 className="font-semibold">Prefer to talk now?</h3>
+                <p className="text-sm text-muted-foreground">Call us at {PHONE_DISPLAY}</p>
+              </div>
             </div>
-          </div>
-          <span className="btn-primary btn-primary-hover shrink-0">Call us</span>
-        </a>
+            <span className="btn-primary btn-primary-hover shrink-0">Call us</span>
+          </a>
+        </ScrollReveal>
         {sent ? (
           <div className="mt-8 card-elev p-6">
             <h3 className="font-semibold text-lg">Thanks — we'll be in touch.</h3>
@@ -128,62 +131,64 @@ function Contact() {
             </p>
           </div>
         ) : (
-          <form onSubmit={onSubmit} className="mt-8 grid gap-4">
-            {knownContact ? (
-              <p className="text-sm text-muted-foreground">
-                Contacting as{" "}
-                <span className="font-medium text-foreground">
-                  {knownContact.name || knownContact.email}
+          <ScrollReveal delay={100} className="mt-8">
+            <form onSubmit={onSubmit} className="grid gap-4">
+              {knownContact ? (
+                <p className="text-sm text-muted-foreground">
+                  Contacting as{" "}
+                  <span className="font-medium text-foreground">
+                    {knownContact.name || knownContact.email}
+                  </span>
+                  {knownContact.name && ` (${knownContact.email})`}.
+                </p>
+              ) : (
+                <>
+                  <label className="grid gap-1 text-sm">
+                    <span className="font-medium">
+                      Name<span className="text-destructive"> *</span>
+                    </span>
+                    <input
+                      required
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      className="rounded-md border border-input bg-background px-3 py-2"
+                    />
+                  </label>
+                  <label className="grid gap-1 text-sm">
+                    <span className="font-medium">
+                      Email<span className="text-destructive"> *</span>
+                    </span>
+                    <input
+                      required
+                      type="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      className="rounded-md border border-input bg-background px-3 py-2"
+                    />
+                  </label>
+                </>
+              )}
+              <label className="grid gap-1 text-sm">
+                <span className="font-medium">
+                  How can we help?<span className="text-destructive"> *</span>
                 </span>
-                {knownContact.name && ` (${knownContact.email})`}.
-              </p>
-            ) : (
-              <>
-                <label className="grid gap-1 text-sm">
-                  <span className="font-medium">
-                    Name<span className="text-destructive"> *</span>
-                  </span>
-                  <input
-                    required
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    className="rounded-md border border-input bg-background px-3 py-2"
-                  />
-                </label>
-                <label className="grid gap-1 text-sm">
-                  <span className="font-medium">
-                    Email<span className="text-destructive"> *</span>
-                  </span>
-                  <input
-                    required
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    className="rounded-md border border-input bg-background px-3 py-2"
-                  />
-                </label>
-              </>
-            )}
-            <label className="grid gap-1 text-sm">
-              <span className="font-medium">
-                How can we help?<span className="text-destructive"> *</span>
-              </span>
-              <textarea
-                rows={5}
-                required
-                value={message}
-                onChange={(e) => setMessage(e.target.value)}
-                className="rounded-md border border-input bg-background px-3 py-2"
-              />
-            </label>
-            {error && <p className="text-sm text-destructive">{error}</p>}
-            <button
-              disabled={sending}
-              className="btn-primary btn-primary-hover w-fit disabled:opacity-60"
-            >
-              {sending ? "Sending…" : "Send message"}
-            </button>
-          </form>
+                <textarea
+                  rows={5}
+                  required
+                  value={message}
+                  onChange={(e) => setMessage(e.target.value)}
+                  className="rounded-md border border-input bg-background px-3 py-2"
+                />
+              </label>
+              {error && <p className="text-sm text-destructive">{error}</p>}
+              <button
+                disabled={sending}
+                className="btn-primary btn-primary-hover w-fit disabled:opacity-60"
+              >
+                {sending ? "Sending…" : "Send message"}
+              </button>
+            </form>
+          </ScrollReveal>
         )}
       </div>
     </div>
