@@ -125,8 +125,17 @@ function getMessage(currentStep: number, allDone: boolean): StepMessage | null {
       };
     case 3:
       return {
-        title: "Upload your appraisal notice so AI can extract deadlines and values.",
-        actions: [{ label: "Upload Notice", upload: true }],
+        // Optional, not required — by this step the real address/CAD match
+        // (steps 1-2) already gave the AI Report enough to run on; a
+        // notice just adds real deadline/value detail on top of that. The
+        // second action makes that an explicit choice instead of Upload
+        // Notice looking like the only way to move forward.
+        title:
+          "Upload your appraisal notice (optional) so AI can extract deadlines and values — or continue straight to your AI Review.",
+        actions: [
+          { label: "Upload Notice", upload: true },
+          { label: "Continue to AI Review", to: "/ai-report" },
+        ],
       };
     case 4:
       return {
