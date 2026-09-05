@@ -125,8 +125,17 @@ function getMessage(currentStep: number, allDone: boolean): StepMessage | null {
       };
     case 3:
       return {
-        title: "Upload your appraisal notice so AI can extract deadlines and values.",
-        actions: [{ label: "Upload Notice", upload: true }],
+        // Optional, not required — by this step the real address/CAD match
+        // (steps 1-2) already gave the AI Report enough to run on; a
+        // notice just adds real deadline/value detail on top of that. The
+        // second action makes that an explicit choice instead of Upload
+        // Notice looking like the only way to move forward.
+        title:
+          "Upload your appraisal notice (optional) so AI can extract deadlines and values — or continue straight to your AI Review.",
+        actions: [
+          { label: "Upload Notice", upload: true },
+          { label: "Continue to AI Review", to: "/ai-report" },
+        ],
       };
     case 4:
       return {
@@ -328,6 +337,17 @@ export function JourneyBlock({
   const currentStep = allDone ? TOTAL_STEPS - 1 : firstIncomplete;
   const progress = Math.round((completedCount / TOTAL_STEPS) * 100);
   const message = getMessage(currentStep, allDone);
+  // suppressActions exists so "/" and "/dashboard" (which already have their
+  // own address-entry/upload widget built into the page — see JourneyTracker's
+  // own comment on suppressActions) don't show a second, redundant "Enter
+  // Address"/"Upload Notice" right next to it. It was being applied to EVERY
+  // action on those pages, though, which also hid actions nothing on the
+  // page duplicates — "Protest My Property"/"File BPP Rendition" at Choose
+  // Service, "Review Document", "View My Cases" — leaving a real actionable
+  // step with no way to actually act on it. Only filter out the two action
+  // kinds that are genuinely duplicated; everything else stays visible.
+  const visibleActions =
+    message?.actions?.filter((a) => !suppressActions || (!a.upload && a.to !== "/intake")) ?? [];
 
   return (
     <div className="mt-3">
@@ -413,9 +433,9 @@ export function JourneyBlock({
       {message && (
         <div className="mt-5 rounded-lg border border-accent/30 bg-accent/5 p-4">
           <p className="text-sm font-medium">{message.title}</p>
-          {message.actions && !suppressActions && (
+          {visibleActions.length > 0 && (
             <div className="mt-3 flex flex-wrap gap-2">
-              {message.actions.map((a) =>
+              {visibleActions.map((a) =>
                 a.protestLaunch && onProtestClick ? (
                   <button
                     key={a.label}

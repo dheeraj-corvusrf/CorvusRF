@@ -128,10 +128,11 @@ export function planUsesPerPropertyEntitlement(plan: PlanValue): boolean {
   return BRACKET_PRICED_PLANS.includes(plan);
 }
 
-// The kill switch. Flip to true (and deploy) only when explicitly told to —
-// implemented and ready, intentionally inert until then. When false, every
-// caller must behave exactly as if this feature didn't exist yet.
-export const ENFORCE_PER_PROPERTY_ENTITLEMENT = false;
+// The kill switch used to live here as a hardcoded `false` constant —
+// flipping it meant a code change and a redeploy. It's now a real,
+// admin-toggleable setting instead: see getAppSettings()/
+// setEnforcePerPropertyEntitlement() in app-settings.ts (backed by the
+// app_settings table) and the Settings tab in admin.tsx.
 
 export const PLAN_OPTIONS: { value: PlanValue; label: string }[] = [
   { value: "free_ai_review", label: "Free AI Review" },

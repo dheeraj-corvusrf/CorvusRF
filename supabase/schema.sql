@@ -1260,6 +1260,36 @@ create policy "Admins can view all settlement agreements"
   on public.settlement_agreements for select
   using (public.is_admin());
 
+-- Single-row global switch table — a real, admin-toggleable runtime setting
+-- rather than a source-level constant that needs a code change + redeploy to
+-- flip. `id boolean primary key default true` + the check constraint is the
+-- standard Postgres "exactly one row, forever" trick: any second insert
+-- collides on the same primary key. enforce_per_property_entitlement gates
+-- getEntitledPropertyIds()/planUsesPerPropertyEntitlement() in billing.ts —
+-- see ai-report.tsx for how it's read and applied. Publicly readable (every
+-- signed-in user's own client needs it to know whether to enforce their own
+-- entitlement), writable by admins only (see the Settings tab in
+-- src/routes/admin.tsx).
+create table if not exists public.app_settings (
+  id boolean primary key default true,
+  enforce_per_property_entitlement boolean not null default false,
+  updated_at timestamptz not null default now(),
+  constraint app_settings_singleton check (id = true)
+);
+insert into public.app_settings (id) values (true) on conflict (id) do nothing;
+
+alter table public.app_settings enable row level security;
+
+drop policy if exists "Anyone can read app settings" on public.app_settings;
+create policy "Anyone can read app settings"
+  on public.app_settings for select
+  using (true);
+
+drop policy if exists "Admins can update app settings" on public.app_settings;
+create policy "Admins can update app settings"
+  on public.app_settings for update
+  using (public.is_admin());
+
 -- ── ONE-TIME MANUAL STEP — do NOT run this as part of the routine schema paste ──
 -- After you have an account (sign up normally through the app first), run this once,
 -- by itself, substituting your real email, to make that account an admin:
