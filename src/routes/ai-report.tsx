@@ -53,7 +53,14 @@ import {
 import { MODULES, type Module } from "@/lib/modules";
 import type { IconColor } from "@/lib/icon-colors";
 import { useAuth } from "@/lib/auth";
-import { getMyBilling, type PlanValue } from "@/lib/billing";
+import {
+  getMyBilling,
+  getEntitledPropertyIds,
+  planUsesPerPropertyEntitlement,
+  bracketPropertyCount,
+  ENFORCE_PER_PROPERTY_ENTITLEMENT,
+  type PlanValue,
+} from "@/lib/billing";
 import {
   getHealthScore,
   type HealthScoreResult,
@@ -90,7 +97,12 @@ import {
   applyValueTrendAdjustment,
 } from "@/lib/texas-tax-rates";
 import { CompsMap, useLeaflet } from "@/components/CompsMap";
-import { findExistingProperty, addProperty, type PropertyRecord } from "@/lib/properties";
+import {
+  findExistingProperty,
+  addProperty,
+  listProperties,
+  type PropertyRecord,
+} from "@/lib/properties";
 import { listProtests, requestProtest, type ProtestRecord } from "@/lib/protests";
 import { generateCasePrep } from "@/lib/protest-case";
 import {
@@ -834,6 +846,39 @@ function Report() {
       .catch(() => setHasFullAccess(false))
       .finally(() => setBillingChecked(true));
   }, [user]);
+
+  // Per-property entitlement — narrows hasFullAccess back down for a
+  // bracket-priced plan (owner_managed/corvusrf_managed) whose paid
+  // property count doesn't actually cover THIS property, instead of the
+  // effect above's plan-only check letting one paid property's worth of
+  // subscription unlock every property the customer ever adds. Inert while
+  // ENFORCE_PER_PROPERTY_ENTITLEMENT is false (see billing.ts) — implemented
+  // and ready, held off on purpose per explicit product direction ("I'll
+  // say when to enable it"); the very first line below is the entire
+  // difference in behavior until then. Only ever narrows access (never
+  // widens it back past what the effect above already granted), and only
+  // once resolvedProperty is actually known — a property that hasn't been
+  // saved yet isn't consuming a paid slot either, so there's nothing real
+  // to check against yet.
+  useEffect(() => {
+    if (!ENFORCE_PER_PROPERTY_ENTITLEMENT) return;
+    if (!user || !myPlan || !resolvedProperty) return;
+    if (!planUsesPerPropertyEntitlement(myPlan)) return;
+    let cancelled = false;
+    Promise.all([getMyBilling(user.id), listProperties(user.id)])
+      .then(([{ subscriptionBrackets }, properties]) => {
+        if (cancelled) return;
+        const entitled = getEntitledPropertyIds(
+          properties,
+          bracketPropertyCount(subscriptionBrackets),
+        );
+        if (!entitled.has(resolvedProperty.id)) setHasFullAccess(false);
+      })
+      .catch((err) => console.error("Could not check per-property entitlement:", err));
+    return () => {
+      cancelled = true;
+    };
+  }, [user, myPlan, resolvedProperty]);
 
   // Auto-opens a module for a deep link (CaseDetailModal's "Upload Evidence —
   // Go to Module 8" button, ?openModule=evidence) — waits for billingChecked
