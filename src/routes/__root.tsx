@@ -18,7 +18,7 @@ import { Toaster } from "../components/ui/sonner";
 import { TooltipProvider } from "../components/ui/tooltip";
 import { JourneyTracker } from "../components/JourneyTracker";
 import { AskAiWidget } from "../components/AskAiWidget";
-import { AppShell } from "../components/AppShell";
+import { AppShell, shouldShowShell } from "../components/AppShell";
 
 function NotFoundComponent() {
   return (
@@ -177,8 +177,22 @@ function SignedInJourney() {
   const isAdminRoute =
     pathname === "/admin" || pathname.startsWith("/admin/") || pathname === "/admin-login";
   if (loading || !user || isAdminRoute) return null;
+  // Matches AppShell's own width/padding scheme (not container-page's
+  // centered max-w-80rem) wherever AppShell actually wraps the page above
+  // this — otherwise, on a wide viewport, this card sits visibly narrower
+  // than the dashboard content it's stacked directly under (container-page
+  // caps out and centers with gutters; AppShell's w-full doesn't). Falls
+  // back to container-page on the pages AppShell skips ("/", "/sign-in"),
+  // which use container-page for their own sections, so this still lines
+  // up with THOSE instead.
   return (
-    <div className="container-page pt-10 pb-10">
+    <div
+      className={
+        shouldShowShell(pathname)
+          ? "w-full px-6 sm:px-10 lg:px-16 pt-10 pb-10"
+          : "container-page pt-10 pb-10"
+      }
+    >
       <JourneyTracker />
     </div>
   );
