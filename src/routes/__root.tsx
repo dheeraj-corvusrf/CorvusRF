@@ -133,10 +133,20 @@ function RootComponent() {
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
         <TooltipProvider delayDuration={200}>
+          {/* Keyboard/screen-reader users otherwise have to tab through the
+              entire nav (7 links, sign-in/profile menu) on every single page
+              before reaching real content — invisible until focused, so
+              sighted mouse users never see it. */}
+          <a
+            href="#main-content"
+            className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-50 focus:rounded-md focus:bg-accent focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-accent-foreground focus:shadow-elev"
+          >
+            Skip to main content
+          </a>
           <div className="print:hidden">
             <SiteNav />
           </div>
-          <main className="min-h-[70vh]">
+          <main id="main-content" className="min-h-[70vh]">
             <AppShell>
               <Outlet />
             </AppShell>
