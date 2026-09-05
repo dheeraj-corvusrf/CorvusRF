@@ -355,7 +355,7 @@ export function JourneyBlock({
                 <span
                   className={`h-8 w-8 rounded-full grid place-items-center text-xs font-semibold ${
                     done
-                      ? "bg-success/15 text-success"
+                      ? "bg-success text-success-foreground"
                       : active
                         ? "bg-primary text-primary-foreground"
                         : "bg-secondary text-muted-foreground"
