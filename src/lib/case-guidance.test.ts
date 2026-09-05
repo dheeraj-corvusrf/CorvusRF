@@ -195,11 +195,17 @@ describe("getCaseGuidance", () => {
       "case-hearing-notice",
       "case-informal-review",
       "case-hearing-prep",
+      "case-upload-evidence",
     ]);
     for (const status of ALL_STATUSES) {
       const guidance = getCaseGuidance(property, protestWith({ status }), undefined, countyInfo);
       for (const step of guidance.nextSteps) {
-        if (step.action && !step.action.anchor.startsWith("http")) {
+        if (
+          step.action &&
+          !step.action.anchor.startsWith("http") &&
+          !step.action.anchor.startsWith("tel:") &&
+          !step.action.anchor.startsWith("mailto:")
+        ) {
           expect(KNOWN_ANCHORS.has(step.action.anchor)).toBe(true);
         }
       }

@@ -377,6 +377,13 @@ function goToGuidanceAnchor(anchor: string) {
     window.open(anchor, "_blank", "noopener,noreferrer");
     return;
   }
+  // tel:/mailto: — window.open() on these triggers a popup blocker or opens
+  // a blank tab in most browsers; a plain location assignment is what
+  // actually hands off to the phone/mail app reliably.
+  if (anchor.startsWith("tel:") || anchor.startsWith("mailto:")) {
+    window.location.href = anchor;
+    return;
+  }
   document.getElementById(anchor)?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
@@ -854,7 +861,7 @@ export function CasePlanSection({
       </section>
 
       {allowEvidenceUpload && (
-        <section>
+        <section id="case-upload-evidence">
           <button onClick={goToModule8} className="btn-outline w-fit text-sm">
             Upload Evidence — Go to Module 8
           </button>

@@ -84,10 +84,13 @@ function isFutureDate(iso: string): boolean {
 // now uploads exclusively through Module 8 (ai-report.tsx), a flat
 // document list rather than a per-item checklist, so this can only ever
 // honestly nudge "you haven't uploaded anything yet," not "you're missing
-// item N of M." No action/anchor: Module 8 lives on a different route
-// (with its own real-property intake-state setup), which this pure data
-// function has no way to trigger — the "Upload Evidence" button that does
-// that lives in CaseDetailModal.tsx itself.
+// item N of M." The action can't jump straight to Module 8 itself — that's
+// a different route with its own real-property intake-state setup this pure
+// data function has no way to trigger — so instead it scrolls to
+// CasePlanSection's own real "Upload Evidence — Go to Module 8" button
+// (id="case-upload-evidence" in CaseDetailModal.tsx), which the user then
+// clicks themselves, same "point at a real button, don't invent a new one"
+// pattern every other step's action already follows.
 function evidenceSteps(evidenceDocumentCount: number | undefined): GuidanceStep[] {
   if (evidenceDocumentCount == null || evidenceDocumentCount > 0) return [];
   return [
@@ -95,6 +98,7 @@ function evidenceSteps(evidenceDocumentCount: number | undefined): GuidanceStep[
       label: "Upload evidence to support your case",
       detail:
         "You haven't uploaded any evidence yet. Use the Upload Evidence button to add documents in Module 8 — stronger evidence supports a stronger case.",
+      action: { label: "Go to Upload Evidence", anchor: "case-upload-evidence" },
     },
   ];
 }
@@ -230,9 +234,16 @@ export function getCaseGuidance(
       if (countyInfo?.arbContact) {
         const { phone, email } = countyInfo.arbContact;
         if (phone || email) {
+          // One click actually starts the call/email instead of just
+          // stating the number — goToGuidanceAnchor() hands tel:/mailto:
+          // off to location.href rather than trying to scroll to them.
+          // Phone preferred when both exist (more immediate than email).
           nextSteps.push({
             label: "Contact the Appraisal Review Board",
             detail: `${countyInfo.cad}'s ARB office${phone ? ` — ${phone}` : ""}${email ? ` — ${email}` : ""}`,
+            action: phone
+              ? { label: `Call ${phone}`, anchor: `tel:${phone.replace(/[^\d+]/g, "")}` }
+              : { label: `Email ${email}`, anchor: `mailto:${email}` },
           });
         }
       }
