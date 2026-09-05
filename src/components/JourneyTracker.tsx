@@ -342,7 +342,7 @@ export function JourneyBlock({
         </div>
         <div className="text-right shrink-0">
           <div className="text-xs text-muted-foreground">Progress</div>
-          <div className="text-lg font-semibold">{progress}%</div>
+          <div className="text-lg font-semibold text-success">{progress}%</div>
         </div>
       </div>
 
@@ -394,13 +394,16 @@ export function JourneyBlock({
           // the 11 steps across the full width. min-w-[8px] plus the row's
           // own overflow-x-auto keeps this from crushing to nothing on a
           // narrow/mobile card instead — it scrolls there, same as before.
+          // Colored (not flat gray) for any stretch the user has actually
+          // completed — the track itself now reads as a filling progress
+          // bar rather than a plain divider between circles.
           const connector = (
             <li
               key={`${label}-connector`}
               aria-hidden="true"
               className="flex flex-1 min-w-[8px] items-center"
             >
-              <span className="mt-4 h-px w-full bg-border" />
+              <span className={`mt-4 h-px w-full ${done ? "bg-success" : "bg-border"}`} />
             </li>
           );
           return [circle, connector];
@@ -408,7 +411,7 @@ export function JourneyBlock({
       </ol>
 
       {message && (
-        <div className="mt-5 rounded-lg bg-secondary/50 p-4">
+        <div className="mt-5 rounded-lg border border-accent/30 bg-accent/5 p-4">
           <p className="text-sm font-medium">{message.title}</p>
           {message.actions && !suppressActions && (
             <div className="mt-3 flex flex-wrap gap-2">
